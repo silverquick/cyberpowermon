@@ -10,6 +10,8 @@ var tests = new (string Name, Action Run)[]
     ("Percentage capacities are not physical SOH", PercentageCapacityRejected),
     ("Physical capacity ratio calculates SOH", PhysicalCapacityRatio),
     ("Runtime baseline calculates comparable-load SOH", RuntimeBaselineHealth),
+    ("Current baseline reports relative trend only", CurrentRelativeBaseline),
+    ("Known BHI anchors the runtime estimate", KnownHealthAnchor),
     ("Missing baseline leaves health unknown", MissingBaselineIsUnknown),
     ("Hard battery failures override score", HardFailureOverridesScore),
 };
@@ -150,6 +152,7 @@ static void RuntimeBaselineHealth()
     var profile = new BatteryHealthProfile
     {
         DeviceId = "test",
+        RuntimeBaselineKind = BatteryRuntimeBaselineKind.NewBattery,
         RuntimeBaselines =
         [
             new BatteryRuntimeBaselinePoint
@@ -167,6 +170,62 @@ static void RuntimeBaselineHealth()
     Equal(BatteryHealthStatus.Fair, health.Status);
     Equal(BatteryHealthConfidence.Low, health.Confidence);
 }
+
+static void CurrentRelativeBaseline()
+{
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(
+        battery: 100,
+        load: 20,
+        fullyCharged: true,
+        runtime: TimeSpan.FromMinutes(46.8)));
+    var profile = RuntimeProfile(BatteryRuntimeBaselineKind.CurrentRelative);
+    var health = BatteryHealthCalculator.Calculate(telemetry, profile);
+
+    Equal(null, health.HealthPercent);
+    Near(90, health.RelativePerformancePercent);
+    Equal(BatteryHealthMethod.RelativeRuntimeTrend, health.PrimaryMethod);
+    Equal(BatteryHealthStatus.Unknown, health.Status);
+    Equal(BatteryHealthConfidence.Low, health.Confidence);
+}
+
+static void KnownHealthAnchor()
+{
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(
+        battery: 100,
+        load: 20,
+        fullyCharged: true,
+        runtime: TimeSpan.FromMinutes(46.8)));
+    var profile = RuntimeProfile(BatteryRuntimeBaselineKind.KnownHealthAnchor) with
+    {
+        AnchorHealthPercent = 59,
+        AnchorSource = "CyberPower BHI",
+    };
+    var health = BatteryHealthCalculator.Calculate(telemetry, profile);
+
+    Near(53.1, health.HealthPercent);
+    Near(90, health.RelativePerformancePercent);
+    Near(59, health.AnchorHealthPercent);
+    Equal("CyberPower BHI", health.AnchorSource);
+    Equal(BatteryHealthMethod.VendorAnchoredRuntime, health.PrimaryMethod);
+    Equal(BatteryHealthConfidence.Medium, health.Confidence);
+    Equal(BatteryHealthStatus.Poor, health.Status);
+}
+
+static BatteryHealthProfile RuntimeProfile(BatteryRuntimeBaselineKind kind) => new()
+{
+    DeviceId = "test",
+    RuntimeBaselineKind = kind,
+    BaselineRecordedAt = DateTimeOffset.UtcNow,
+    RuntimeBaselines =
+    [
+        new BatteryRuntimeBaselinePoint
+        {
+            LoadPercent = 20,
+            Runtime = TimeSpan.FromMinutes(52),
+            MeasuredAt = DateTimeOffset.UtcNow,
+        },
+    ],
+};
 
 static void MissingBaselineIsUnknown()
 {

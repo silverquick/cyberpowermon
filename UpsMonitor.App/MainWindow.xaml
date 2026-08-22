@@ -319,13 +319,17 @@
                                     </StackPanel>
                                     <Grid Margin="0,18,24,0">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                        <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                        <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
                                         <TextBlock Text="{DynamicResource HealthConfidenceLabel}" Style="{StaticResource InfoLabelStyle}" />
                                         <TextBlock Grid.Column="1" Text="{Binding BatteryHealthConfidenceText}" Style="{StaticResource InfoValueStyle}" Margin="18,7,0,7" />
                                         <TextBlock Grid.Row="1" Text="{DynamicResource HealthMethodLabel}" Style="{StaticResource InfoLabelStyle}" />
                                         <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding BatteryHealthMethodText}" Style="{StaticResource InfoValueStyle}" Margin="18,7,0,7" />
-                                        <TextBlock Grid.Row="2" Text="{DynamicResource HealthDataQuality}" Style="{StaticResource InfoLabelStyle}" />
-                                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding BatteryHealthDataQualityText}" Style="{StaticResource InfoValueStyle}" Margin="18,7,0,7" />
+                                        <TextBlock Grid.Row="2" Text="{DynamicResource HealthRelativeTrendLabel}" Style="{StaticResource InfoLabelStyle}" />
+                                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding BatteryRelativeTrendText}" Style="{StaticResource InfoValueStyle}" Margin="18,7,0,7" />
+                                        <TextBlock Grid.Row="3" Text="{DynamicResource HealthAnchorLabel}" Style="{StaticResource InfoLabelStyle}" />
+                                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding BatteryHealthAnchorText}" Style="{StaticResource InfoValueStyle}" Margin="18,7,0,7" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="4" Text="{DynamicResource HealthDataQuality}" Style="{StaticResource InfoLabelStyle}" />
+                                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding BatteryHealthDataQualityText}" Style="{StaticResource InfoValueStyle}" Margin="18,7,0,7" />
                                     </Grid>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1">
@@ -345,11 +349,7 @@
                                         <StackPanel>
                                             <TextBlock Text="{DynamicResource HealthBaseline}" Style="{StaticResource CaptionStyle}" />
                                             <TextBlock Text="{Binding BatteryHealthBaselineText}" TextWrapping="Wrap" Margin="0,6,0,0" />
-                                            <TextBlock Text="{DynamicResource BaselineWarning}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,12" />
-                                            <StackPanel Orientation="Horizontal">
-                                                <Button Content="{DynamicResource RecordRuntimeBaseline}" Command="{Binding RecordRuntimeBaselineCommand}" />
-                                                <Button Content="{DynamicResource ClearRuntimeBaseline}" Command="{Binding ClearRuntimeBaselineCommand}" Margin="8,0,0,0" />
-                                            </StackPanel>
+                                            <TextBlock Text="{DynamicResource BaselineDashboardHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>
@@ -521,7 +521,13 @@
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="270" /><ColumnDefinition Width="180" /></Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
                                     <StackPanel Grid.Row="0"><TextBlock Text="{DynamicResource DisplayLanguage}" /><TextBlock Text="{DynamicResource DisplayLanguageHelp}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
-                                    <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding LanguageOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Code" SelectedValue="{Binding SelectedLanguageCode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12" />
+                                    <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding LanguageOptions}" SelectedValuePath="Code" SelectedValue="{Binding SelectedLanguageCode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource TextBrush}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
                                     <StackPanel Grid.Row="1"><TextBlock Text="{DynamicResource PollInterval}" /><TextBlock Text="{DynamicResource PollIntervalHelp}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
                                     <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PollIntervalMs, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,12" />
                                     <StackPanel Grid.Row="2"><TextBlock Text="{DynamicResource RuntimeLowThreshold}" /><TextBlock Text="{DynamicResource RestartRequired}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
@@ -549,7 +555,33 @@
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource HealthBaseline}" Style="{StaticResource CaptionStyle}" />
                                         <TextBlock Text="{Binding BatteryHealthBaselineText}" TextWrapping="Wrap" Margin="0,6,0,0" />
-                                        <TextBlock Text="{DynamicResource BaselineWarning}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,12" />
+                                        <Grid Margin="0,14,0,0">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="220" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                            <TextBlock Text="{DynamicResource BaselineModeLabel}" VerticalAlignment="Center" />
+                                            <ComboBox Grid.Column="1"
+                                                      ItemsSource="{Binding BaselineModeOptions}"
+                                                      SelectedValuePath="Kind"
+                                                      SelectedValue="{Binding SelectedBaselineKind, Mode=TwoWay}"
+                                                      Margin="0,0,0,10">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource TextBrush}" />
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                            <TextBlock Grid.Row="1" Text="{DynamicResource KnownHealthLabel}" VerticalAlignment="Center" />
+                                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
+                                                <TextBox Width="92" Text="{Binding KnownHealthPercent, UpdateSourceTrigger=LostFocus}" />
+                                                <TextBlock Text="%" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Row="2" Text="{DynamicResource KnownHealthSourceLabel}" VerticalAlignment="Center" />
+                                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding KnownHealthSource, UpdateSourceTrigger=LostFocus}" />
+                                        </Grid>
+                                        <TextBlock Text="{DynamicResource KnownHealthFieldsHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="220,7,0,0" />
+                                        <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,12,0,12">
+                                            <TextBlock Text="{Binding BaselineInstructionText}" TextWrapping="Wrap" LineHeight="18" />
+                                        </Border>
                                         <StackPanel Orientation="Horizontal">
                                             <Button Content="{DynamicResource RecordRuntimeBaseline}" Command="{Binding RecordRuntimeBaselineCommand}" />
                                             <Button Content="{DynamicResource ClearRuntimeBaseline}" Command="{Binding ClearRuntimeBaselineCommand}" Margin="8,0,0,0" />

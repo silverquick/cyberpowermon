@@ -262,6 +262,8 @@ public enum BatteryHealthMethod
     DischargedEnergy,
     CapacityRatio,
     RuntimeBaseline,
+    RelativeRuntimeTrend,
+    VendorAnchoredRuntime,
 }
 
 public enum BatteryHealthReasonCode
@@ -273,6 +275,10 @@ public enum BatteryHealthReasonCode
     ControlledMeasurementCompared,
     CapacityCompared,
     RuntimeComparedWithBaseline,
+    NewBatteryBaselineApplied,
+    CurrentRelativeBaselineApplied,
+    KnownHealthAnchorApplied,
+    KnownHealthAnchorInvalid,
     MeasurementAboveReference,
     CapacityDataIsPercentageOnly,
     BatteryNotFullyCharged,
@@ -302,10 +308,22 @@ public sealed record BatteryRuntimeBaselinePoint
     public required DateTimeOffset MeasuredAt { get; init; }
 }
 
+public enum BatteryRuntimeBaselineKind
+{
+    Unspecified,
+    NewBattery,
+    CurrentRelative,
+    KnownHealthAnchor,
+}
+
 public sealed record BatteryHealthProfile
 {
     public required string DeviceId { get; init; }
     public DateTimeOffset? BatteryInstalledAt { get; set; }
+    public BatteryRuntimeBaselineKind RuntimeBaselineKind { get; set; }
+    public double? AnchorHealthPercent { get; set; }
+    public string? AnchorSource { get; set; }
+    public DateTimeOffset? BaselineRecordedAt { get; set; }
     public List<BatteryRuntimeBaselinePoint> RuntimeBaselines { get; init; } = [];
     public List<BatteryHealthMeasurement> ControlledMeasurements { get; init; } = [];
 }
@@ -321,6 +339,10 @@ public sealed record BatteryHealthOptions
 public sealed record BatteryHealthResult
 {
     public double? HealthPercent { get; init; }
+    public double? RelativePerformancePercent { get; init; }
+    public double? AnchorHealthPercent { get; init; }
+    public string? AnchorSource { get; init; }
+    public BatteryRuntimeBaselineKind BaselineKind { get; init; }
     public required BatteryHealthStatus Status { get; init; }
     public required BatteryHealthConfidence Confidence { get; init; }
     public required BatteryHealthMethod PrimaryMethod { get; init; }
@@ -366,6 +388,7 @@ public static class BatteryHealthCalculator
         }
 
         double? health = null;
+        double? relativePerformance = null;
         var method = BatteryHealthMethod.None;
         var evidenceScore = 0;
 
@@ -396,11 +419,49 @@ public static class BatteryHealthCalculator
                 telemetry.FullChargeCapacity.Value,
                 telemetry.DesignCapacity.Value));
         }
-        else if (TryCalculateRuntimeHealth(telemetry, profile, options, reasons, out var runtimeHealth))
+        else if (TryCalculateRuntimeRatio(telemetry, profile, options, reasons, out var runtimeRatio))
         {
-            health = runtimeHealth;
-            method = BatteryHealthMethod.RuntimeBaseline;
-            evidenceScore = 30;
+            relativePerformance = runtimeRatio;
+            switch (profile?.RuntimeBaselineKind)
+            {
+                case BatteryRuntimeBaselineKind.CurrentRelative:
+                    method = BatteryHealthMethod.RelativeRuntimeTrend;
+                    evidenceScore = 30;
+                    reasons.Add(new(BatteryHealthReasonCode.CurrentRelativeBaselineApplied));
+                    break;
+
+                case BatteryRuntimeBaselineKind.KnownHealthAnchor
+                    when IsValidHealthAnchor(profile.AnchorHealthPercent):
+                    health = CalculateAnchoredHealth(profile.AnchorHealthPercent!.Value, runtimeRatio!.Value);
+                    method = BatteryHealthMethod.VendorAnchoredRuntime;
+                    evidenceScore = 60;
+                    reasons.Add(new(
+                        BatteryHealthReasonCode.KnownHealthAnchorApplied,
+                        profile.AnchorHealthPercent,
+                        runtimeRatio));
+                    break;
+
+                case BatteryRuntimeBaselineKind.KnownHealthAnchor:
+                    method = BatteryHealthMethod.RelativeRuntimeTrend;
+                    evidenceScore = 30;
+                    reasons.Add(new(BatteryHealthReasonCode.KnownHealthAnchorInvalid));
+                    break;
+
+                case BatteryRuntimeBaselineKind.NewBattery:
+                    health = runtimeRatio;
+                    method = BatteryHealthMethod.RuntimeBaseline;
+                    evidenceScore = 30;
+                    reasons.Add(new(BatteryHealthReasonCode.NewBatteryBaselineApplied));
+                    break;
+
+                default:
+                    // Profiles saved before baseline kinds were introduced used the
+                    // original absolute-runtime behavior. Keep them compatible.
+                    health = runtimeRatio;
+                    method = BatteryHealthMethod.RuntimeBaseline;
+                    evidenceScore = 30;
+                    break;
+            }
         }
         else if (telemetry.DesignCapacity.Issue == TelemetryValidationIssueCode.PercentageScaleIsNotPhysicalCapacity
                  || telemetry.FullChargeCapacity.Issue == TelemetryValidationIssueCode.PercentageScaleIsNotPhysicalCapacity)
@@ -426,7 +487,7 @@ public static class BatteryHealthCalculator
 
         var confidence = hardFailure
             ? BatteryHealthConfidence.High
-            : ConfidenceFromScore(evidenceScore, health.HasValue);
+            : ConfidenceFromScore(evidenceScore, health.HasValue || relativePerformance.HasValue);
         var status = hardFailure
             ? BatteryHealthStatus.Critical
             : StatusFromHealth(health, options);
@@ -434,6 +495,12 @@ public static class BatteryHealthCalculator
         return new BatteryHealthResult
         {
             HealthPercent = health,
+            RelativePerformancePercent = relativePerformance,
+            AnchorHealthPercent = IsValidHealthAnchor(profile?.AnchorHealthPercent)
+                ? profile!.AnchorHealthPercent
+                : null,
+            AnchorSource = profile?.AnchorSource,
+            BaselineKind = profile?.RuntimeBaselineKind ?? BatteryRuntimeBaselineKind.Unspecified,
             Status = status,
             Confidence = confidence,
             PrimaryMethod = method,
@@ -444,6 +511,10 @@ public static class BatteryHealthCalculator
         BatteryHealthResult Unknown(BatteryHealthReasonCode code) => new()
         {
             HealthPercent = null,
+            RelativePerformancePercent = null,
+            AnchorHealthPercent = null,
+            AnchorSource = null,
+            BaselineKind = BatteryRuntimeBaselineKind.Unspecified,
             Status = BatteryHealthStatus.Unknown,
             Confidence = BatteryHealthConfidence.Unknown,
             PrimaryMethod = BatteryHealthMethod.None,
@@ -452,7 +523,7 @@ public static class BatteryHealthCalculator
         };
     }
 
-    private static bool TryCalculateRuntimeHealth(
+    private static bool TryCalculateRuntimeRatio(
         UpsTelemetry telemetry,
         BatteryHealthProfile? profile,
         BatteryHealthOptions options,
@@ -491,6 +562,12 @@ public static class BatteryHealthCalculator
             expectedSeconds));
         return health.HasValue;
     }
+
+    private static double CalculateAnchoredHealth(double anchorHealth, double relativePerformance) =>
+        Math.Clamp(anchorHealth * relativePerformance / 100, 0, 100);
+
+    private static bool IsValidHealthAnchor(double? value) =>
+        value is > 0 and <= 100 && double.IsFinite(value.Value);
 
     private static TimeSpan? ExpectedRuntime(
         IReadOnlyList<BatteryRuntimeBaselinePoint>? baselines,

@@ -32,6 +32,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private double _batteryWarningThresholdPercent;
     private double _batteryCriticalThresholdPercent;
     private double _comparableLoadTolerancePercent;
+    private IReadOnlyList<BatteryBaselineModeOption> _baselineModeOptions = [];
+    private BatteryRuntimeBaselineKind _selectedBaselineKind = BatteryRuntimeBaselineKind.CurrentRelative;
+    private double _knownHealthPercent = 59;
+    private string _knownHealthSource = "CyberPower BHI";
+    private bool _baselineEditorInitialized;
 
     public MainViewModel(
         UpsMonitorEngine engine,
@@ -51,6 +56,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         ConfigurationFile = paths.ConfigurationFile;
         LogsDirectory = paths.LogsDirectory;
         _dispatcher = Application.Current.Dispatcher;
+        RefreshBaselineModeOptions();
         SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync, SetCommandError);
         RecordRuntimeBaselineCommand = new AsyncRelayCommand(RecordRuntimeBaselineAsync, SetCommandError);
         ClearRuntimeBaselineCommand = new AsyncRelayCommand(ClearRuntimeBaselineAsync, SetCommandError);
@@ -123,6 +129,43 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         set => SetField(ref _comparableLoadTolerancePercent, value);
     }
 
+    public IReadOnlyList<BatteryBaselineModeOption> BaselineModeOptions
+    {
+        get => _baselineModeOptions;
+        private set => SetField(ref _baselineModeOptions, value);
+    }
+
+    public BatteryRuntimeBaselineKind SelectedBaselineKind
+    {
+        get => _selectedBaselineKind;
+        set
+        {
+            if (SetField(ref _selectedBaselineKind, value))
+            {
+                OnPropertyChanged(nameof(BaselineInstructionText));
+            }
+        }
+    }
+
+    public double KnownHealthPercent
+    {
+        get => _knownHealthPercent;
+        set => SetField(ref _knownHealthPercent, value);
+    }
+
+    public string KnownHealthSource
+    {
+        get => _knownHealthSource;
+        set => SetField(ref _knownHealthSource, value);
+    }
+
+    public string BaselineInstructionText => L(SelectedBaselineKind switch
+    {
+        BatteryRuntimeBaselineKind.NewBattery => "BaselineInstructionNew",
+        BatteryRuntimeBaselineKind.KnownHealthAnchor => "BaselineInstructionKnown",
+        _ => "BaselineInstructionRelative",
+    });
+
     public string ConnectionText { get => _connectionText; private set => SetField(ref _connectionText, value); }
     public string StateText { get => _stateText; private set => SetField(ref _stateText, value); }
     public string StatusMessage { get => _statusMessage; private set => SetField(ref _statusMessage, value); }
@@ -150,6 +193,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public string BatteryHealthAccent { get; private set; } = "#64748B";
     public string BatteryHealthBaselineText { get; private set; } = string.Empty;
     public string BatteryHealthDataQualityText { get; private set; } = string.Empty;
+    public string BatteryRelativeTrendText { get; private set; } = "N/A";
+    public string BatteryHealthAnchorText { get; private set; } = "N/A";
     public IReadOnlyList<string> BatteryHealthReasons { get; private set; } = [];
     public double BatteryProgress { get; private set; }
     public string RuntimeText { get; private set; } = "N/A";
@@ -224,6 +269,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         _selectedLanguageCode = LocalizationManager.CurrentLanguageCode;
         OnPropertyChanged(nameof(SelectedLanguageCode));
+        RefreshBaselineModeOptions();
+        OnPropertyChanged(nameof(BaselineInstructionText));
         SettingsStatus = string.Empty;
 
         if (_lastSnapshot is { } snapshot)
@@ -258,6 +305,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         var telemetry = UpsTelemetryValidator.Normalize(snapshot);
         _lastTelemetry = telemetry;
         var healthProfile = FindHealthProfile(snapshot.Device);
+        InitializeBaselineEditor(healthProfile);
         var health = BatteryHealthCalculator.Calculate(telemetry, healthProfile, CreateHealthOptions());
         LastUpdateText = LocalizationManager.Format("LastUpdateFormat", snapshot.Timestamp.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
         ConnectionText = snapshot.IsConnected ? L("Connected") : L("Disconnected");
@@ -308,6 +356,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         BatteryHealthAccent = HealthAccent(health.Status);
         BatteryHealthReasons = health.Reasons.Select(LocalizeHealthReason).Distinct().ToArray();
         BatteryHealthBaselineText = FormatBaselineSummary(healthProfile);
+        BatteryRelativeTrendText = health.RelativePerformancePercent is { } relative
+            ? $"{relative:0.#}%"
+            : "N/A";
+        BatteryHealthAnchorText = health.BaselineKind == BatteryRuntimeBaselineKind.NewBattery
+            ? L("HealthNewBatteryAnchor")
+            : health.AnchorHealthPercent is { } anchor
+            ? LocalizationManager.Format(
+                "HealthAnchorFormat",
+                anchor,
+                string.IsNullOrWhiteSpace(health.AnchorSource) ? L("Unknown") : health.AnchorSource)
+            : "N/A";
         BatteryHealthDataQualityText = telemetry.Issues.Count == 0
             ? L("TelemetryQualityValid")
             : LocalizationManager.Format("TelemetryQualityIssuesFormat", telemetry.Issues.Count);
@@ -395,6 +454,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             return;
         }
 
+        if (SelectedBaselineKind == BatteryRuntimeBaselineKind.KnownHealthAnchor
+            && (KnownHealthPercent is <= 0 or > 100 || !double.IsFinite(KnownHealthPercent)))
+        {
+            SettingsStatus = L("KnownHealthValidation");
+            return;
+        }
+
         var profile = FindHealthProfile(device);
         if (profile is null)
         {
@@ -402,19 +468,44 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             _configuration.BatteryHealth.Profiles.Add(profile);
         }
 
+        var recordedAt = DateTimeOffset.Now;
+        profile.RuntimeBaselineKind = SelectedBaselineKind;
+        profile.BaselineRecordedAt = recordedAt;
+        switch (SelectedBaselineKind)
+        {
+            case BatteryRuntimeBaselineKind.NewBattery:
+                profile.AnchorHealthPercent = 100;
+                profile.AnchorSource = null;
+                profile.BatteryInstalledAt ??= recordedAt;
+                break;
+
+            case BatteryRuntimeBaselineKind.KnownHealthAnchor:
+                profile.AnchorHealthPercent = KnownHealthPercent;
+                profile.AnchorSource = string.IsNullOrWhiteSpace(KnownHealthSource)
+                    ? "CyberPower BHI"
+                    : KnownHealthSource.Trim();
+                break;
+
+            default:
+                profile.AnchorHealthPercent = null;
+                profile.AnchorSource = null;
+                break;
+        }
+
         profile.RuntimeBaselines.RemoveAll(item => Math.Abs(item.LoadPercent - load) < 1);
         profile.RuntimeBaselines.Add(new BatteryRuntimeBaselinePoint
         {
             LoadPercent = load,
             Runtime = runtime,
-            MeasuredAt = DateTimeOffset.Now,
+            MeasuredAt = recordedAt,
         });
 
         await _configurationStore.SaveAsync(_configuration);
         SettingsStatus = LocalizationManager.Format(
             "BaselineRecordedFormat",
             load,
-            FormatDuration(runtime));
+            FormatDuration(runtime),
+            LocalizeBaselineKind(SelectedBaselineKind));
         ApplySnapshot(_lastSnapshot);
     }
 
@@ -427,6 +518,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
 
         profile.RuntimeBaselines.Clear();
+        profile.RuntimeBaselineKind = BatteryRuntimeBaselineKind.Unspecified;
+        profile.AnchorHealthPercent = null;
+        profile.AnchorSource = null;
+        profile.BaselineRecordedAt = null;
         await _configurationStore.SaveAsync(_configuration);
         SettingsStatus = L("BaselineCleared");
         ApplySnapshot(_lastSnapshot);
@@ -475,6 +570,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             nameof(BatteryText), nameof(BatteryHealthText), nameof(BatteryHealthDetailText),
             nameof(BatteryHealthConfidenceText), nameof(BatteryHealthMethodText), nameof(BatteryHealthAccent),
             nameof(BatteryHealthBaselineText), nameof(BatteryHealthDataQualityText), nameof(BatteryHealthReasons),
+            nameof(BatteryRelativeTrendText), nameof(BatteryHealthAnchorText),
             nameof(BatteryProgress), nameof(RuntimeText), nameof(OverloadText),
             nameof(ChargingText), nameof(DischargingText), nameof(LowBatteryText), nameof(CriticalText),
             nameof(AcPresentText), nameof(VoltageText), nameof(CurrentText), nameof(FrequencyText),
@@ -598,6 +694,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         BatteryHealthMethod.DischargedEnergy => "HealthMethodDischargedEnergy",
         BatteryHealthMethod.CapacityRatio => "HealthMethodCapacityRatio",
         BatteryHealthMethod.RuntimeBaseline => "HealthMethodRuntimeBaseline",
+        BatteryHealthMethod.RelativeRuntimeTrend => "HealthMethodRelativeRuntime",
+        BatteryHealthMethod.VendorAnchoredRuntime => "HealthMethodVendorAnchored",
         _ => "HealthMethodNone",
     });
 
@@ -624,6 +722,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             "HealthReasonRuntimeCompared",
             FormatDuration(TimeSpan.FromSeconds(reason.Observed ?? 0)),
             FormatDuration(TimeSpan.FromSeconds(reason.Reference ?? 0))),
+        BatteryHealthReasonCode.NewBatteryBaselineApplied => L("HealthReasonNewBatteryBaseline"),
+        BatteryHealthReasonCode.CurrentRelativeBaselineApplied => L("HealthReasonRelativeBaseline"),
+        BatteryHealthReasonCode.KnownHealthAnchorApplied => LocalizationManager.Format(
+            "HealthReasonKnownAnchor", reason.Observed ?? 0, reason.Reference ?? 0),
+        BatteryHealthReasonCode.KnownHealthAnchorInvalid => L("HealthReasonKnownAnchorInvalid"),
         BatteryHealthReasonCode.MeasurementAboveReference => L("HealthReasonAboveBaseline"),
         BatteryHealthReasonCode.CapacityDataIsPercentageOnly => L("HealthReasonPercentageCapacity"),
         BatteryHealthReasonCode.BatteryNotFullyCharged => L("HealthReasonNotFullyCharged"),
@@ -643,13 +746,73 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
 
         var latest = points.MaxBy(item => item.MeasuredAt)!;
-        return LocalizationManager.Format(
+        var measurement = LocalizationManager.Format(
             "BaselineSummaryFormat",
             points.Count,
             latest.LoadPercent,
             FormatDuration(latest.Runtime),
             latest.MeasuredAt.LocalDateTime.ToString("g", CultureInfo.CurrentCulture));
+        return LocalizationManager.Format(
+            "BaselineSummaryWithModeFormat",
+            measurement,
+            FormatBaselineModeDetails(profile!));
     }
+
+    private void RefreshBaselineModeOptions()
+    {
+        BaselineModeOptions =
+        [
+            new(BatteryRuntimeBaselineKind.CurrentRelative, L("BaselineModeRelative")),
+            new(BatteryRuntimeBaselineKind.KnownHealthAnchor, L("BaselineModeKnown")),
+            new(BatteryRuntimeBaselineKind.NewBattery, L("BaselineModeNew")),
+        ];
+    }
+
+    private void InitializeBaselineEditor(BatteryHealthProfile? profile)
+    {
+        if (_baselineEditorInitialized || profile is null)
+        {
+            return;
+        }
+
+        if (profile.RuntimeBaselineKind != BatteryRuntimeBaselineKind.Unspecified)
+        {
+            SelectedBaselineKind = profile.RuntimeBaselineKind;
+        }
+
+        if (profile.AnchorHealthPercent is { } anchor && anchor is > 0 and <= 100)
+        {
+            KnownHealthPercent = anchor;
+        }
+
+        if (!string.IsNullOrWhiteSpace(profile.AnchorSource))
+        {
+            KnownHealthSource = profile.AnchorSource;
+        }
+
+        _baselineEditorInitialized = true;
+    }
+
+    private static string LocalizeBaselineKind(BatteryRuntimeBaselineKind kind) => L(kind switch
+    {
+        BatteryRuntimeBaselineKind.NewBattery => "BaselineModeNew",
+        BatteryRuntimeBaselineKind.KnownHealthAnchor => "BaselineModeKnown",
+        BatteryRuntimeBaselineKind.CurrentRelative => "BaselineModeRelative",
+        _ => "BaselineSummaryModeLegacy",
+    });
+
+    private static string FormatBaselineModeDetails(BatteryHealthProfile profile) => profile.RuntimeBaselineKind switch
+    {
+        BatteryRuntimeBaselineKind.NewBattery => L("BaselineSummaryModeNew"),
+        BatteryRuntimeBaselineKind.CurrentRelative => L("BaselineSummaryModeRelative"),
+        BatteryRuntimeBaselineKind.KnownHealthAnchor when profile.AnchorHealthPercent is { } anchor =>
+            LocalizationManager.Format(
+                "BaselineSummaryModeKnownFormat",
+                anchor,
+                string.IsNullOrWhiteSpace(profile.AnchorSource) ? L("Unknown") : profile.AnchorSource),
+        BatteryRuntimeBaselineKind.KnownHealthAnchor => L("BaselineSummaryModeKnownInvalid"),
+        _ => L("BaselineSummaryModeLegacy"),
+    };
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
@@ -775,4 +938,14 @@ public sealed class UpsTelemetryViewModel
     public string Layout { get; }
 }
 
-public sealed record LanguageOption(string Code, string DisplayName);
+public sealed record LanguageOption(string Code, string DisplayName)
+{
+    public override string ToString() => DisplayName;
+}
+
+public sealed record BatteryBaselineModeOption(
+    BatteryRuntimeBaselineKind Kind,
+    string DisplayName)
+{
+    public override string ToString() => DisplayName;
+}
