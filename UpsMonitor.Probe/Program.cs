@@ -87,9 +87,11 @@ catch (Exception exception)
 
 static void PrintSnapshot(UpsSnapshot snapshot)
 {
+    var telemetry = UpsTelemetryValidator.Normalize(snapshot);
+    var health = BatteryHealthCalculator.Calculate(telemetry, profile: null);
     Console.WriteLine($"  State        : {UpsPowerStateEvaluator.Evaluate(snapshot)}");
-    Console.WriteLine($"  Battery      : {Percent(snapshot.BatteryPercent)}");
-    Console.WriteLine($"  Batt. health : {Percent(snapshot.BatteryHealthPercent)} (not exposed by this UPS HID)");
+    Console.WriteLine($"  Battery      : {Percent(telemetry.BatteryChargePercent.IsValid ? telemetry.BatteryChargePercent.Value : null)}");
+    Console.WriteLine($"  Batt. health : {Percent(health.HealthPercent)} ({health.Status}, {health.Confidence}, {health.PrimaryMethod})");
     Console.WriteLine($"  Runtime      : {Duration(snapshot.RuntimeRemaining)}");
     Console.WriteLine($"  AC present   : {Boolean(snapshot.AcPresent)}");
     Console.WriteLine($"  Charging     : {Boolean(snapshot.Charging)}");
@@ -108,6 +110,11 @@ static void PrintSnapshot(UpsSnapshot snapshot)
     Console.WriteLine($"  Active power : {Number(snapshot.ActivePower, "W")}");
     Console.WriteLine($"  Apparent pwr.: {Number(snapshot.ApparentPower, "VA")}");
     Console.WriteLine($"  Telemetry    : {snapshot.Telemetry.Count} descriptor items");
+    Console.WriteLine($"  Data quality : {telemetry.Issues.Count} invalid value(s) ignored");
+    foreach (var reason in health.Reasons)
+    {
+        Console.WriteLine($"  Health basis : {reason.Code}");
+    }
 }
 
 static void PrintTelemetry(IReadOnlyList<UpsTelemetryItem> telemetry)

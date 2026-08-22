@@ -10,9 +10,9 @@ public sealed record UpsSnapshot
     public bool? Charging { get; init; }
     public bool? Discharging { get; init; }
     public double? BatteryPercent { get; init; }
-    public double? BatteryHealthPercent { get; init; }
     public TimeSpan? RuntimeRemaining { get; init; }
     public bool? LowBattery { get; init; }
+    public bool? NeedReplacement { get; init; }
     public bool? ShutdownImminent { get; init; }
     public bool? Overload { get; init; }
 
@@ -23,8 +23,10 @@ public sealed record UpsSnapshot
     public TimeSpan? RemainingTimeLimit { get; init; }
     public double? DesignCapacity { get; init; }
     public double? FullChargeCapacity { get; init; }
+    public double? CycleCount { get; init; }
 
     public double? BatteryVoltage { get; init; }
+    public double? NominalBatteryVoltage { get; init; }
     public double? InputVoltage { get; init; }
     public double? OutputVoltage { get; init; }
     public double? PercentLoad { get; init; }

@@ -8,8 +8,21 @@ public sealed class AppConfiguration
 
     public UiConfiguration Ui { get; init; } = new();
 
+    public BatteryHealthConfiguration BatteryHealth { get; init; } = new();
+
     // Intentionally inert in v0.1. This preserves the future configuration shape.
     public List<RuleDefinition> ShutdownPolicies { get; init; } = [];
+}
+
+public sealed class BatteryHealthConfiguration
+{
+    public double WarningThresholdPercent { get; set; } = 70;
+
+    public double CriticalThresholdPercent { get; set; } = 60;
+
+    public double ComparableLoadTolerancePercent { get; set; } = 5;
+
+    public List<BatteryHealthProfile> Profiles { get; init; } = [];
 }
 
 public sealed class UiConfiguration

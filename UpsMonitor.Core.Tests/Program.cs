@@ -6,6 +6,12 @@ var tests = new (string Name, Action Run)[]
     ("Power loss and restore events", PowerLossAndRestore),
     ("Alarm edge events", AlarmEdges),
     ("Disconnect and reconnect events", DisconnectAndReconnect),
+    ("Invalid charge is rejected, not clamped", InvalidChargeRejected),
+    ("Percentage capacities are not physical SOH", PercentageCapacityRejected),
+    ("Physical capacity ratio calculates SOH", PhysicalCapacityRatio),
+    ("Runtime baseline calculates comparable-load SOH", RuntimeBaselineHealth),
+    ("Missing baseline leaves health unknown", MissingBaselineIsUnknown),
+    ("Hard battery failures override score", HardFailureOverridesScore),
 };
 
 var failures = new List<string>();
@@ -89,6 +95,105 @@ static void DisconnectAndReconnect()
     HasSingle(detector.Observe(Snapshot(ac: true)), UpsEventType.UpsReconnected);
 }
 
+static void InvalidChargeRejected()
+{
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(battery: 120));
+    Equal(TelemetryQuality.Invalid, telemetry.BatteryChargePercent.Quality);
+    Equal(120d, telemetry.BatteryChargePercent.Value);
+    Equal(TelemetryValidationIssueCode.OutOfRange, telemetry.BatteryChargePercent.Issue);
+}
+
+static void PercentageCapacityRejected()
+{
+    var items = new[]
+    {
+        CapacityItem(0x83, 100, "%", hidUnit: 0, logicalMaximum: 100),
+        CapacityItem(0x67, 100, "%", hidUnit: 0, logicalMaximum: 100),
+    };
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(
+        designCapacity: 100,
+        fullChargeCapacity: 100,
+        telemetry: items));
+
+    Equal(TelemetryQuality.Invalid, telemetry.DesignCapacity.Quality);
+    Equal(TelemetryQuality.Invalid, telemetry.FullChargeCapacity.Quality);
+    var health = BatteryHealthCalculator.Calculate(telemetry, null);
+    Equal(null, health.HealthPercent);
+    Equal(BatteryHealthStatus.Unknown, health.Status);
+}
+
+static void PhysicalCapacityRatio()
+{
+    var items = new[]
+    {
+        CapacityItem(0x83, 9000, "As", hidUnit: 0x00100001, logicalMaximum: 20_000),
+        CapacityItem(0x67, 7200, "As", hidUnit: 0x00100001, logicalMaximum: 20_000),
+    };
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(
+        designCapacity: 9000,
+        fullChargeCapacity: 7200,
+        telemetry: items));
+    var health = BatteryHealthCalculator.Calculate(telemetry, null);
+
+    Near(80, health.HealthPercent);
+    Equal(BatteryHealthMethod.CapacityRatio, health.PrimaryMethod);
+    Equal(BatteryHealthStatus.Good, health.Status);
+}
+
+static void RuntimeBaselineHealth()
+{
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(
+        battery: 100,
+        load: 20,
+        fullyCharged: true,
+        runtime: TimeSpan.FromMinutes(39)));
+    var profile = new BatteryHealthProfile
+    {
+        DeviceId = "test",
+        RuntimeBaselines =
+        [
+            new BatteryRuntimeBaselinePoint
+            {
+                LoadPercent = 20,
+                Runtime = TimeSpan.FromMinutes(52),
+                MeasuredAt = DateTimeOffset.UtcNow.AddYears(-2),
+            },
+        ],
+    };
+    var health = BatteryHealthCalculator.Calculate(telemetry, profile);
+
+    Near(75, health.HealthPercent);
+    Equal(BatteryHealthMethod.RuntimeBaseline, health.PrimaryMethod);
+    Equal(BatteryHealthStatus.Fair, health.Status);
+    Equal(BatteryHealthConfidence.Low, health.Confidence);
+}
+
+static void MissingBaselineIsUnknown()
+{
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(
+        battery: 100,
+        load: 20,
+        fullyCharged: true,
+        runtime: TimeSpan.FromMinutes(39)));
+    var health = BatteryHealthCalculator.Calculate(telemetry, null);
+
+    Equal(null, health.HealthPercent);
+    Equal(BatteryHealthStatus.Unknown, health.Status);
+    Equal(BatteryHealthConfidence.Unknown, health.Confidence);
+}
+
+static void HardFailureOverridesScore()
+{
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(
+        replacement: true,
+        selfTest: "Done - error"));
+    var health = BatteryHealthCalculator.Calculate(telemetry, null);
+
+    Equal(null, health.HealthPercent);
+    Equal(BatteryHealthStatus.Critical, health.Status);
+    Equal(BatteryHealthConfidence.High, health.Confidence);
+}
+
 static UpsSnapshot Snapshot(
     bool connected = true,
     bool? ac = null,
@@ -96,7 +201,15 @@ static UpsSnapshot Snapshot(
     bool? low = null,
     bool? critical = null,
     bool? overload = null,
-    TimeSpan? runtime = null) => new()
+    TimeSpan? runtime = null,
+    double? battery = null,
+    double? load = null,
+    bool? fullyCharged = null,
+    bool? replacement = null,
+    string? selfTest = null,
+    double? designCapacity = null,
+    double? fullChargeCapacity = null,
+    IReadOnlyList<UpsTelemetryItem>? telemetry = null) => new()
     {
         Timestamp = DateTimeOffset.UtcNow,
         IsConnected = connected,
@@ -106,6 +219,48 @@ static UpsSnapshot Snapshot(
         ShutdownImminent = critical,
         Overload = overload,
         RuntimeRemaining = runtime,
+        BatteryPercent = battery,
+        PercentLoad = load,
+        FullyCharged = fullyCharged,
+        NeedReplacement = replacement,
+        SelfTestState = selfTest,
+        DesignCapacity = designCapacity,
+        FullChargeCapacity = fullChargeCapacity,
+        Telemetry = telemetry ?? [],
+    };
+
+static UpsTelemetryItem CapacityItem(
+    ushort usage,
+    double value,
+    string unit,
+    uint hidUnit,
+    int logicalMaximum) => new()
+    {
+        Key = $"Feature:1:0085:{usage:X4}:0",
+        ReportType = "Feature",
+        ReportId = 1,
+        UsagePage = 0x85,
+        Usage = usage,
+        UsagePageName = "Battery System",
+        UsageName = usage == 0x83 ? "DesignCapacity" : "FullChargeCapacity",
+        LinkCollection = 0,
+        CollectionPath = "UPS / PowerSummary",
+        IsReadable = true,
+        HasValue = true,
+        RawValue = (long)value,
+        NumericValue = value,
+        DisplayValue = value.ToString(),
+        UnitSymbol = unit,
+        LogicalMinimum = 0,
+        LogicalMaximum = logicalMaximum,
+        PhysicalMinimum = 0,
+        PhysicalMaximum = logicalMaximum,
+        HidUnit = hidUnit,
+        UnitExponent = 0,
+        BitSize = 16,
+        ReportCount = 1,
+        IsButton = false,
+        IsVendorDefined = false,
     };
 
 static void HasSingle(IReadOnlyList<UpsEvent> events, UpsEventType type)
@@ -127,5 +282,13 @@ static void Equal<T>(T expected, T actual)
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
     {
         throw new InvalidOperationException($"Expected {expected}, got {actual}.");
+    }
+}
+
+static void Near(double expected, double? actual, double tolerance = 0.001)
+{
+    if (actual is null || Math.Abs(expected - actual.Value) > tolerance)
+    {
+        throw new InvalidOperationException($"Expected approximately {expected}, got {actual?.ToString() ?? "null"}.");
     }
 }

@@ -12,6 +12,8 @@ Version 0.1 は監視・状態表示・イベント検出・ファイルログ�
 - Feature report と Interrupt IN report を Report ID / Usage 単位で解析（モデル固有のバイトオフセットなし）
 - AC、Charging、Discharging、Battery、Runtime、Low Battery、Shutdown Imminent、Overload を独立して取得
 - 入出力電圧、バッテリー電圧、負荷率、有効電力、皮相電力、定格値、切替電圧など、descriptor が公開する全82項目を保持・表示
+- 入力値の妥当性検証と、物理容量または同等負荷のランタイム基準による説明可能なバッテリーSOH推定
+- 健全性の算出方法・信頼度・根拠、交換要求／セルフテストによる重大状態の優先表示
 - `Unknown / Online / OnBattery / LowBattery / Critical` の状態判定
 - PowerLost、PowerRestored、BatteryLow、BatteryCritical、RuntimeLow、OverloadDetected、UpsDisconnected、UpsReconnected イベント
 - 1秒周期のバックグラウンド監視、read error 後の再列挙、`WM_DEVICECHANGE` による即時再スキャン
@@ -106,9 +108,16 @@ AC present   : True
 
 ### バッテリー健全性について
 
-PowerPanel Personal の Battery Health Indicator（例: 59%）は、このUPSがUSB HIDで公開する値ではありません。PowerPanel同梱ヘルプでは放電状況と利用期間に基づくPowerPanel Cloudの推定値と説明されており、実機の標準Usage 82項目にも対応値はありません。近い生値を健全性として誤認しないよう、現時点ではGUIに重要指標の表示枠を設けたうえで `N/A / USB HIDでは非公開` と明示します。
+PowerPanel Personal の Battery Health Indicator（例: 59%）は、このUPSがUSB HIDで直接公開する値ではありません。PowerPanel同梱ヘルプでは放電状況と利用期間に基づくPowerPanel Cloudの推定値と説明されており、実機の標準Usage 82項目にも対応値はありません。そのため、このアプリは未根拠の数値を作らず、次の優先順位で独立したSOHを算出します。
 
-将来このアプリ自身で設置日・放電深度・放電回数・セルフテスト結果を蓄積できれば、PowerPanelに依存しない独立した交換時期指標を追加できます。
+1. 制御ランタイム／放電エネルギー測定
+2. 物理単位を持つ `FullChargeCapacity / DesignCapacity`
+3. 満充電時かつ同等負荷における、保存済みランタイム基準との比較
+4. 比較可能な測定値がなければ `N/A / データ不足`
+
+CP1200PFCLCD JP が返す `DesignCapacity=100` と `FullChargeCapacity=100` は、物理容量ではなく0～100%の尺度なのでSOH計算から除外します。設定画面またはDashboardで新品・交換直後の満充電バッテリーのランタイム基準を記録すると、以後は同等負荷の現在ランタイムとの比率を健全性として表示します。基準がない現在の個体について、PowerPanelの59%を再現できるとは主張しません。
+
+SOC、負荷、ランタイム等は範囲検証し、例えば120%の残量は100%へ丸めずInvalidとして除外します。`NeedReplacement` またはセルフテスト失敗が報告された場合は、計算上の割合より重大状態を優先します。
 
 ## v0.1 の境界
 

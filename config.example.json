@@ -6,5 +6,11 @@
   "ui": {
     "language": "system"
   },
+  "batteryHealth": {
+    "warningThresholdPercent": 70,
+    "criticalThresholdPercent": 60,
+    "comparableLoadTolerancePercent": 5,
+    "profiles": []
+  },
   "shutdownPolicies": []
 }
