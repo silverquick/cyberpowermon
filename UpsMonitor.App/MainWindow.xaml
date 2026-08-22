@@ -1,0 +1,487 @@
+<Window x:Class="UpsMonitor.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PowerGuard" Height="780" Width="1240" MinHeight="680" MinWidth="1040"
+        Background="{DynamicResource WindowBrush}" FontFamily="Segoe UI Variable Text"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="22" />
+            <Setter Property="Margin" Value="6" />
+        </Style>
+        <Style x:Key="MetricCardStyle" TargetType="Border" BasedOn="{StaticResource CardStyle}">
+            <Setter Property="MinHeight" Value="138" />
+        </Style>
+        <Style x:Key="CaptionStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="MetricValueStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Display" />
+            <Setter Property="FontSize" Value="28" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,8,0,0" />
+        </Style>
+        <Style x:Key="PageTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Display" />
+            <Setter Property="FontSize" Value="28" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Display" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="InfoLabelStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+            <Setter Property="Margin" Value="0,7" />
+        </Style>
+        <Style x:Key="InfoValueStyle" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,7" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="NavItemStyle" TargetType="TabItem">
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Grid Margin="10,3">
+                            <Border x:Name="NavBackground" Background="Transparent" CornerRadius="8" Padding="14,11">
+                                <ContentPresenter ContentSource="Header" />
+                            </Border>
+                            <Border x:Name="SelectionIndicator" Width="3" Height="18" CornerRadius="2"
+                                    Background="#3B82F6" HorizontalAlignment="Left" Opacity="0" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="NavBackground" Property="Background" Value="{DynamicResource SelectedNavBrush}" />
+                                <Setter TargetName="SelectionIndicator" Property="Opacity" Value="1" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="NavBackground" Property="Background" Value="{DynamicResource SecondaryPanelBrush}" />
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True" />
+                                    <Condition Property="IsMouseOver" Value="True" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="NavBackground" Property="Background" Value="{DynamicResource SelectedNavBrush}" />
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="MainNavigationStyle" TargetType="TabControl">
+            <Setter Property="TabStripPlacement" Value="Left" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="220" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Background="{DynamicResource NavigationBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Bottom" Margin="16" Padding="12" CornerRadius="8" Background="{DynamicResource SecondaryPanelBrush}">
+                                        <StackPanel>
+                                            <TextBlock Text="{DynamicResource MonitoringOnly}" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource MutedTextBrush}" />
+                                            <TextBlock Text="{DynamicResource NoActionsV01}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                    <TabPanel IsItemsHost="True" Margin="0,12,0,0" />
+                                </DockPanel>
+                            </Border>
+                            <Border Grid.Column="1" Background="Transparent">
+                                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent" />
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="TelemetryGridStyle" TargetType="DataGrid">
+            <Setter Property="AutoGenerateColumns" Value="False" />
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="CanUserAddRows" Value="False" />
+            <Setter Property="CanUserDeleteRows" Value="False" />
+            <Setter Property="EnableRowVirtualization" Value="True" />
+            <Setter Property="GridLinesVisibility" Value="Horizontal" />
+            <Setter Property="HeadersVisibility" Value="Column" />
+            <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="RowBackground" Value="{DynamicResource PanelBrush}" />
+            <Setter Property="AlternatingRowBackground" Value="{DynamicResource SecondaryPanelBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="SelectionMode" Value="Single" />
+            <Setter Property="SelectionUnit" Value="FullRow" />
+        </Style>
+        <Style x:Key="SubTabControlStyle" TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid KeyboardNavigation.TabNavigation="Local">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TabPanel IsItemsHost="True" Background="Transparent" />
+                            <Border Grid.Row="1" Background="Transparent" BorderThickness="0">
+                                <ContentPresenter x:Name="PART_SelectedContentHost"
+                                                  ContentSource="SelectedContent" />
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SubTabItemStyle" TargetType="TabItem">
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Padding" Value="15,9" />
+            <Setter Property="Margin" Value="0,0,5,8" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBackground"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="7"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter ContentSource="Header" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBackground" Property="Background" Value="{DynamicResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBackground" Property="Background" Value="{DynamicResource SelectedNavBrush}" />
+                                <Setter TargetName="TabBackground" Property="BorderBrush" Value="#3B82F6" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="EventHeaderStyle" TargetType="GridViewColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource NavigationBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
+        <Style x:Key="EventItemStyle" TargetType="ListViewItem">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Padding" Value="5,4" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedNavBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="64" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{DynamicResource NavigationBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+            <Grid Margin="22,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="34" Height="34" CornerRadius="9" Background="#2563EB">
+                        <TextBlock Text="&#xE7E8;" FontFamily="Segoe Fluent Icons" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0">
+                        <TextBlock Text="PowerGuard" FontFamily="Segoe UI Variable Display" FontSize="19" FontWeight="SemiBold" />
+                        <TextBlock Text="{DynamicResource AppSubtitle}" FontSize="10" Foreground="{DynamicResource MutedTextBrush}" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="9" Height="9" CornerRadius="5" Background="{Binding StatusAccent}" Margin="0,0,9,0" />
+                    <TextBlock Text="{Binding ConnectionText}" FontWeight="SemiBold" Margin="0,0,18,0" />
+                    <TextBlock Text="{Binding LastUpdateText}" Foreground="{DynamicResource MutedTextBrush}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <TabControl Grid.Row="1" Style="{StaticResource MainNavigationStyle}" ItemContainerStyle="{StaticResource NavItemStyle}">
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE80F;" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" />
+                        <TextBlock Text="{DynamicResource Dashboard}" Margin="13,0,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" />
+                    </StackPanel>
+                </TabItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="28,25,28,34">
+                        <TextBlock Text="{DynamicResource Dashboard}" Style="{StaticResource PageTitleStyle}" />
+                        <TextBlock Text="{DynamicResource DashboardSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,18" />
+
+                        <Border Style="{StaticResource CardStyle}" BorderBrush="{Binding StatusAccent}" BorderThickness="1,1,1,1" Margin="0,0,0,14">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Border Width="44" Height="44" CornerRadius="22" Background="{Binding StatusAccent}">
+                                    <TextBlock Text="&#xE930;" FontFamily="Segoe Fluent Icons" FontSize="19" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                                    <TextBlock Text="{Binding StatusMessage}" FontSize="17" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding StateText}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding LastError}" Foreground="#EF4444" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <UniformGrid Columns="4" Margin="-6,0,-6,14">
+                            <Border Style="{StaticResource MetricCardStyle}">
+                                <StackPanel><TextBlock Text="{DynamicResource UpsStatus}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding StateText}" Style="{StaticResource MetricValueStyle}" /><TextBlock Text="{Binding InputVoltageSummaryText}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,8,0,0" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource MetricCardStyle}">
+                                <StackPanel><TextBlock Text="{DynamicResource Battery}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding BatteryText}" Style="{StaticResource MetricValueStyle}" /><ProgressBar Value="{Binding BatteryProgress, Mode=OneWay}" Maximum="100" Height="5" Margin="0,13,0,0" Foreground="{Binding StatusAccent}" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource MetricCardStyle}" ToolTip="{DynamicResource BatteryHealthUnavailableDetail}">
+                                <StackPanel><TextBlock Text="{DynamicResource BatteryHealth}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding BatteryHealthText}" Style="{StaticResource MetricValueStyle}" /><TextBlock Text="{Binding BatteryHealthDetailText}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource MetricCardStyle}">
+                                <StackPanel><TextBlock Text="{DynamicResource EstimatedRuntime}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding RuntimeText}" Style="{StaticResource MetricValueStyle}" /><TextBlock Text="{DynamicResource AtCurrentLoad}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,8,0,0" /></StackPanel>
+                            </Border>
+                        </UniformGrid>
+
+                        <Grid Margin="-6,0,-6,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.5*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource Power}" Style="{StaticResource SectionTitleStyle}" />
+                                    <Grid Margin="0,13,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Text="{DynamicResource InputVoltage}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InputVoltageText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Row="1" Text="{DynamicResource OutputVoltage}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding OutputVoltageText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Row="2" Text="{DynamicResource BatteryVoltage}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding BatteryVoltageText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Row="3" Text="{DynamicResource Load}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding PercentLoadText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Row="4" Text="{DynamicResource ActivePower}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding ActivePowerText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Row="5" Text="{DynamicResource ApparentPower}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding ApparentPowerText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource CardStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource ShutdownAutomation}" Style="{StaticResource SectionTitleStyle}" />
+                                    <Border Background="{DynamicResource SecondaryPanelBrush}" CornerRadius="8" Padding="14" Margin="0,14,0,12">
+                                        <StackPanel Orientation="Horizontal"><Border Width="8" Height="8" CornerRadius="4" Background="#64748B" Margin="0,0,9,0" /><TextBlock Text="{DynamicResource NotArmed}" FontWeight="SemiBold" /></StackPanel>
+                                    </Border>
+                                    <TextBlock Text="{DynamicResource ActionsDisabled}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" LineHeight="20" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE7E8;" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /><TextBlock Text="{DynamicResource Ups}" Margin="13,0,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /></StackPanel>
+                </TabItem.Header>
+                <Grid Margin="28,25,28,28">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="{DynamicResource Ups}" Style="{StaticResource PageTitleStyle}" />
+                        <TextBlock Text="{DynamicResource UpsSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,12" />
+                    </StackPanel>
+                    <TabControl Grid.Row="1" Style="{StaticResource SubTabControlStyle}" ItemContainerStyle="{StaticResource SubTabItemStyle}">
+                        <TabItem Header="{DynamicResource Overview}">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <Grid Margin="0,14,0,20">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+                                        <StackPanel>
+                                            <TextBlock Text="{DynamicResource Device}" Style="{StaticResource SectionTitleStyle}" />
+                                            <Grid Margin="0,12,0,0">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="155" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                                <TextBlock Grid.Row="0" Text="{DynamicResource Manufacturer}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Manufacturer}" Style="{StaticResource InfoValueStyle}" />
+                                                <TextBlock Grid.Row="1" Text="{DynamicResource Product}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Product}" Style="{StaticResource InfoValueStyle}" />
+                                                <TextBlock Grid.Row="2" Text="{DynamicResource SerialNumber}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SerialNumber}" Style="{StaticResource InfoValueStyle}" />
+                                                <TextBlock Grid.Row="3" Text="{DynamicResource VidPid}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding VidPid}" Style="{StaticResource InfoValueStyle}" />
+                                                <TextBlock Grid.Row="4" Text="{DynamicResource Usage}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Usage}" Style="{StaticResource InfoValueStyle}" />
+                                                <TextBlock Grid.Row="5" Text="{DynamicResource ReportBytes}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding ReportBytesText}" Style="{StaticResource InfoValueStyle}" />
+                                                <TextBlock Grid.Row="6" Text="{DynamicResource DevicePath}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding DevicePath}" FontFamily="Cascadia Mono" FontSize="10" Style="{StaticResource InfoValueStyle}" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+                                    <StackPanel Grid.Column="1">
+                                        <Border Style="{StaticResource CardStyle}">
+                                            <StackPanel>
+                                                <TextBlock Text="{DynamicResource Electrical}" Style="{StaticResource SectionTitleStyle}" />
+                                                <Grid Margin="0,12,0,0">
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                                    <TextBlock Grid.Row="0" Text="{DynamicResource InputOutput}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InputOutputText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="1" Text="{DynamicResource BatteryVoltage}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding BatteryVoltageText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="2" Text="{DynamicResource Load}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PercentLoadText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="3" Text="{DynamicResource Power}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ActivePowerText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="4" Text="{DynamicResource RatedPower}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding RatedPowerText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="5" Text="{DynamicResource TransferRange}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding TransferRangeText}" Style="{StaticResource InfoValueStyle}" />
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Style="{StaticResource CardStyle}">
+                                            <StackPanel>
+                                                <TextBlock Text="{DynamicResource BatteryControls}" Style="{StaticResource SectionTitleStyle}" />
+                                                <Grid Margin="0,12,0,0">
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                                    <TextBlock Grid.Row="0" Text="{DynamicResource BatteryHealth}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding BatteryHealthText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="1" Text="{DynamicResource Chemistry}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding BatteryChemistryText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="2" Text="{DynamicResource FullyCharged}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding FullyChargedText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="3" Text="{DynamicResource Rechargeable}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding RechargeableText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="4" Text="{DynamicResource AudibleAlarm}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding AudibleAlarmText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="5" Text="{DynamicResource SelfTest}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SelfTestText}" Style="{StaticResource InfoValueStyle}" />
+                                                    <TextBlock Grid.Row="6" Text="{DynamicResource Oem}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding OemInformationText}" Style="{StaticResource InfoValueStyle}" />
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="{DynamicResource AllHidData}">
+                            <Grid Margin="0,14,0,0">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                <StackPanel Margin="4,0,4,10">
+                                    <TextBlock Text="{Binding TelemetryCountText}" Foreground="{DynamicResource MutedTextBrush}" />
+                                    <TextBlock Text="{DynamicResource HidReadOnlyNote}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,3,0,0" />
+                                </StackPanel>
+                                <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="0">
+                                    <DataGrid ItemsSource="{Binding TelemetryItems}" Style="{StaticResource TelemetryGridStyle}" FrozenColumnCount="2" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                                        <DataGrid.Resources>
+                                            <Style TargetType="DataGridColumnHeader"><Setter Property="Background" Value="{DynamicResource NavigationBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="Padding" Value="8" /><Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" /></Style>
+                                            <Style TargetType="DataGridCell"><Setter Property="Padding" Value="7,5" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{DynamicResource SelectedNavBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /></Trigger></Style.Triggers></Style>
+                                            <Style TargetType="DataGridRow"><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{DynamicResource SelectedNavBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /></Trigger></Style.Triggers></Style>
+                                        </DataGrid.Resources>
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="{DynamicResource ColumnName}" Binding="{Binding Name}" Width="210" /><DataGridTextColumn Header="{DynamicResource ColumnValue}" Binding="{Binding Value}" Width="150" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnCollection}" Binding="{Binding Collection}" Width="260" /><DataGridTextColumn Header="{DynamicResource ColumnPageUsage}" Binding="{Binding PageUsage}" Width="135" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnPage}" Binding="{Binding Page}" Width="135" /><DataGridTextColumn Header="{DynamicResource ColumnSource}" Binding="{Binding Source}" Width="90" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnRaw}" Binding="{Binding Raw}" Width="75" /><DataGridTextColumn Header="{DynamicResource ColumnAccess}" Binding="{Binding Access}" Width="105" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnLogical}" Binding="{Binding LogicalRange}" Width="105" /><DataGridTextColumn Header="{DynamicResource ColumnPhysical}" Binding="{Binding PhysicalRange}" Width="105" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnUnit}" Binding="{Binding Unit}" Width="145" /><DataGridTextColumn Header="{DynamicResource ColumnLayout}" Binding="{Binding Layout}" Width="100" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </Border>
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
+                </Grid>
+            </TabItem>
+
+            <TabItem>
+                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE770;" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /><TextBlock Text="{DynamicResource Devices}" Margin="13,0,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /></StackPanel></TabItem.Header>
+                <StackPanel Margin="28,25">
+                    <TextBlock Text="{DynamicResource Devices}" Style="{StaticResource PageTitleStyle}" /><TextBlock Text="{DynamicResource DevicesSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,18" />
+                    <Border Style="{StaticResource CardStyle}" MaxWidth="680" HorizontalAlignment="Left">
+                        <StackPanel HorizontalAlignment="Center" Margin="28">
+                            <TextBlock Text="&#xE968;" FontFamily="Segoe Fluent Icons" FontSize="38" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" />
+                            <TextBlock Text="{DynamicResource NoRemoteDevices}" Style="{StaticResource SectionTitleStyle}" Margin="0,16,0,0" />
+                            <TextBlock Text="{DynamicResource DevicesFutureNote}" Foreground="{DynamicResource MutedTextBrush}" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="480" Margin="0,8,0,18" />
+                            <Button Content="{DynamicResource AddDeviceLater}" IsEnabled="False" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </TabItem>
+
+            <TabItem>
+                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE7E8;" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /><TextBlock Text="{DynamicResource Actions}" Margin="13,0,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /></StackPanel></TabItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="28,25,28,34">
+                        <TextBlock Text="{DynamicResource ShutdownSequence}" Style="{StaticResource PageTitleStyle}" /><TextBlock Text="{DynamicResource ActionsSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,18" />
+                        <Border Style="{StaticResource CardStyle}" BorderBrush="#64748B" MaxWidth="760" HorizontalAlignment="Left">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal"><Border Width="9" Height="9" CornerRadius="5" Background="#64748B" Margin="0,0,10,0" /><TextBlock Text="{DynamicResource NotArmedPreview}" FontWeight="SemiBold" /></StackPanel>
+                                <TextBlock Text="{DynamicResource WhenOnBattery}" Style="{StaticResource SectionTitleStyle}" Margin="0,20,0,14" />
+                                <Border Background="{DynamicResource SecondaryPanelBrush}" CornerRadius="8" Padding="15"><TextBlock Text="{DynamicResource ActionStepWait}" /></Border>
+                                <TextBlock Text="↓" Foreground="{DynamicResource MutedTextBrush}" Margin="20,5" />
+                                <Border Background="{DynamicResource SecondaryPanelBrush}" CornerRadius="8" Padding="15"><TextBlock Text="{DynamicResource ActionStepSsh}" /></Border>
+                                <TextBlock Text="↓" Foreground="{DynamicResource MutedTextBrush}" Margin="20,5" />
+                                <Border Background="{DynamicResource SecondaryPanelBrush}" CornerRadius="8" Padding="15"><TextBlock Text="{DynamicResource ActionStepReachability}" /></Border>
+                                <TextBlock Text="↓" Foreground="{DynamicResource MutedTextBrush}" Margin="20,5" />
+                                <Border Background="{DynamicResource SecondaryPanelBrush}" CornerRadius="8" Padding="15"><TextBlock Text="{DynamicResource ActionStepWindows}" /></Border>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem>
+                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE81C;" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /><TextBlock Text="{DynamicResource Logs}" Margin="13,0,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /></StackPanel></TabItem.Header>
+                <Grid Margin="28,25,28,28">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <StackPanel><TextBlock Text="{DynamicResource Logs}" Style="{StaticResource PageTitleStyle}" /><TextBlock Text="{DynamicResource LogsSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,18" /></StackPanel>
+                    <Border Grid.Row="1" Style="{StaticResource CardStyle}">
+                        <ListView ItemsSource="{Binding Events}" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextBrush}" ItemContainerStyle="{StaticResource EventItemStyle}">
+                            <ListView.View><GridView ColumnHeaderContainerStyle="{StaticResource EventHeaderStyle}"><GridViewColumn Header="{DynamicResource ColumnTime}" Width="175" DisplayMemberBinding="{Binding Timestamp}" /><GridViewColumn Header="{DynamicResource ColumnEvent}" Width="175" DisplayMemberBinding="{Binding Type}" /><GridViewColumn Header="{DynamicResource ColumnDetails}" Width="480" DisplayMemberBinding="{Binding Message}" /><GridViewColumn Header="{DynamicResource ColumnState}" Width="170" DisplayMemberBinding="{Binding StateTransition}" /></GridView></ListView.View>
+                        </ListView>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem>
+                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /><TextBlock Text="{DynamicResource Settings}" Margin="13,0,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /></StackPanel></TabItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="28,25,28,34">
+                        <TextBlock Text="{DynamicResource Settings}" Style="{StaticResource PageTitleStyle}" /><TextBlock Text="{DynamicResource SettingsSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,18" />
+                        <Border Style="{StaticResource CardStyle}" MaxWidth="720" HorizontalAlignment="Left">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource Monitoring}" Style="{StaticResource SectionTitleStyle}" />
+                                <Grid Margin="0,14,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="270" /><ColumnDefinition Width="180" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                    <StackPanel Grid.Row="0"><TextBlock Text="{DynamicResource DisplayLanguage}" /><TextBlock Text="{DynamicResource DisplayLanguageHelp}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
+                                    <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding LanguageOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Code" SelectedValue="{Binding SelectedLanguageCode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12" />
+                                    <StackPanel Grid.Row="1"><TextBlock Text="{DynamicResource PollInterval}" /><TextBlock Text="{DynamicResource PollIntervalHelp}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
+                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PollIntervalMs, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,12" />
+                                    <StackPanel Grid.Row="2"><TextBlock Text="{DynamicResource RuntimeLowThreshold}" /><TextBlock Text="{DynamicResource RestartRequired}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding RuntimeLowSeconds, Mode=OneWay}" IsReadOnly="True" />
+                                </Grid>
+                                <Button Content="{DynamicResource SaveSettings}" Command="{Binding SaveSettingsCommand}" HorizontalAlignment="Left" Margin="0,20,0,0" />
+                                <TextBlock Text="{Binding SettingsStatus}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,10,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource CardStyle}" MaxWidth="720" HorizontalAlignment="Left">
+                            <StackPanel><TextBlock Text="{DynamicResource Storage}" Style="{StaticResource SectionTitleStyle}" /><TextBlock Text="{DynamicResource Configuration}" Style="{StaticResource CaptionStyle}" Margin="0,14,0,0" /><TextBlock Text="{Binding ConfigurationFile}" FontFamily="Cascadia Mono" FontSize="11" TextWrapping="Wrap" Margin="0,5,0,12" /><TextBlock Text="{DynamicResource Logs}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding LogsDirectory}" FontFamily="Cascadia Mono" FontSize="11" TextWrapping="Wrap" Margin="0,5,0,0" /></StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>

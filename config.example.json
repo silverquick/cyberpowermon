@@ -1,0 +1,10 @@
+{
+  "monitoring": {
+    "pollIntervalMs": 1000,
+    "runtimeLowSeconds": 180
+  },
+  "ui": {
+    "language": "system"
+  },
+  "shutdownPolicies": []
+}
