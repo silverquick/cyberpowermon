@@ -23,6 +23,9 @@ internal static class ThemeManager
                 ["MutedTextBrush"] = "#B3C0D1",
                 ["BorderBrush"] = "#42516A",
                 ["HoverBrush"] = "#263B82F6",
+                ["PopupBrush"] = "#FF1F2937",
+                ["PopupHoverBrush"] = "#FF26344B",
+                ["PopupSelectedBrush"] = "#FF243A63",
                 ["DisabledBrush"] = "#263247",
                 ["DisabledTextBrush"] = "#9AA8BC",
             }
@@ -37,6 +40,9 @@ internal static class ThemeManager
                 ["MutedTextBrush"] = "#FF475569",
                 ["BorderBrush"] = "#FFCBD5E1",
                 ["HoverBrush"] = "#FFE8F1FF",
+                ["PopupBrush"] = "#FFFFFFFF",
+                ["PopupHoverBrush"] = "#FFE8F1FF",
+                ["PopupSelectedBrush"] = "#FFDCEBFF",
                 ["DisabledBrush"] = "#FFE2E8F0",
                 ["DisabledTextBrush"] = "#FF64748B",
             };

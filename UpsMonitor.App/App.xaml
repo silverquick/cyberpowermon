@@ -11,6 +11,9 @@
         <SolidColorBrush x:Key="MutedTextBrush" Color="#94A3B8" />
         <SolidColorBrush x:Key="BorderBrush" Color="#334155" />
         <SolidColorBrush x:Key="HoverBrush" Color="#263B82F6" />
+        <SolidColorBrush x:Key="PopupBrush" Color="#FF1F2937" />
+        <SolidColorBrush x:Key="PopupHoverBrush" Color="#FF26344B" />
+        <SolidColorBrush x:Key="PopupSelectedBrush" Color="#FF243A63" />
         <SolidColorBrush x:Key="DisabledBrush" Color="#263247" />
         <SolidColorBrush x:Key="DisabledTextBrush" Color="#8090A7" />
 
@@ -120,7 +123,7 @@
                                         MaxHeight="{TemplateBinding MaxDropDownHeight}"
                                         Margin="0,4,0,0"
                                         Padding="4"
-                                        Background="{DynamicResource PanelBrush}"
+                                        Background="{DynamicResource PopupBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="7">
@@ -150,7 +153,7 @@
         </Style>
         <Style TargetType="ComboBoxItem">
             <Setter Property="Padding" Value="10,7" />
-            <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+            <Setter Property="Background" Value="{DynamicResource PopupBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="MinHeight" Value="32" />
@@ -171,11 +174,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource HoverBrush}" />
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource PopupHoverBrush}" />
                                 <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SelectedNavBrush}" />
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource PopupSelectedBrush}" />
                                 <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">

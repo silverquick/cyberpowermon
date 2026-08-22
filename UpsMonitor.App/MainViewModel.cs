@@ -33,7 +33,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private double _batteryCriticalThresholdPercent;
     private double _comparableLoadTolerancePercent;
     private IReadOnlyList<BatteryBaselineModeOption> _baselineModeOptions = [];
+    private IReadOnlyList<VendorHealthCategoryOption> _vendorHealthCategoryOptions = [];
     private BatteryRuntimeBaselineKind _selectedBaselineKind = BatteryRuntimeBaselineKind.CurrentRelative;
+    private VendorBatteryHealthCategory _selectedVendorHealthCategory = VendorBatteryHealthCategory.Unknown;
     private double _knownHealthPercent = 59;
     private string _knownHealthSource = "CyberPower BHI";
     private bool _baselineEditorInitialized;
@@ -57,6 +59,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         LogsDirectory = paths.LogsDirectory;
         _dispatcher = Application.Current.Dispatcher;
         RefreshBaselineModeOptions();
+        RefreshVendorHealthCategoryOptions();
         SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync, SetCommandError);
         RecordRuntimeBaselineCommand = new AsyncRelayCommand(RecordRuntimeBaselineAsync, SetCommandError);
         ClearRuntimeBaselineCommand = new AsyncRelayCommand(ClearRuntimeBaselineAsync, SetCommandError);
@@ -159,6 +162,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         set => SetField(ref _knownHealthSource, value);
     }
 
+    public IReadOnlyList<VendorHealthCategoryOption> VendorHealthCategoryOptions
+    {
+        get => _vendorHealthCategoryOptions;
+        private set => SetField(ref _vendorHealthCategoryOptions, value);
+    }
+
+    public VendorBatteryHealthCategory SelectedVendorHealthCategory
+    {
+        get => _selectedVendorHealthCategory;
+        set => SetField(ref _selectedVendorHealthCategory, value);
+    }
+
     public string BaselineInstructionText => L(SelectedBaselineKind switch
     {
         BatteryRuntimeBaselineKind.NewBattery => "BaselineInstructionNew",
@@ -191,6 +206,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public string BatteryHealthConfidenceText { get; private set; } = "N/A";
     public string BatteryHealthMethodText { get; private set; } = "N/A";
     public string BatteryHealthAccent { get; private set; } = "#64748B";
+    public string BatteryReplacementText { get; private set; } = "N/A";
+    public string BatteryReplacementDetailText { get; private set; } = string.Empty;
+    public string BatteryReplacementAccent { get; private set; } = "#64748B";
     public string BatteryHealthBaselineText { get; private set; } = string.Empty;
     public string BatteryHealthDataQualityText { get; private set; } = string.Empty;
     public string BatteryRelativeTrendText { get; private set; } = "N/A";
@@ -270,6 +288,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _selectedLanguageCode = LocalizationManager.CurrentLanguageCode;
         OnPropertyChanged(nameof(SelectedLanguageCode));
         RefreshBaselineModeOptions();
+        RefreshVendorHealthCategoryOptions();
         OnPropertyChanged(nameof(BaselineInstructionText));
         SettingsStatus = string.Empty;
 
@@ -350,10 +369,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         PowerText = snapshot.AcPresent switch { true => L("PowerAc"), false => L("PowerBattery"), _ => "N/A" };
         BatteryText = FormatValidatedPercent(telemetry.BatteryChargePercent);
         BatteryHealthText = health.HealthPercent is { } healthPercent ? $"{healthPercent:0.#}%" : L("HealthUnknown");
-        BatteryHealthDetailText = LocalizeHealthStatus(health.Status);
+        BatteryHealthDetailText = LocalizeHealthDetail(health);
         BatteryHealthConfidenceText = LocalizeHealthConfidence(health.Confidence);
         BatteryHealthMethodText = LocalizeHealthMethod(health.PrimaryMethod);
         BatteryHealthAccent = HealthAccent(health.Status);
+        BatteryReplacementText = LocalizeReplacementStatus(health.Replacement.Status);
+        BatteryReplacementDetailText = LocalizeReplacementDetail(health);
+        BatteryReplacementAccent = ReplacementAccent(health.Replacement.Status);
         BatteryHealthReasons = health.Reasons.Select(LocalizeHealthReason).Distinct().ToArray();
         BatteryHealthBaselineText = FormatBaselineSummary(healthProfile);
         BatteryRelativeTrendText = health.RelativePerformancePercent is { } relative
@@ -476,6 +498,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             case BatteryRuntimeBaselineKind.NewBattery:
                 profile.AnchorHealthPercent = 100;
                 profile.AnchorSource = null;
+                profile.VendorHealthCategory = VendorBatteryHealthCategory.Unknown;
                 profile.BatteryInstalledAt ??= recordedAt;
                 break;
 
@@ -484,11 +507,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                 profile.AnchorSource = string.IsNullOrWhiteSpace(KnownHealthSource)
                     ? "CyberPower BHI"
                     : KnownHealthSource.Trim();
+                profile.VendorHealthCategory = SelectedVendorHealthCategory;
                 break;
 
             default:
                 profile.AnchorHealthPercent = null;
                 profile.AnchorSource = null;
+                profile.VendorHealthCategory = VendorBatteryHealthCategory.Unknown;
                 break;
         }
 
@@ -521,6 +546,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         profile.RuntimeBaselineKind = BatteryRuntimeBaselineKind.Unspecified;
         profile.AnchorHealthPercent = null;
         profile.AnchorSource = null;
+        profile.VendorHealthCategory = VendorBatteryHealthCategory.Unknown;
         profile.BaselineRecordedAt = null;
         await _configurationStore.SaveAsync(_configuration);
         SettingsStatus = L("BaselineCleared");
@@ -569,6 +595,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             nameof(DevicePath), nameof(InputReportLength), nameof(FeatureReportLength), nameof(PowerText),
             nameof(BatteryText), nameof(BatteryHealthText), nameof(BatteryHealthDetailText),
             nameof(BatteryHealthConfidenceText), nameof(BatteryHealthMethodText), nameof(BatteryHealthAccent),
+            nameof(BatteryReplacementText), nameof(BatteryReplacementDetailText), nameof(BatteryReplacementAccent),
             nameof(BatteryHealthBaselineText), nameof(BatteryHealthDataQualityText), nameof(BatteryHealthReasons),
             nameof(BatteryRelativeTrendText), nameof(BatteryHealthAnchorText),
             nameof(BatteryProgress), nameof(RuntimeText), nameof(OverloadText),
@@ -671,6 +698,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private static string LocalizeHealthStatus(BatteryHealthStatus status) => L(status switch
     {
+        BatteryHealthStatus.VendorReported => "HealthStatusVendorReported",
         BatteryHealthStatus.Excellent => "HealthStatusExcellent",
         BatteryHealthStatus.Good => "HealthStatusGood",
         BatteryHealthStatus.Fair => "HealthStatusFair",
@@ -701,10 +729,88 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private static string HealthAccent(BatteryHealthStatus status) => status switch
     {
+        BatteryHealthStatus.VendorReported => "#38BDF8",
         BatteryHealthStatus.Excellent or BatteryHealthStatus.Good => "#22C55E",
         BatteryHealthStatus.Fair => "#84CC16",
         BatteryHealthStatus.Degraded => "#F59E0B",
         BatteryHealthStatus.Poor or BatteryHealthStatus.Critical => "#EF4444",
+        _ => "#64748B",
+    };
+
+    private static string LocalizeHealthDetail(BatteryHealthResult health)
+    {
+        if (health.Status != BatteryHealthStatus.VendorReported)
+        {
+            return LocalizeHealthStatus(health.Status);
+        }
+
+        var source = string.IsNullOrWhiteSpace(health.AnchorSource)
+            ? L("Unknown")
+            : health.AnchorSource;
+        return health.VendorHealthCategory == VendorBatteryHealthCategory.Unknown
+            ? LocalizationManager.Format("VendorHealthDetailUnknownFormat", source)
+            : LocalizationManager.Format(
+                "VendorHealthDetailFormat",
+                source,
+                LocalizeVendorHealthCategory(health.VendorHealthCategory));
+    }
+
+    private static string LocalizeVendorHealthCategory(VendorBatteryHealthCategory category) => L(category switch
+    {
+        VendorBatteryHealthCategory.Good => "VendorHealthCategoryGood",
+        VendorBatteryHealthCategory.Average => "VendorHealthCategoryAverage",
+        VendorBatteryHealthCategory.BelowAverage => "VendorHealthCategoryBelowAverage",
+        VendorBatteryHealthCategory.Poor => "VendorHealthCategoryPoor",
+        _ => "VendorHealthCategoryUnknown",
+    });
+
+    private static string LocalizeReplacementStatus(BatteryReplacementStatus status) => L(status switch
+    {
+        BatteryReplacementStatus.CheckRequired => "ReplacementStatusCheckRequired",
+        BatteryReplacementStatus.ConsiderReplacement => "ReplacementStatusConsiderReplacement",
+        BatteryReplacementStatus.ReplacementRequested => "ReplacementStatusRequested",
+        BatteryReplacementStatus.NoSignal => "ReplacementStatusNoSignal",
+        _ => "ReplacementStatusUnknown",
+    });
+
+    private static string LocalizeReplacementReason(BatteryReplacementReason reason) => reason.Code switch
+    {
+        BatteryReplacementReasonCode.NeedReplacementReported => L("ReplacementReasonNeedReplacement"),
+        BatteryReplacementReasonCode.SelfTestFailed => L("ReplacementReasonSelfTestFailed"),
+        BatteryReplacementReasonCode.PhysicalCapacityBelowReference => LocalizationManager.Format(
+            "ReplacementReasonPhysicalCapacity", reason.Observed, reason.Reference),
+        BatteryReplacementReasonCode.ControlledMeasurementBelowReference => LocalizationManager.Format(
+            "ReplacementReasonControlledMeasurement", reason.Observed, reason.Reference),
+        BatteryReplacementReasonCode.NewBatteryRuntimeBelowReference => LocalizationManager.Format(
+            "ReplacementReasonNewBatteryRuntime", reason.Observed, reason.Reference),
+        BatteryReplacementReasonCode.RelativeRuntimeDeclined => LocalizationManager.Format(
+            "ReplacementReasonRelativeRuntime", reason.Observed, reason.Reference),
+        _ => L("ReplacementReasonNoSignal"),
+    };
+
+    private static string LocalizeReplacementDetail(BatteryHealthResult health)
+    {
+        if (health.Replacement.Reasons.FirstOrDefault() is { } reason)
+        {
+            return LocalizeReplacementReason(reason);
+        }
+
+        if (health.Replacement.Status == BatteryReplacementStatus.Unknown)
+        {
+            return L("ReplacementReasonUnknown");
+        }
+
+        return health.PrimaryMethod == BatteryHealthMethod.VendorAnchoredRuntime
+            ? L("ReplacementReasonBhiNoSignal")
+            : L("ReplacementReasonNoSignal");
+    }
+
+    private static string ReplacementAccent(BatteryReplacementStatus status) => status switch
+    {
+        BatteryReplacementStatus.CheckRequired => "#F59E0B",
+        BatteryReplacementStatus.ConsiderReplacement => "#F97316",
+        BatteryReplacementStatus.ReplacementRequested => "#EF4444",
+        BatteryReplacementStatus.NoSignal => "#22C55E",
         _ => "#64748B",
     };
 
@@ -768,6 +874,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         ];
     }
 
+    private void RefreshVendorHealthCategoryOptions()
+    {
+        VendorHealthCategoryOptions =
+        [
+            new(VendorBatteryHealthCategory.Unknown, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Unknown)),
+            new(VendorBatteryHealthCategory.Good, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Good)),
+            new(VendorBatteryHealthCategory.Average, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Average)),
+            new(VendorBatteryHealthCategory.BelowAverage, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.BelowAverage)),
+            new(VendorBatteryHealthCategory.Poor, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Poor)),
+        ];
+    }
+
     private void InitializeBaselineEditor(BatteryHealthProfile? profile)
     {
         if (_baselineEditorInitialized || profile is null)
@@ -789,6 +907,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             KnownHealthSource = profile.AnchorSource;
         }
+
+        SelectedVendorHealthCategory = profile.VendorHealthCategory;
 
         _baselineEditorInitialized = true;
     }
@@ -945,6 +1065,13 @@ public sealed record LanguageOption(string Code, string DisplayName)
 
 public sealed record BatteryBaselineModeOption(
     BatteryRuntimeBaselineKind Kind,
+    string DisplayName)
+{
+    public override string ToString() => DisplayName;
+}
+
+public sealed record VendorHealthCategoryOption(
+    VendorBatteryHealthCategory Category,
     string DisplayName)
 {
     public override string ToString() => DisplayName;

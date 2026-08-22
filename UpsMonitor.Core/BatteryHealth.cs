@@ -239,6 +239,7 @@ public static class UpsTelemetryValidator
 public enum BatteryHealthStatus
 {
     Unknown,
+    VendorReported,
     Excellent,
     Good,
     Fair,
@@ -316,6 +317,45 @@ public enum BatteryRuntimeBaselineKind
     KnownHealthAnchor,
 }
 
+public enum VendorBatteryHealthCategory
+{
+    Unknown,
+    Good,
+    Average,
+    BelowAverage,
+    Poor,
+}
+
+public enum BatteryReplacementStatus
+{
+    Unknown,
+    NoSignal,
+    CheckRequired,
+    ConsiderReplacement,
+    ReplacementRequested,
+}
+
+public enum BatteryReplacementReasonCode
+{
+    NeedReplacementReported,
+    SelfTestFailed,
+    PhysicalCapacityBelowReference,
+    ControlledMeasurementBelowReference,
+    NewBatteryRuntimeBelowReference,
+    RelativeRuntimeDeclined,
+}
+
+public sealed record BatteryReplacementReason(
+    BatteryReplacementReasonCode Code,
+    double? Observed = null,
+    double? Reference = null);
+
+public sealed record BatteryReplacementAssessment
+{
+    public required BatteryReplacementStatus Status { get; init; }
+    public required IReadOnlyList<BatteryReplacementReason> Reasons { get; init; }
+}
+
 public sealed record BatteryHealthProfile
 {
     public required string DeviceId { get; init; }
@@ -323,6 +363,7 @@ public sealed record BatteryHealthProfile
     public BatteryRuntimeBaselineKind RuntimeBaselineKind { get; set; }
     public double? AnchorHealthPercent { get; set; }
     public string? AnchorSource { get; set; }
+    public VendorBatteryHealthCategory VendorHealthCategory { get; set; }
     public DateTimeOffset? BaselineRecordedAt { get; set; }
     public List<BatteryRuntimeBaselinePoint> RuntimeBaselines { get; init; } = [];
     public List<BatteryHealthMeasurement> ControlledMeasurements { get; init; } = [];
@@ -334,6 +375,7 @@ public sealed record BatteryHealthOptions
     public double CriticalThresholdPercent { get; init; } = 60;
     public double ComparableLoadTolerancePercent { get; init; } = 5;
     public double MaximumInterpolationSpanPercent { get; init; } = 20;
+    public double ReplacementPerformanceThresholdPercent { get; init; } = 80;
 }
 
 public sealed record BatteryHealthResult
@@ -342,12 +384,14 @@ public sealed record BatteryHealthResult
     public double? RelativePerformancePercent { get; init; }
     public double? AnchorHealthPercent { get; init; }
     public string? AnchorSource { get; init; }
+    public VendorBatteryHealthCategory VendorHealthCategory { get; init; }
     public BatteryRuntimeBaselineKind BaselineKind { get; init; }
     public required BatteryHealthStatus Status { get; init; }
     public required BatteryHealthConfidence Confidence { get; init; }
     public required BatteryHealthMethod PrimaryMethod { get; init; }
     public required int EvidenceScore { get; init; }
     public required IReadOnlyList<BatteryHealthReason> Reasons { get; init; }
+    public required BatteryReplacementAssessment Replacement { get; init; }
 }
 
 public static class BatteryHealthCalculator
@@ -490,7 +534,16 @@ public static class BatteryHealthCalculator
             : ConfidenceFromScore(evidenceScore, health.HasValue || relativePerformance.HasValue);
         var status = hardFailure
             ? BatteryHealthStatus.Critical
-            : StatusFromHealth(health, options);
+            : method == BatteryHealthMethod.VendorAnchoredRuntime
+                ? BatteryHealthStatus.VendorReported
+                : StatusFromHealth(health, options);
+        var replacement = AssessReplacement(
+            telemetry,
+            profile,
+            method,
+            health,
+            relativePerformance,
+            options);
 
         return new BatteryHealthResult
         {
@@ -500,12 +553,14 @@ public static class BatteryHealthCalculator
                 ? profile!.AnchorHealthPercent
                 : null,
             AnchorSource = profile?.AnchorSource,
+            VendorHealthCategory = profile?.VendorHealthCategory ?? VendorBatteryHealthCategory.Unknown,
             BaselineKind = profile?.RuntimeBaselineKind ?? BatteryRuntimeBaselineKind.Unspecified,
             Status = status,
             Confidence = confidence,
             PrimaryMethod = method,
             EvidenceScore = hardFailure ? 100 : evidenceScore,
             Reasons = reasons,
+            Replacement = replacement,
         };
 
         BatteryHealthResult Unknown(BatteryHealthReasonCode code) => new()
@@ -514,13 +569,91 @@ public static class BatteryHealthCalculator
             RelativePerformancePercent = null,
             AnchorHealthPercent = null,
             AnchorSource = null,
+            VendorHealthCategory = VendorBatteryHealthCategory.Unknown,
             BaselineKind = BatteryRuntimeBaselineKind.Unspecified,
             Status = BatteryHealthStatus.Unknown,
             Confidence = BatteryHealthConfidence.Unknown,
             PrimaryMethod = BatteryHealthMethod.None,
             EvidenceScore = 0,
             Reasons = [new(code)],
+            Replacement = new BatteryReplacementAssessment
+            {
+                Status = BatteryReplacementStatus.Unknown,
+                Reasons = [],
+            },
         };
+    }
+
+    private static BatteryReplacementAssessment AssessReplacement(
+        UpsTelemetry telemetry,
+        BatteryHealthProfile? profile,
+        BatteryHealthMethod method,
+        double? health,
+        double? relativePerformance,
+        BatteryHealthOptions options)
+    {
+        if (telemetry.NeedReplacement.Value is true)
+        {
+            return Assessment(
+                BatteryReplacementStatus.ReplacementRequested,
+                new(BatteryReplacementReasonCode.NeedReplacementReported));
+        }
+
+        if (telemetry.SelfTest == UpsSelfTestResult.Failed)
+        {
+            return Assessment(
+                BatteryReplacementStatus.CheckRequired,
+                new(BatteryReplacementReasonCode.SelfTestFailed));
+        }
+
+        if (health is { } measured
+            && measured < options.ReplacementPerformanceThresholdPercent)
+        {
+            var reason = method switch
+            {
+                BatteryHealthMethod.CapacityRatio => BatteryReplacementReasonCode.PhysicalCapacityBelowReference,
+                BatteryHealthMethod.ControlledRuntimeTest or BatteryHealthMethod.DischargedEnergy =>
+                    BatteryReplacementReasonCode.ControlledMeasurementBelowReference,
+                BatteryHealthMethod.RuntimeBaseline
+                    when profile?.RuntimeBaselineKind == BatteryRuntimeBaselineKind.NewBattery =>
+                    BatteryReplacementReasonCode.NewBatteryRuntimeBelowReference,
+                _ => (BatteryReplacementReasonCode?)null,
+            };
+
+            if (reason is { } measuredReason)
+            {
+                return Assessment(
+                    BatteryReplacementStatus.ConsiderReplacement,
+                    new(measuredReason, measured, options.ReplacementPerformanceThresholdPercent));
+            }
+        }
+
+        if (relativePerformance is { } relative
+            && relative < options.ReplacementPerformanceThresholdPercent
+            && profile?.RuntimeBaselineKind is BatteryRuntimeBaselineKind.CurrentRelative
+                or BatteryRuntimeBaselineKind.KnownHealthAnchor)
+        {
+            return Assessment(
+                BatteryReplacementStatus.CheckRequired,
+                new(
+                    BatteryReplacementReasonCode.RelativeRuntimeDeclined,
+                    relative,
+                    options.ReplacementPerformanceThresholdPercent));
+        }
+
+        return new BatteryReplacementAssessment
+        {
+            Status = BatteryReplacementStatus.NoSignal,
+            Reasons = [],
+        };
+
+        static BatteryReplacementAssessment Assessment(
+            BatteryReplacementStatus status,
+            BatteryReplacementReason reason) => new()
+            {
+                Status = status,
+                Reasons = [reason],
+            };
     }
 
     private static bool TryCalculateRuntimeRatio(
@@ -682,7 +815,8 @@ public static class BatteryHealthCalculator
             || options.WarningThresholdPercent <= options.CriticalThresholdPercent
             || options.WarningThresholdPercent > 100
             || options.ComparableLoadTolerancePercent is < 0 or > 25
-            || options.MaximumInterpolationSpanPercent is <= 0 or > 100)
+            || options.MaximumInterpolationSpanPercent is <= 0 or > 100
+            || options.ReplacementPerformanceThresholdPercent is <= 0 or > 100)
         {
             throw new ArgumentOutOfRangeException(nameof(options));
         }

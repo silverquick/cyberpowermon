@@ -11,9 +11,11 @@ var tests = new (string Name, Action Run)[]
     ("Physical capacity ratio calculates SOH", PhysicalCapacityRatio),
     ("Runtime baseline calculates comparable-load SOH", RuntimeBaselineHealth),
     ("Current baseline reports relative trend only", CurrentRelativeBaseline),
+    ("Relative runtime decline requests a battery check", RelativeRuntimeDecline),
     ("Known BHI anchors the runtime estimate", KnownHealthAnchor),
     ("Missing baseline leaves health unknown", MissingBaselineIsUnknown),
     ("Hard battery failures override score", HardFailureOverridesScore),
+    ("Self-test failure requests a battery check", SelfTestFailureRequestsCheck),
 };
 
 var failures = new List<string>();
@@ -140,6 +142,7 @@ static void PhysicalCapacityRatio()
     Near(80, health.HealthPercent);
     Equal(BatteryHealthMethod.CapacityRatio, health.PrimaryMethod);
     Equal(BatteryHealthStatus.Good, health.Status);
+    Equal(BatteryReplacementStatus.NoSignal, health.Replacement.Status);
 }
 
 static void RuntimeBaselineHealth()
@@ -169,6 +172,8 @@ static void RuntimeBaselineHealth()
     Equal(BatteryHealthMethod.RuntimeBaseline, health.PrimaryMethod);
     Equal(BatteryHealthStatus.Fair, health.Status);
     Equal(BatteryHealthConfidence.Low, health.Confidence);
+    Equal(BatteryReplacementStatus.ConsiderReplacement, health.Replacement.Status);
+    Equal(BatteryReplacementReasonCode.NewBatteryRuntimeBelowReference, health.Replacement.Reasons[0].Code);
 }
 
 static void CurrentRelativeBaseline()
@@ -186,6 +191,23 @@ static void CurrentRelativeBaseline()
     Equal(BatteryHealthMethod.RelativeRuntimeTrend, health.PrimaryMethod);
     Equal(BatteryHealthStatus.Unknown, health.Status);
     Equal(BatteryHealthConfidence.Low, health.Confidence);
+    Equal(BatteryReplacementStatus.NoSignal, health.Replacement.Status);
+}
+
+static void RelativeRuntimeDecline()
+{
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(
+        battery: 100,
+        load: 20,
+        fullyCharged: true,
+        runtime: TimeSpan.FromMinutes(36.4)));
+    var health = BatteryHealthCalculator.Calculate(
+        telemetry,
+        RuntimeProfile(BatteryRuntimeBaselineKind.CurrentRelative));
+
+    Near(70, health.RelativePerformancePercent);
+    Equal(BatteryReplacementStatus.CheckRequired, health.Replacement.Status);
+    Equal(BatteryReplacementReasonCode.RelativeRuntimeDeclined, health.Replacement.Reasons[0].Code);
 }
 
 static void KnownHealthAnchor()
@@ -199,6 +221,7 @@ static void KnownHealthAnchor()
     {
         AnchorHealthPercent = 59,
         AnchorSource = "CyberPower BHI",
+        VendorHealthCategory = VendorBatteryHealthCategory.Poor,
     };
     var health = BatteryHealthCalculator.Calculate(telemetry, profile);
 
@@ -208,7 +231,10 @@ static void KnownHealthAnchor()
     Equal("CyberPower BHI", health.AnchorSource);
     Equal(BatteryHealthMethod.VendorAnchoredRuntime, health.PrimaryMethod);
     Equal(BatteryHealthConfidence.Medium, health.Confidence);
-    Equal(BatteryHealthStatus.Poor, health.Status);
+    Equal(VendorBatteryHealthCategory.Poor, health.VendorHealthCategory);
+    Equal(BatteryHealthStatus.VendorReported, health.Status);
+    Equal(BatteryReplacementStatus.NoSignal, health.Replacement.Status);
+    Equal(0, health.Replacement.Reasons.Count);
 }
 
 static BatteryHealthProfile RuntimeProfile(BatteryRuntimeBaselineKind kind) => new()
@@ -239,6 +265,7 @@ static void MissingBaselineIsUnknown()
     Equal(null, health.HealthPercent);
     Equal(BatteryHealthStatus.Unknown, health.Status);
     Equal(BatteryHealthConfidence.Unknown, health.Confidence);
+    Equal(BatteryReplacementStatus.NoSignal, health.Replacement.Status);
 }
 
 static void HardFailureOverridesScore()
@@ -251,6 +278,18 @@ static void HardFailureOverridesScore()
     Equal(null, health.HealthPercent);
     Equal(BatteryHealthStatus.Critical, health.Status);
     Equal(BatteryHealthConfidence.High, health.Confidence);
+    Equal(BatteryReplacementStatus.ReplacementRequested, health.Replacement.Status);
+    Equal(BatteryReplacementReasonCode.NeedReplacementReported, health.Replacement.Reasons[0].Code);
+}
+
+static void SelfTestFailureRequestsCheck()
+{
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(selfTest: "Done - error"));
+    var health = BatteryHealthCalculator.Calculate(telemetry, null);
+
+    Equal(BatteryHealthStatus.Critical, health.Status);
+    Equal(BatteryReplacementStatus.CheckRequired, health.Replacement.Status);
+    Equal(BatteryReplacementReasonCode.SelfTestFailed, health.Replacement.Reasons[0].Code);
 }
 
 static UpsSnapshot Snapshot(

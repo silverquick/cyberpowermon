@@ -14,7 +14,7 @@ Version 0.1 は監視・状態表示・イベント検出・ファイルログ�
 - 入出力電圧、バッテリー電圧、負荷率、有効電力、皮相電力、定格値、切替電圧など、descriptor が公開する全82項目を保持・表示
 - 入力値の妥当性検証と、物理容量または同等負荷のランタイム基準による説明可能なバッテリーSOH推定
 - 新品時の絶対基準、現在値からの相対推移、CyberPower BHI等の既知値アンカーを区別して保存
-- 健全性の算出方法・信頼度・根拠、交換要求／セルフテストによる重大状態の優先表示
+- 健全性の算出方法・信頼度・根拠と、BHIから独立した交換判定を表示
 - `Unknown / Online / OnBattery / LowBattery / Critical` の状態判定
 - PowerLost、PowerRestored、BatteryLow、BatteryCritical、RuntimeLow、OverloadDetected、UpsDisconnected、UpsReconnected イベント
 - 1秒周期のバックグラウンド監視、read error 後の再列挙、`WM_DEVICECHANGE` による即時再スキャン
@@ -120,9 +120,11 @@ CP1200PFCLCD JP が返す `DesignCapacity=100` と `FullChargeCapacity=100` は�
 
 - `新品／交換直後`: 現在値を絶対的なSOH 100%の基準にします。新品または交換直後だけに使用します。
 - `現在値（相対推移のみ）`: 使用中のバッテリーでも設定できます。現在値を相対100%として以後の低下を表示しますが、絶対的なSOHは `N/A` のままです。
-- `既知の健全性`: PowerPanelで確認したBHIなどを手入力します。例えば59%を記録した後は、`59 × 現在ランタイム / 基準ランタイム` を同等負荷で評価します。
+- `既知の健全性`: PowerPanelで確認したBHIなどを手入力します。例えば59%を記録した後は、`59 × 現在ランタイム / 基準ランタイム` を同等負荷で評価します。PowerPanelに表示された公式区分（Good / Average / Below Average / Poor）が分かる場合は併記できます。
 
-絶対的な健全性と、記録時点からの相対推移はDashboardで別々に表示します。CyberPower BHIを標準HIDから取得したとは表示せず、保存した値の取得元（初期値は `CyberPower BHI`）も併記します。
+絶対的な健全性と、記録時点からの相対推移はDashboardで別々に表示します。CyberPower BHIを標準HIDから取得したとは表示せず、保存した値の取得元（初期値は `CyberPower BHI`）も併記します。CyberPowerがBHIの数値に対応する交換しきい値を公表していないため、59%などのBHI値だけを「早めに交換」へ変換しません。
+
+交換判定はBHIとは別に表示します。`NeedReplacement` は交換要求、セルフテスト失敗は要確認、物理容量・制御放電測定・新品時ランタイムが基準の80%未満なら交換検討、記録時点からの相対ランタイムが80%未満なら要確認とします。この80%は実測／基準性能の確認目安にだけ使い、CyberPower BHIには適用しません。
 
 SOC、負荷、ランタイム等は範囲検証し、例えば120%の残量は100%へ丸めずInvalidとして除外します。`NeedReplacement` またはセルフテスト失敗が報告された場合は、計算上の割合より重大状態を優先します。
 
