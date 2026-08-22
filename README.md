@@ -2,7 +2,7 @@
 
 Windows 11 x64 向けの読み取り専用 UPS 監視アプリです。.NET 10 / C# / WPF / MVVM で構成し、PowerPanel やサードパーティ USB ライブラリを介さず、Windows 標準 HID / SetupAPI を P/Invoke して USB HID Power Device を読み取ります。
 
-Version 0.1 は監視・状態表示・イベント検出・ファイルログまでを対象とし、UPS や Windows に対するシャットダウン操作は一切実行しません。HID Output report、`HidD_SetFeature`、電源制御 API も呼び出しません。
+Version 0.1 は監視・状態表示・イベント検出・ローカル履歴・ファイルログまでを対象とし、UPS や Windows に対するシャットダウン操作は一切実行しません。HID Output report、`HidD_SetFeature`、電源制御 API も呼び出しません。
 
 ## 現在の機能
 
@@ -18,10 +18,12 @@ Version 0.1 は監視・状態表示・イベント検出・ファイルログ�
 - `Unknown / Online / OnBattery / LowBattery / Critical` の状態判定
 - PowerLost、PowerRestored、BatteryLow、BatteryCritical、RuntimeLow、OverloadDetected、UpsDisconnected、UpsReconnected イベント
 - 1秒周期のバックグラウンド監視、read error 後の再列挙、`WM_DEVICECHANGE` による即時再スキャン
-- Windows 11 Fluent風の Dashboard、UPS、Devices、Actions、Logs、Settings UI
+- Windows 11 Fluent風の Dashboard、History、UPS、Devices、Actions、Logs、Settings UI
+- ローカルSQLiteへ1秒テレメトリ、HID数値、状態遷移、イベント、健全性履歴を保存
+- 1時間／6時間／24時間／7日／30日のグラフ、Dashboardの小型トレンド、状態タイムライン
 - ライト／ダークテーマ、角丸カード、細いFluent風スクロールバー
 - 日本語／英語を設定画面から即時切り替え、選択言語を `config.json` に保存
-- `%ProgramData%\UpsMonitor\config.json` と日別イベントログ
+- `%ProgramData%\UpsMonitor\config.json`、`telemetry.db` と日別イベントログ
 
 未公開の Usage は `N/A` のまま表示し、他の Usage の監視は継続します。HID詳細画面では標準項目だけでなくベンダー定義Usageも生値・Report ID・Collection Path・論理/物理範囲・Unit・ビット配置とともに確認できます。
 
@@ -30,7 +32,7 @@ Version 0.1 は監視・状態表示・イベント検出・ファイルログ�
 ```text
 UpsMonitor.Core            Snapshot / State / Event / Rule contracts / Monitor engine
 UpsMonitor.Hid             HID / SetupAPI P/Invoke、descriptor/report parser、UPS mapper
-UpsMonitor.Infrastructure  JSON configuration、file event log
+UpsMonitor.Infrastructure  JSON configuration、file event log、local SQLite telemetry store
 UpsMonitor.App             WPF MVVM UI、WM_DEVICECHANGE bridge
 UpsMonitor.Probe           実機の descriptor と現在値を確認する console tool
 UpsMonitor.Core.Tests      NuGet test framework を使わない core self-tests
@@ -54,7 +56,7 @@ UI は Win32/HID API を参照せず、`UpsSnapshot` とイベントだけを受
 
 ## ビルドと起動
 
-前提は Windows 11 x64 と .NET 10 SDK です。追加 workload や NuGet パッケージは不要です。
+前提は Windows 11 x64 と .NET 10 SDK です。SQLiteアクセスにはMicrosoft公式の `Microsoft.Data.Sqlite` を使用します。
 
 ```powershell
 dotnet build UpsMonitor.sln
@@ -86,10 +88,15 @@ dotnet run --project .\UpsMonitor.Core.Tests\UpsMonitor.Core.Tests.csproj
 ```text
 C:\ProgramData\UpsMonitor\
   config.json
+  telemetry.db
   logs\ups-YYYY-MM-DD.log
 ```
 
-設定例は [`config.example.json`](config.example.json) にあります。`shutdownPolicies` は将来互換のデータ形状だけで、v0.1 では読み込まれても実行されません。通常ユーザーで ProgramData の作成権限がない配布環境では、インストーラー側で `C:\ProgramData\UpsMonitor` と適切な ACL を作成してください。
+`telemetry.db` はこのPC内だけで使うローカルSQLiteデータベースです。クラウドや外部DBへの送信は行いません。実行中はSQLiteのWAL用に `telemetry.db-wal` と `telemetry.db-shm` が同じ場所へ作成されることがあります。
+
+1秒ごとの主要値と変化時／5分ごとの全数値HID Usageを14日間保存し、同時に1分単位の最小・平均・最大値を長期集計として保持します。状態遷移、UPSイベント、バッテリー健全性の観測履歴も同じDBへ保存します。割合グラフ（充電率、負荷率、健全性）は常に0～100%固定で、電圧、ランタイム、W/VAは値に応じた軸を使います。
+
+設定例は [`config.example.json`](config.example.json) にあります。`history.rawRetentionDays` で生データ保持日数、`history.rawUsageCheckpointSeconds` で全HID数値の定期記録間隔を変更できます。`shutdownPolicies` は将来互換のデータ形状だけで、v0.1 では読み込まれても実行されません。通常ユーザーで ProgramData の作成権限がない配布環境では、インストーラー側で `C:\ProgramData\UpsMonitor` と適切な ACL を作成してください。
 
 ## CP1200PFCLCD JP 実機確認
 

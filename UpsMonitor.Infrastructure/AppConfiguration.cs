@@ -10,8 +10,28 @@ public sealed class AppConfiguration
 
     public BatteryHealthConfiguration BatteryHealth { get; init; } = new();
 
+    public HistoryConfiguration History { get; init; } = new();
+
     // Intentionally inert in v0.1. This preserves the future configuration shape.
     public List<RuleDefinition> ShutdownPolicies { get; init; } = [];
+}
+
+public sealed class HistoryConfiguration
+{
+    private int _rawRetentionDays = 14;
+    private int _rawUsageCheckpointSeconds = 300;
+
+    public int RawRetentionDays
+    {
+        get => _rawRetentionDays;
+        set => _rawRetentionDays = value is >= 1 and <= 365 ? value : 14;
+    }
+
+    public int RawUsageCheckpointSeconds
+    {
+        get => _rawUsageCheckpointSeconds;
+        set => _rawUsageCheckpointSeconds = value is >= 30 and <= 86_400 ? value : 300;
+    }
 }
 
 public sealed class BatteryHealthConfiguration

@@ -1,4 +1,6 @@
+using Microsoft.Data.Sqlite;
 using UpsMonitor.Core;
+using UpsMonitor.Infrastructure;
 
 var tests = new (string Name, Action Run)[]
 {
@@ -16,6 +18,7 @@ var tests = new (string Name, Action Run)[]
     ("Missing baseline leaves health unknown", MissingBaselineIsUnknown),
     ("Hard battery failures override score", HardFailureOverridesScore),
     ("Self-test failure requests a battery check", SelfTestFailureRequestsCheck),
+    ("SQLite history stores samples, rollups, events, and health", SqliteHistoryRoundTrip),
 };
 
 var failures = new List<string>();
@@ -290,6 +293,108 @@ static void SelfTestFailureRequestsCheck()
     Equal(BatteryHealthStatus.Critical, health.Status);
     Equal(BatteryReplacementStatus.CheckRequired, health.Replacement.Status);
     Equal(BatteryReplacementReasonCode.SelfTestFailed, health.Replacement.Reasons[0].Code);
+}
+
+static void SqliteHistoryRoundTrip() => SqliteHistoryRoundTripAsync().GetAwaiter().GetResult();
+
+static async Task SqliteHistoryRoundTripAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), "UpsMonitor.Tests", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        await store.InitializeAsync();
+        var device = new UpsDeviceInfo(
+            "test-path",
+            0x0764,
+            0x0601,
+            "CPS",
+            "Test UPS",
+            "TEST01",
+            0x84,
+            0x04,
+            64,
+            64);
+        var start = DateTimeOffset.UtcNow.AddMinutes(-2);
+        var raw1 = CapacityItem(0x40, 98, "V", 0, 255) with { Key = "Input:1:0084:0040:0", UsagePage = 0x84 };
+        var raw2 = raw1 with { NumericValue = 99, RawValue = 99, DisplayValue = "99" };
+        var first = Snapshot(
+            ac: true,
+            runtime: TimeSpan.FromMinutes(12),
+            battery: 100,
+            load: 50,
+            telemetry: [raw1]) with
+        {
+            Timestamp = start,
+            Device = device,
+            InputVoltage = 98,
+            OutputVoltage = 98,
+            BatteryVoltage = 26.4,
+            ActivePower = 380,
+            ApparentPower = 382,
+        };
+        var second = first with
+        {
+            Timestamp = start.AddSeconds(2),
+            InputVoltage = 99,
+            OutputVoltage = 99,
+            ActivePower = 385,
+            Telemetry = [raw2],
+        };
+
+        await store.WriteAsync(first, CancellationToken.None);
+        await store.WriteAsync(second, CancellationToken.None);
+        await store.WriteAsync(
+            new UpsEvent(
+                start.AddSeconds(1),
+                UpsEventType.PowerRestored,
+                "restored",
+                UpsPowerState.OnBattery,
+                UpsPowerState.Online),
+            CancellationToken.None);
+        await store.RecordBatteryHealthAsync(new BatteryHealthObservation
+        {
+            DeviceId = UpsDeviceIdentity.Create(device),
+            Timestamp = start,
+            HealthPercent = 59,
+            RelativePerformancePercent = 100,
+            Status = BatteryHealthStatus.VendorReported,
+            Method = BatteryHealthMethod.VendorAnchoredRuntime,
+            Confidence = BatteryHealthConfidence.Medium,
+            AnchorSource = "CyberPower BHI",
+            VendorCategory = VendorBatteryHealthCategory.Unknown,
+            ReplacementStatus = BatteryReplacementStatus.NoSignal,
+        });
+        await store.FlushAsync();
+
+        var result = await store.QueryHistoryAsync(
+            UpsDeviceIdentity.Create(device),
+            start.AddMinutes(-1),
+            start.AddMinutes(1),
+            [TelemetryMetric.InputVoltage, TelemetryMetric.ActivePowerWatts]);
+        var statistics = await store.GetStatisticsAsync();
+
+        Equal(2L, result.SourceSampleCount);
+        Equal(2, result.Metrics[TelemetryMetric.InputVoltage].Points.Count);
+        Near(98, result.Metrics[TelemetryMetric.InputVoltage].Points[0].Average);
+        Near(385, result.Metrics[TelemetryMetric.ActivePowerWatts].Points[1].Average);
+        Equal(1, result.Events.Count);
+        Equal(1, result.StateChanges.Count);
+        Equal(1, result.BatteryHealth.Count);
+        Equal(2L, statistics.SampleCount);
+        Equal(2L, statistics.RawValueCount);
+        Equal(1L, statistics.EventCount);
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
 }
 
 static UpsSnapshot Snapshot(

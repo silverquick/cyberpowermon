@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\UpsMonitor.Core\UpsMonitor.Core.csproj" />
+    <ProjectReference Include="..\UpsMonitor.Infrastructure\UpsMonitor.Infrastructure.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

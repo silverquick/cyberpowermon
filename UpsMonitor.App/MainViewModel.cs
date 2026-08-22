@@ -15,6 +15,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private readonly UpsMonitorEngine _engine;
     private readonly JsonConfigurationStore _configurationStore;
     private readonly AppConfiguration _configuration;
+    private readonly SqliteTelemetryStore? _historyStore;
     private readonly Dispatcher _dispatcher;
     private string _connectionText = string.Empty;
     private string _stateText = string.Empty;
@@ -39,16 +40,32 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private double _knownHealthPercent = 59;
     private string _knownHealthSource = "CyberPower BHI";
     private bool _baselineEditorInitialized;
+    private IReadOnlyList<HistoryRangeOption> _historyRangeOptions = [];
+    private HistoryRangeOption? _selectedHistoryRange;
+    private CancellationTokenSource? _historyRefreshCancellation;
+    private DateTimeOffset _lastHistoryRefresh = DateTimeOffset.MinValue;
+    private string _historyStatus = string.Empty;
+    private bool _isHistoryLoading;
+    private HistoryChartData? _voltageHistory;
+    private HistoryChartData? _loadHistory;
+    private HistoryChartData? _powerHistory;
+    private HistoryChartData? _batteryChargeHistory;
+    private HistoryChartData? _runtimeHistory;
+    private HistoryChartData? _batteryVoltageHistory;
+    private HistoryChartData? _healthHistory;
+    private HistoryStateTimelineData? _stateHistory;
 
     public MainViewModel(
         UpsMonitorEngine engine,
         JsonConfigurationStore configurationStore,
         AppConfiguration configuration,
-        AppPaths paths)
+        AppPaths paths,
+        SqliteTelemetryStore? historyStore)
     {
         _engine = engine;
         _configurationStore = configurationStore;
         _configuration = configuration;
+        _historyStore = historyStore;
         _pollIntervalMs = configuration.Monitoring.PollIntervalMs;
         _selectedLanguageCode = LocalizationManager.CurrentLanguageCode;
         _batteryWarningThresholdPercent = configuration.BatteryHealth.WarningThresholdPercent;
@@ -56,18 +73,25 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _comparableLoadTolerancePercent = configuration.BatteryHealth.ComparableLoadTolerancePercent;
         RuntimeLowSeconds = configuration.Monitoring.RuntimeLowSeconds;
         ConfigurationFile = paths.ConfigurationFile;
+        TelemetryDatabaseFile = paths.TelemetryDatabaseFile;
         LogsDirectory = paths.LogsDirectory;
         _dispatcher = Application.Current.Dispatcher;
         RefreshBaselineModeOptions();
         RefreshVendorHealthCategoryOptions();
+        RefreshHistoryRangeOptions();
         SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync, SetCommandError);
         RecordRuntimeBaselineCommand = new AsyncRelayCommand(RecordRuntimeBaselineAsync, SetCommandError);
         ClearRuntimeBaselineCommand = new AsyncRelayCommand(ClearRuntimeBaselineAsync, SetCommandError);
+        RefreshHistoryCommand = new AsyncRelayCommand(RefreshHistoryAsync, SetCommandError);
 
         _engine.SnapshotUpdated += OnSnapshotUpdated;
         _engine.EventDetected += OnEventDetected;
         _engine.MonitorError += OnMonitorError;
         LocalizationManager.LanguageChanged += OnLanguageChanged;
+        if (_historyStore is not null)
+        {
+            _historyStore.StorageError += OnHistoryStorageError;
+        }
         ApplyWaitingState();
     }
 
@@ -87,9 +111,51 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public ICommand ClearRuntimeBaselineCommand { get; }
 
+    public ICommand RefreshHistoryCommand { get; }
+
     public string ConfigurationFile { get; }
 
+    public string TelemetryDatabaseFile { get; }
+
     public string LogsDirectory { get; }
+
+    public IReadOnlyList<HistoryRangeOption> HistoryRangeOptions
+    {
+        get => _historyRangeOptions;
+        private set => SetField(ref _historyRangeOptions, value);
+    }
+
+    public HistoryRangeOption? SelectedHistoryRange
+    {
+        get => _selectedHistoryRange;
+        set
+        {
+            if (SetField(ref _selectedHistoryRange, value) && value is not null && _lastSnapshot is not null)
+            {
+                _ = RefreshHistoryAsync();
+            }
+        }
+    }
+
+    public string HistoryStatus { get => _historyStatus; private set => SetField(ref _historyStatus, value); }
+
+    public bool IsHistoryLoading { get => _isHistoryLoading; private set => SetField(ref _isHistoryLoading, value); }
+
+    public HistoryChartData? VoltageHistory { get => _voltageHistory; private set => SetField(ref _voltageHistory, value); }
+
+    public HistoryChartData? LoadHistory { get => _loadHistory; private set => SetField(ref _loadHistory, value); }
+
+    public HistoryChartData? PowerHistory { get => _powerHistory; private set => SetField(ref _powerHistory, value); }
+
+    public HistoryChartData? BatteryChargeHistory { get => _batteryChargeHistory; private set => SetField(ref _batteryChargeHistory, value); }
+
+    public HistoryChartData? RuntimeHistory { get => _runtimeHistory; private set => SetField(ref _runtimeHistory, value); }
+
+    public HistoryChartData? BatteryVoltageHistory { get => _batteryVoltageHistory; private set => SetField(ref _batteryVoltageHistory, value); }
+
+    public HistoryChartData? HealthHistory { get => _healthHistory; private set => SetField(ref _healthHistory, value); }
+
+    public HistoryStateTimelineData? StateHistory { get => _stateHistory; private set => SetField(ref _stateHistory, value); }
 
     public int RuntimeLowSeconds { get; }
 
@@ -260,10 +326,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _historyRefreshCancellation?.Cancel();
+        _historyRefreshCancellation?.Dispose();
         _engine.SnapshotUpdated -= OnSnapshotUpdated;
         _engine.EventDetected -= OnEventDetected;
         _engine.MonitorError -= OnMonitorError;
         LocalizationManager.LanguageChanged -= OnLanguageChanged;
+        if (_historyStore is not null)
+        {
+            _historyStore.StorageError -= OnHistoryStorageError;
+        }
+
         await _engine.DisposeAsync();
     }
 
@@ -283,12 +356,16 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private void OnMonitorError(Exception exception) =>
         _ = _dispatcher.InvokeAsync(() => LastError = exception.Message);
 
+    private void OnHistoryStorageError(Exception exception) =>
+        _ = _dispatcher.InvokeAsync(() => LastError = LocalizationManager.Format("HistoryStorageErrorFormat", exception.Message));
+
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
         _selectedLanguageCode = LocalizationManager.CurrentLanguageCode;
         OnPropertyChanged(nameof(SelectedLanguageCode));
         RefreshBaselineModeOptions();
         RefreshVendorHealthCategoryOptions();
+        RefreshHistoryRangeOptions();
         OnPropertyChanged(nameof(BaselineInstructionText));
         SettingsStatus = string.Empty;
 
@@ -305,6 +382,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             upsEvent.RefreshLanguage();
         }
+
+        if (_lastSnapshot is not null)
+        {
+            _ = RefreshHistoryAsync();
+        }
     }
 
     private void ApplyWaitingState()
@@ -315,6 +397,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         LastUpdateText = L("NeverUpdated");
         Product = L("NoUpsDetected");
         TelemetryCountText = LocalizationManager.Format("TelemetryCountFormat", 0, 0, 0, 0);
+        HistoryStatus = _historyStore is null ? L("HistoryUnavailable") : L("HistoryWaitingForUps");
         RaiseSnapshotProperties();
     }
 
@@ -446,7 +529,29 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         InputOutputText = $"{InputVoltageText} / {OutputVoltageText}";
         ReportBytesText = LocalizationManager.Format("ReportBytesFormat", InputReportLength, FeatureReportLength);
 
+        if (_historyStore is not null && snapshot.Device is { } historyDevice)
+        {
+            _ = _historyStore.RecordBatteryHealthAsync(new BatteryHealthObservation
+            {
+                DeviceId = UpsDeviceIdentity.Create(historyDevice),
+                Timestamp = snapshot.Timestamp,
+                HealthPercent = health.HealthPercent,
+                RelativePerformancePercent = health.RelativePerformancePercent,
+                Status = health.Status,
+                Method = health.PrimaryMethod,
+                Confidence = health.Confidence,
+                AnchorSource = health.AnchorSource,
+                VendorCategory = health.VendorHealthCategory,
+                ReplacementStatus = health.Replacement.Status,
+            });
+        }
+
         RaiseSnapshotProperties();
+
+        if (_historyStore is not null && snapshot.Timestamp - _lastHistoryRefresh >= TimeSpan.FromSeconds(10))
+        {
+            _ = RefreshHistoryAsync();
+        }
     }
 
     private async Task RecordRuntimeBaselineAsync()
@@ -581,6 +686,203 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
     }
 
+    private async Task RefreshHistoryAsync()
+    {
+        if (_historyStore is null)
+        {
+            HistoryStatus = L("HistoryUnavailable");
+            return;
+        }
+
+        if (_lastSnapshot?.Device is not { } device || SelectedHistoryRange is not { } range)
+        {
+            HistoryStatus = L("HistoryWaitingForUps");
+            return;
+        }
+
+        var previousCancellation = _historyRefreshCancellation;
+        var refreshCancellation = new CancellationTokenSource();
+        _historyRefreshCancellation = refreshCancellation;
+        previousCancellation?.Cancel();
+        previousCancellation?.Dispose();
+
+        IsHistoryLoading = true;
+        HistoryStatus = L("HistoryLoading");
+        var to = DateTimeOffset.Now;
+        var from = to - range.Duration;
+        _lastHistoryRefresh = to;
+
+        try
+        {
+            var history = await _historyStore.QueryHistoryAsync(
+                UpsDeviceIdentity.Create(device),
+                from,
+                to,
+                Enum.GetValues<TelemetryMetric>(),
+                cancellationToken: refreshCancellation.Token);
+            var statistics = await _historyStore.GetStatisticsAsync(refreshCancellation.Token);
+            var markers = history.Events.Select(ToHistoryEventMarker).ToArray();
+
+            VoltageHistory = Chart(
+                history,
+                markers,
+                [
+                    Series(TelemetryMetric.InputVoltage, "HistorySeriesInputVoltage", "#3B82F6"),
+                    Series(TelemetryMetric.OutputVoltage, "HistorySeriesOutputVoltage", "#22D3EE"),
+                ],
+                VoltageReferenceLines());
+            LoadHistory = Chart(
+                history,
+                markers,
+                [Series(TelemetryMetric.LoadPercent, "HistorySeriesLoad", "#F59E0B")]);
+            PowerHistory = Chart(
+                history,
+                markers,
+                [
+                    Series(TelemetryMetric.ActivePowerWatts, "HistorySeriesActivePower", "#60A5FA"),
+                    Series(TelemetryMetric.ApparentPowerVoltAmperes, "HistorySeriesApparentPower", "#A78BFA"),
+                ]);
+            BatteryChargeHistory = Chart(
+                history,
+                markers,
+                [Series(TelemetryMetric.BatteryPercent, "HistorySeriesBatteryCharge", "#22C55E")]);
+            RuntimeHistory = Chart(
+                history,
+                markers,
+                [Series(TelemetryMetric.RuntimeMinutes, "HistorySeriesRuntime", "#A78BFA")]);
+            BatteryVoltageHistory = Chart(
+                history,
+                markers,
+                [Series(TelemetryMetric.BatteryVoltage, "HistorySeriesBatteryVoltage", "#38BDF8")]);
+            HealthHistory = HealthChart(history, markers);
+            StateHistory = new HistoryStateTimelineData
+            {
+                From = history.From,
+                To = history.To,
+                StateChanges = history.StateChanges,
+                Events = markers,
+            };
+            HistoryStatus = LocalizationManager.Format(
+                "HistoryStatusFormat",
+                history.SourceSampleCount,
+                statistics.RawValueCount,
+                statistics.EventCount,
+                DateTimeOffset.Now.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
+        }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            HistoryStatus = LocalizationManager.Format("HistoryLoadErrorFormat", exception.Message);
+            LastError = HistoryStatus;
+        }
+        finally
+        {
+            if (ReferenceEquals(_historyRefreshCancellation, refreshCancellation))
+            {
+                IsHistoryLoading = false;
+            }
+        }
+
+        (TelemetryMetric Metric, string LabelKey, string Color) Series(
+            TelemetryMetric metric,
+            string labelKey,
+            string color) => (metric, labelKey, color);
+    }
+
+    private static HistoryChartData Chart(
+        TelemetryHistoryResult history,
+        IReadOnlyList<HistoryEventMarker> markers,
+        IReadOnlyList<(TelemetryMetric Metric, string LabelKey, string Color)> definitions,
+        IReadOnlyList<HistoryChartReferenceLine>? referenceLines = null) => new()
+        {
+            From = history.From,
+            To = history.To,
+            Series = definitions
+                .Select(definition => new HistoryChartSeries(
+                    L(definition.LabelKey),
+                    definition.Color,
+                    HistoryPoints(history, definition.Metric)))
+                .ToArray(),
+            Events = markers,
+            ReferenceLines = referenceLines ?? [],
+        };
+
+    private static HistoryChartData HealthChart(
+        TelemetryHistoryResult history,
+        IReadOnlyList<HistoryEventMarker> markers)
+    {
+        var healthPoints = history.BatteryHealth
+            .Where(item => item.HealthPercent.HasValue)
+            .Select(item => Point(item.Timestamp, item.HealthPercent!.Value))
+            .ToArray();
+        var relativePoints = history.BatteryHealth
+            .Where(item => item.RelativePerformancePercent.HasValue)
+            .Select(item => Point(item.Timestamp, item.RelativePerformancePercent!.Value))
+            .ToArray();
+        return new HistoryChartData
+        {
+            From = history.From,
+            To = history.To,
+            Series =
+            [
+                new(L("HistorySeriesVendorHealth"), "#38BDF8", healthPoints),
+                new(L("HistorySeriesRelativeRuntime"), "#A78BFA", relativePoints),
+            ],
+            Events = markers,
+        };
+
+        static TelemetryHistoryPoint Point(DateTimeOffset timestamp, double value) =>
+            new(timestamp, value, value, value, value);
+    }
+
+    private static IReadOnlyList<TelemetryHistoryPoint> HistoryPoints(
+        TelemetryHistoryResult history,
+        TelemetryMetric metric) =>
+        history.Metrics.TryGetValue(metric, out var metricHistory) ? metricHistory.Points : [];
+
+    private IReadOnlyList<HistoryChartReferenceLine> VoltageReferenceLines()
+    {
+        var lines = new List<HistoryChartReferenceLine>();
+        if (_lastSnapshot?.LowVoltageTransfer is { } low)
+        {
+            lines.Add(new(L("HistoryReferenceLowTransfer"), "#F59E0B", low));
+        }
+
+        if (_lastSnapshot?.HighVoltageTransfer is { } high)
+        {
+            lines.Add(new(L("HistoryReferenceHighTransfer"), "#F97316", high));
+        }
+
+        return lines;
+    }
+
+    private static HistoryEventMarker ToHistoryEventMarker(UpsEvent upsEvent) => new(
+        upsEvent.Timestamp,
+        LocalizeEventType(upsEvent.Type),
+        upsEvent.Type switch
+        {
+            UpsEventType.PowerLost or UpsEventType.BatteryLow or UpsEventType.RuntimeLow => "#F59E0B",
+            UpsEventType.BatteryCritical or UpsEventType.OverloadDetected => "#EF4444",
+            UpsEventType.PowerRestored => "#22C55E",
+            UpsEventType.UpsReconnected => "#3B82F6",
+            _ => "#94A3B8",
+        });
+
+    private static string LocalizeEventType(UpsEventType type) => L(type switch
+    {
+        UpsEventType.PowerLost => "EventPowerLost",
+        UpsEventType.PowerRestored => "EventPowerRestored",
+        UpsEventType.BatteryLow => "EventBatteryLow",
+        UpsEventType.BatteryCritical => "EventBatteryCritical",
+        UpsEventType.RuntimeLow => "EventRuntimeLow",
+        UpsEventType.OverloadDetected => "EventOverload",
+        UpsEventType.UpsDisconnected => "EventUpsDisconnected",
+        UpsEventType.UpsReconnected => "EventUpsReconnected",
+        _ => "Unknown",
+    });
+
     private void SetCommandError(Exception exception)
     {
         SettingsStatus = LocalizationManager.Format("SettingsSaveErrorFormat", exception.Message);
@@ -679,7 +981,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     }
 
     private static string DeviceId(UpsDeviceInfo device) =>
-        $"{device.VendorId:X4}:{device.ProductId:X4}:{TextOrNa(device.SerialNumber)}";
+        UpsDeviceIdentity.Create(device);
 
     private BatteryHealthOptions CreateHealthOptions() => AreHealthSettingsValid()
         ? new BatteryHealthOptions
@@ -872,6 +1174,20 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             new(BatteryRuntimeBaselineKind.KnownHealthAnchor, L("BaselineModeKnown")),
             new(BatteryRuntimeBaselineKind.NewBattery, L("BaselineModeNew")),
         ];
+    }
+
+    private void RefreshHistoryRangeOptions()
+    {
+        var selectedKey = SelectedHistoryRange?.Key ?? "1h";
+        HistoryRangeOptions =
+        [
+            new("1h", TimeSpan.FromHours(1), L("HistoryRange1Hour")),
+            new("6h", TimeSpan.FromHours(6), L("HistoryRange6Hours")),
+            new("24h", TimeSpan.FromHours(24), L("HistoryRange24Hours")),
+            new("7d", TimeSpan.FromDays(7), L("HistoryRange7Days")),
+            new("30d", TimeSpan.FromDays(30), L("HistoryRange30Days")),
+        ];
+        SelectedHistoryRange = HistoryRangeOptions.First(item => item.Key == selectedKey);
     }
 
     private void RefreshVendorHealthCategoryOptions()

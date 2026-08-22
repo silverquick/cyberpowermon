@@ -16,10 +16,22 @@ public interface IUpsEventSink
     Task WriteAsync(UpsEvent upsEvent, CancellationToken cancellationToken);
 }
 
+public interface IUpsSnapshotSink
+{
+    Task WriteAsync(UpsSnapshot snapshot, CancellationToken cancellationToken);
+}
+
+public sealed class CompositeUpsEventSink(params IUpsEventSink[] sinks) : IUpsEventSink
+{
+    public Task WriteAsync(UpsEvent upsEvent, CancellationToken cancellationToken) =>
+        Task.WhenAll(sinks.Select(sink => sink.WriteAsync(upsEvent, cancellationToken)));
+}
+
 public sealed class UpsMonitorEngine : IAsyncDisposable
 {
     private readonly IUpsProvider _provider;
     private readonly IUpsEventSink _eventSink;
+    private readonly IUpsSnapshotSink? _snapshotSink;
     private readonly UpsEventDetector _eventDetector;
     private readonly SemaphoreSlim _wakeSignal = new(0, 1);
     private readonly object _lifecycleLock = new();
@@ -32,10 +44,12 @@ public sealed class UpsMonitorEngine : IAsyncDisposable
         IUpsProvider provider,
         IUpsEventSink eventSink,
         int pollIntervalMs,
-        TimeSpan runtimeLowThreshold)
+        TimeSpan runtimeLowThreshold,
+        IUpsSnapshotSink? snapshotSink = null)
     {
         _provider = provider;
         _eventSink = eventSink;
+        _snapshotSink = snapshotSink;
         _pollIntervalMs = ValidatePollInterval(pollIntervalMs);
         _eventDetector = new UpsEventDetector(runtimeLowThreshold);
     }
@@ -148,6 +162,18 @@ public sealed class UpsMonitorEngine : IAsyncDisposable
 
     private async Task PublishAsync(UpsSnapshot snapshot, CancellationToken cancellationToken)
     {
+        if (_snapshotSink is not null)
+        {
+            try
+            {
+                await _snapshotSink.WriteAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                MonitorError?.Invoke(exception);
+            }
+        }
+
         SnapshotUpdated?.Invoke(snapshot);
         foreach (var upsEvent in _eventDetector.Observe(snapshot))
         {
@@ -156,7 +182,7 @@ public sealed class UpsMonitorEngine : IAsyncDisposable
             {
                 await _eventSink.WriteAsync(upsEvent, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
                 MonitorError?.Invoke(exception);
             }

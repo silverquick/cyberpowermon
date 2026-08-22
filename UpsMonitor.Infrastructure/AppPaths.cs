@@ -12,6 +12,7 @@ public sealed class AppPaths
         SharedDirectory = Path.Combine(commonRoot, "UpsMonitor");
         ConfigurationFile = Path.Combine(SharedDirectory, "config.json");
         DevicesFile = Path.Combine(SharedDirectory, "devices.json");
+        TelemetryDatabaseFile = Path.Combine(SharedDirectory, "telemetry.db");
         LogsDirectory = Path.Combine(SharedDirectory, "logs");
         UserDirectory = Path.Combine(localRoot, "UpsMonitor");
     }
@@ -21,6 +22,8 @@ public sealed class AppPaths
     public string ConfigurationFile { get; }
 
     public string DevicesFile { get; }
+
+    public string TelemetryDatabaseFile { get; }
 
     public string LogsDirectory { get; }
 

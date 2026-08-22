@@ -6,6 +6,10 @@
   "ui": {
     "language": "system"
   },
+  "history": {
+    "rawRetentionDays": 14,
+    "rawUsageCheckpointSeconds": 300
+  },
   "batteryHealth": {
     "warningThresholdPercent": 70,
     "criticalThresholdPercent": 60,
