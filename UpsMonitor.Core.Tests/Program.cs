@@ -369,23 +369,32 @@ static async Task SqliteHistoryRoundTripAsync()
             VendorCategory = VendorBatteryHealthCategory.Unknown,
             ReplacementStatus = BatteryReplacementStatus.NoSignal,
         });
+        var third = second with
+        {
+            Timestamp = start.AddMinutes(2),
+            InputVoltage = 101,
+            OutputVoltage = 101,
+            ActivePower = 390,
+        };
+        await store.WriteAsync(third, CancellationToken.None);
         await store.FlushAsync();
 
         var result = await store.QueryHistoryAsync(
             UpsDeviceIdentity.Create(device),
             start.AddMinutes(-1),
-            start.AddMinutes(1),
+            start.AddMinutes(3),
             [TelemetryMetric.InputVoltage, TelemetryMetric.ActivePowerWatts]);
         var statistics = await store.GetStatisticsAsync();
 
-        Equal(2L, result.SourceSampleCount);
-        Equal(2, result.Metrics[TelemetryMetric.InputVoltage].Points.Count);
+        Equal(3L, result.SourceSampleCount);
+        Equal(3, result.Metrics[TelemetryMetric.InputVoltage].Points.Count);
         Near(98, result.Metrics[TelemetryMetric.InputVoltage].Points[0].Average);
         Near(385, result.Metrics[TelemetryMetric.ActivePowerWatts].Points[1].Average);
+        Near(101, result.Metrics[TelemetryMetric.InputVoltage].Points[2].Average);
         Equal(1, result.Events.Count);
         Equal(1, result.StateChanges.Count);
         Equal(1, result.BatteryHealth.Count);
-        Equal(2L, statistics.SampleCount);
+        Equal(3L, statistics.SampleCount);
         Equal(2L, statistics.RawValueCount);
         Equal(1L, statistics.EventCount);
     }
@@ -419,12 +428,13 @@ static void TelemetryExportRoundTrip()
     var testRoot = Path.Combine(Path.GetTempPath(), $"UpsExportTests-{Guid.NewGuid():N}");
     Directory.CreateDirectory(testRoot);
 
+    SqliteTelemetryStore? store = null;
     try
     {
         var paths = new AppPaths(testRoot, testRoot);
         var dbPath = paths.TelemetryDatabaseFile;
         var config = new HistoryConfiguration { RawRetentionDays = 1, RawUsageCheckpointSeconds = 30 };
-        var store = new SqliteTelemetryStore(paths, config);
+        store = new SqliteTelemetryStore(paths, config);
         store.InitializeAsync().GetAwaiter().GetResult();
 
         var device = new UpsDeviceInfo(
@@ -485,6 +495,10 @@ static void TelemetryExportRoundTrip()
     }
     finally
     {
+        if (store is not null)
+        {
+            store.DisposeAsync().GetAwaiter().GetResult();
+        }
         SqliteConnection.ClearAllPools();
         if (Directory.Exists(testRoot))
         {

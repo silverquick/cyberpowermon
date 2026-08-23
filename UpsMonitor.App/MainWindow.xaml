@@ -236,7 +236,7 @@
             </Grid>
         </Border>
 
-        <TabControl Grid.Row="1" Style="{StaticResource MainNavigationStyle}" ItemContainerStyle="{StaticResource NavItemStyle}">
+        <TabControl Grid.Row="1" Style="{StaticResource MainNavigationStyle}" ItemContainerStyle="{StaticResource NavItemStyle}" SelectedIndex="{Binding SelectedNavigationIndex, Mode=TwoWay}">
             <TabItem>
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">

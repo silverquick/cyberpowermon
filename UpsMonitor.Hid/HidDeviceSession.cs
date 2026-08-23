@@ -11,6 +11,9 @@ internal sealed class HidDeviceSession : IDisposable
     private readonly SafeFileHandle _handle;
     private readonly IntPtr _preparsedData;
     private readonly HidDescriptor _descriptor;
+    private readonly byte[] _featureReportIds;
+    private readonly byte[] _featureReportBuffer;
+    private readonly ConcurrentDictionary<long, string?> _indexedStringCache = new();
     private readonly ConcurrentDictionary<byte, byte[]> _latestInputReports = new();
     private readonly CancellationTokenSource _readCancellation = new();
     private readonly FileStream? _inputStream;
@@ -27,6 +30,14 @@ internal sealed class HidDeviceSession : IDisposable
         _handle = handle;
         _preparsedData = preparsedData;
         _descriptor = descriptor;
+        _featureReportIds = descriptor.Capabilities
+            .Where(item => item.ReportKind == HidReportKind.Feature)
+            .Select(item => item.ReportId)
+            .Distinct()
+            .ToArray();
+        _featureReportBuffer = descriptor.FeatureReportByteLength > 0
+            ? new byte[descriptor.FeatureReportByteLength]
+            : [];
 
         if (canReadInput && descriptor.InputReportByteLength > 0)
         {
@@ -94,22 +105,19 @@ internal sealed class HidDeviceSession : IDisposable
 
         var values = new Dictionary<HidCapability, HidDataValue>();
         var featureReadSucceeded = false;
-        if (_descriptor.FeatureReportByteLength > 0)
+        if (_descriptor.FeatureReportByteLength > 0 && _featureReportBuffer.Length > 0)
         {
-            foreach (var reportId in _descriptor.Capabilities
-                .Where(item => item.ReportKind == HidReportKind.Feature)
-                .Select(item => item.ReportId)
-                .Distinct())
+            foreach (var reportId in _featureReportIds)
             {
-                var report = new byte[_descriptor.FeatureReportByteLength];
-                report[0] = reportId;
-                if (!HidNative.HidD_GetFeature(_handle, report, report.Length))
+                Array.Clear(_featureReportBuffer, 0, _featureReportBuffer.Length);
+                _featureReportBuffer[0] = reportId;
+                if (!HidNative.HidD_GetFeature(_handle, _featureReportBuffer, _featureReportBuffer.Length))
                 {
                     continue;
                 }
 
                 featureReadSucceeded = true;
-                Merge(HidReportParser.Parse(_preparsedData, _descriptor, HidReportKind.Feature, report));
+                Merge(HidReportParser.Parse(_preparsedData, _descriptor, HidReportKind.Feature, _featureReportBuffer));
             }
         }
 
@@ -142,14 +150,19 @@ internal sealed class HidDeviceSession : IDisposable
             return value;
         }
 
-        var buffer = new StringBuilder(256);
-        return HidNative.HidD_GetIndexedString(
-            _handle,
-            checked((uint)value.RawValue),
-            buffer,
-            buffer.Capacity * sizeof(char))
-            ? value with { TextValue = buffer.ToString().TrimEnd('\0') }
-            : value;
+        var text = _indexedStringCache.GetOrAdd(value.RawValue, raw =>
+        {
+            var buffer = new StringBuilder(256);
+            return HidNative.HidD_GetIndexedString(
+                _handle,
+                checked((uint)raw),
+                buffer,
+                buffer.Capacity * sizeof(char))
+                ? buffer.ToString().TrimEnd('\0')
+                : null;
+        });
+
+        return text is not null ? value with { TextValue = text } : value;
     }
 
     public void Dispose()

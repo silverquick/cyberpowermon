@@ -54,6 +54,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private HistoryChartData? _batteryVoltageHistory;
     private HistoryChartData? _healthHistory;
     private HistoryStateTimelineData? _stateHistory;
+    private bool _isWindowVisible;
+    private int _selectedNavigationIndex;
+    private UpsSnapshot? _pendingSnapshot;
+    private List<UpsTelemetryViewModel> _telemetryItemsList = [];
 
     public MainViewModel(
         UpsMonitorEngine engine,
@@ -226,6 +230,45 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public HistoryChartData? HealthHistory { get => _healthHistory; private set => SetField(ref _healthHistory, value); }
 
     public HistoryStateTimelineData? StateHistory { get => _stateHistory; private set => SetField(ref _stateHistory, value); }
+
+    public bool IsWindowVisible
+    {
+        get => _isWindowVisible;
+        set
+        {
+            if (SetField(ref _isWindowVisible, value))
+            {
+                if (value)
+                {
+                    if (_pendingSnapshot is { } pending)
+                    {
+                        _pendingSnapshot = null;
+                        ApplySnapshotCore(pending);
+                    }
+
+                    if ((_selectedNavigationIndex is 0 or 1) && _lastSnapshot is not null && DateTimeOffset.Now - _lastHistoryRefresh >= TimeSpan.FromSeconds(5))
+                    {
+                        _ = RefreshHistoryAsync();
+                    }
+                }
+            }
+        }
+    }
+
+    public int SelectedNavigationIndex
+    {
+        get => _selectedNavigationIndex;
+        set
+        {
+            if (SetField(ref _selectedNavigationIndex, value))
+            {
+                if (value is 0 or 1 && _isWindowVisible && _lastSnapshot is not null && DateTimeOffset.Now - _lastHistoryRefresh >= TimeSpan.FromSeconds(5))
+                {
+                    _ = RefreshHistoryAsync();
+                }
+            }
+        }
+    }
 
     public int RuntimeLowSeconds { get; }
 
@@ -440,6 +483,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         RefreshVendorHealthCategoryOptions();
         RefreshHistoryRangeOptions();
         OnPropertyChanged(nameof(BaselineInstructionText));
+        _telemetryItemsList.Clear();
+        TelemetryItems = [];
         SettingsStatus = string.Empty;
 
         if (_lastSnapshot is { } snapshot)
@@ -456,7 +501,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             upsEvent.RefreshLanguage();
         }
 
-        if (_lastSnapshot is not null)
+        if (_lastSnapshot is not null && (_selectedNavigationIndex is 0 or 1) && _isWindowVisible)
         {
             _ = RefreshHistoryAsync();
         }
@@ -480,10 +525,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         var telemetry = UpsTelemetryValidator.Normalize(snapshot);
         _lastTelemetry = telemetry;
         var healthProfile = FindHealthProfile(snapshot.Device);
-        InitializeBaselineEditor(healthProfile);
         var health = BatteryHealthCalculator.Calculate(telemetry, healthProfile, CreateHealthOptions());
-        LastUpdateText = LocalizationManager.Format("LastUpdateFormat", snapshot.Timestamp.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
-        ConnectionText = snapshot.IsConnected ? L("Connected") : L("Disconnected");
 
         var state = UpsPowerStateEvaluator.Evaluate(snapshot);
         StateText = state switch
@@ -494,6 +536,62 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             UpsPowerState.Critical => L("StateCritical"),
             _ => L("StateUnknown"),
         };
+        Product = snapshot.Device?.DisplayName ?? L("NoUpsDetected");
+        BatteryText = FormatValidatedPercent(telemetry.BatteryChargePercent);
+        RuntimeText = FormatValidatedDuration(telemetry.RuntimeRemaining);
+
+        TooltipUpdated?.Invoke($"{Product}\n{StateText} - {BatteryText} ({RuntimeText})");
+
+        if (_historyStore is not null && snapshot.Device is { } historyDevice)
+        {
+            _ = _historyStore.RecordBatteryHealthAsync(new BatteryHealthObservation
+            {
+                DeviceId = UpsDeviceIdentity.Create(historyDevice),
+                Timestamp = snapshot.Timestamp,
+                HealthPercent = health.HealthPercent,
+                RelativePerformancePercent = health.RelativePerformancePercent,
+                Status = health.Status,
+                Method = health.PrimaryMethod,
+                Confidence = health.Confidence,
+                AnchorSource = health.AnchorSource,
+                VendorCategory = health.VendorHealthCategory,
+                ReplacementStatus = health.Replacement.Status,
+            });
+        }
+
+        if (!_isWindowVisible)
+        {
+            _pendingSnapshot = snapshot;
+            return;
+        }
+
+        ApplySnapshotCore(snapshot, telemetry, healthProfile, health);
+
+        if (_historyStore is not null && (_selectedNavigationIndex is 0 or 1) && snapshot.Timestamp - _lastHistoryRefresh >= TimeSpan.FromSeconds(10))
+        {
+            _ = RefreshHistoryAsync();
+        }
+    }
+
+    private void ApplySnapshotCore(UpsSnapshot snapshot)
+    {
+        var telemetry = _lastTelemetry ?? UpsTelemetryValidator.Normalize(snapshot);
+        var healthProfile = FindHealthProfile(snapshot.Device);
+        var health = BatteryHealthCalculator.Calculate(telemetry, healthProfile, CreateHealthOptions());
+        ApplySnapshotCore(snapshot, telemetry, healthProfile, health);
+    }
+
+    private void ApplySnapshotCore(
+        UpsSnapshot snapshot,
+        UpsTelemetry telemetry,
+        BatteryHealthProfile? healthProfile,
+        BatteryHealthResult health)
+    {
+        InitializeBaselineEditor(healthProfile);
+        LastUpdateText = LocalizationManager.Format("LastUpdateFormat", snapshot.Timestamp.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
+        ConnectionText = snapshot.IsConnected ? L("Connected") : L("Disconnected");
+
+        var state = UpsPowerStateEvaluator.Evaluate(snapshot);
         (StatusMessage, StatusAccent) = state switch
         {
             UpsPowerState.Online => (L("StatusOnline"), "#22C55E"),
@@ -523,7 +621,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
 
         PowerText = snapshot.AcPresent switch { true => L("PowerAc"), false => L("PowerBattery"), _ => "N/A" };
-        BatteryText = FormatValidatedPercent(telemetry.BatteryChargePercent);
         BatteryHealthText = health.HealthPercent is { } healthPercent ? $"{healthPercent:0.#}%" : L("HealthUnknown");
         BatteryHealthDetailText = LocalizeHealthDetail(health);
         BatteryHealthConfidenceText = LocalizeHealthConfidence(health.Confidence);
@@ -551,7 +648,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         BatteryProgress = telemetry.BatteryChargePercent.IsValid
             ? telemetry.BatteryChargePercent.Value ?? 0
             : 0;
-        RuntimeText = FormatValidatedDuration(telemetry.RuntimeRemaining);
         OverloadText = FormatBoolean(snapshot.Overload);
         ChargingText = FormatBoolean(snapshot.Charging);
         DischargingText = FormatBoolean(snapshot.Discharging);
@@ -588,7 +684,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             : "N/A";
         BatteryChemistryText = TelemetryText(snapshot.Telemetry, 0x85, 0x89);
         OemInformationText = TelemetryText(snapshot.Telemetry, 0x85, 0x8F);
-        TelemetryItems = snapshot.Telemetry.Select(item => new UpsTelemetryViewModel(item)).ToArray();
+        UpdateTelemetryItems(snapshot.Telemetry);
         var readableCount = snapshot.Telemetry.Count(item => item.IsReadable);
         var valueCount = snapshot.Telemetry.Count(item => item.HasValue);
         var vendorCount = snapshot.Telemetry.Count(item => item.IsVendorDefined);
@@ -602,29 +698,31 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         InputOutputText = $"{InputVoltageText} / {OutputVoltageText}";
         ReportBytesText = LocalizationManager.Format("ReportBytesFormat", InputReportLength, FeatureReportLength);
 
-        if (_historyStore is not null && snapshot.Device is { } historyDevice)
+        RaiseSnapshotProperties();
+    }
+
+    private void UpdateTelemetryItems(IReadOnlyList<UpsTelemetryItem> items)
+    {
+        var count = items.Count;
+        if (_telemetryItemsList.Count != count)
         {
-            _ = _historyStore.RecordBatteryHealthAsync(new BatteryHealthObservation
-            {
-                DeviceId = UpsDeviceIdentity.Create(historyDevice),
-                Timestamp = snapshot.Timestamp,
-                HealthPercent = health.HealthPercent,
-                RelativePerformancePercent = health.RelativePerformancePercent,
-                Status = health.Status,
-                Method = health.PrimaryMethod,
-                Confidence = health.Confidence,
-                AnchorSource = health.AnchorSource,
-                VendorCategory = health.VendorHealthCategory,
-                ReplacementStatus = health.Replacement.Status,
-            });
+            _telemetryItemsList = items.Select(item => new UpsTelemetryViewModel(item)).ToList();
+            TelemetryItems = _telemetryItemsList;
+            return;
         }
 
-        RaiseSnapshotProperties();
-        TooltipUpdated?.Invoke($"{Product}\n{StateText} - {BatteryText} ({RuntimeText})");
-
-        if (_historyStore is not null && snapshot.Timestamp - _lastHistoryRefresh >= TimeSpan.FromSeconds(10))
+        for (var i = 0; i < count; i++)
         {
-            _ = RefreshHistoryAsync();
+            var item = items[i];
+            var vm = _telemetryItemsList[i];
+            if (vm.Key != item.Key)
+            {
+                _telemetryItemsList = items.Select(x => new UpsTelemetryViewModel(x)).ToList();
+                TelemetryItems = _telemetryItemsList;
+                return;
+            }
+
+            vm.Update(item);
         }
     }
 
@@ -1491,10 +1589,14 @@ public sealed class UpsEventViewModel : INotifyPropertyChanged
     };
 }
 
-public sealed class UpsTelemetryViewModel
+public sealed class UpsTelemetryViewModel : INotifyPropertyChanged
 {
+    private string _value;
+    private string _raw;
+
     public UpsTelemetryViewModel(UpsTelemetryItem item)
     {
+        Key = item.Key;
         PageUsage = $"0x{item.UsagePage:X4}:0x{item.Usage:X4}";
         Page = item.UsagePage switch
         {
@@ -1505,8 +1607,8 @@ public sealed class UpsTelemetryViewModel
         };
         Collection = LocalizationManager.LocalizeCollectionPath(item.CollectionPath);
         Name = LocalizationManager.LocalizeUsageName(item.UsagePage, item.Usage, item.UsageName);
-        Value = LocalizationManager.LocalizeTelemetryValue(item.DisplayValue);
-        Raw = item.RawValue?.ToString(CultureInfo.InvariantCulture) ?? "N/A";
+        _value = LocalizationManager.LocalizeTelemetryValue(item.DisplayValue);
+        _raw = item.RawValue?.ToString(CultureInfo.InvariantCulture) ?? "N/A";
         var reportName = item.ReportType.ToString() switch
         {
             "Input" => LocalizationManager.Get("HidReportInput"),
@@ -1526,18 +1628,52 @@ public sealed class UpsTelemetryViewModel
         Layout = $"{item.BitSize} bit × {item.ReportCount}";
     }
 
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string Key { get; }
     public string PageUsage { get; }
     public string Page { get; }
     public string Collection { get; }
     public string Name { get; }
-    public string Value { get; }
-    public string Raw { get; }
+
+    public string Value
+    {
+        get => _value;
+        private set
+        {
+            if (_value != value)
+            {
+                _value = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Value)));
+            }
+        }
+    }
+
+    public string Raw
+    {
+        get => _raw;
+        private set
+        {
+            if (_raw != value)
+            {
+                _raw = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Raw)));
+            }
+        }
+    }
+
     public string Source { get; }
     public string Access { get; }
     public string LogicalRange { get; }
     public string PhysicalRange { get; }
     public string Unit { get; }
     public string Layout { get; }
+
+    public void Update(UpsTelemetryItem item)
+    {
+        Value = LocalizationManager.LocalizeTelemetryValue(item.DisplayValue);
+        Raw = item.RawValue?.ToString(CultureInfo.InvariantCulture) ?? "N/A";
+    }
 }
 
 public sealed record LanguageOption(string Code, string DisplayName)

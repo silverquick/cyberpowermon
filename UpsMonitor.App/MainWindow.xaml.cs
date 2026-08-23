@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        IsVisibleChanged += (_, _) => UpdateViewModelVisibility();
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -48,6 +49,8 @@ public partial class MainWindow : Window
             {
                 _trayManager.UpdateTooltip(tooltip);
             };
+
+            UpdateViewModelVisibility();
         }
     }
 
@@ -57,6 +60,15 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Minimized && DataContext is MainViewModel { MinimizeToTray: true })
         {
             Hide();
+        }
+        UpdateViewModelVisibility();
+    }
+
+    private void UpdateViewModelVisibility()
+    {
+        if (DataContext is MainViewModel viewModel)
+        {
+            viewModel.IsWindowVisible = IsVisible && WindowState != WindowState.Minimized;
         }
     }
 

@@ -150,11 +150,7 @@ internal sealed class TrayIconManager : IDisposable
 
     private void ShowContextMenu()
     {
-        if (_contextMenu is null)
-        {
-            CreateContextMenu();
-        }
-
+        CreateContextMenu();
         SetForegroundWindow(_hwnd);
         _contextMenu!.IsOpen = true;
     }

@@ -14,9 +14,11 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
     private readonly TimeSpan _rawUsageCheckpoint;
     private readonly Channel<HistoryWriteRequest> _writeQueue = Channel.CreateUnbounded<HistoryWriteRequest>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    private readonly Dictionary<(string DeviceId, TelemetryMetric Metric), RollupAccumulator> _activeRollups = [];
     private readonly Dictionary<string, RawValueCheckpoint> _rawValueCheckpoints = [];
     private readonly Dictionary<string, BatteryHealthObservation> _healthCheckpoints = [];
     private readonly Dictionary<string, UpsPowerState> _lastStates = [];
+    private long _currentRollupBucket = -1;
     private SqliteConnection? _writeConnection;
     private Task? _writerTask;
     private DateTimeOffset _lastCleanup = DateTimeOffset.MinValue;
@@ -146,6 +148,7 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
                             await WriteHealthCoreAsync(health.Observation).ConfigureAwait(false);
                             break;
                         case FlushWriteRequest flush:
+                            await FlushActiveRollupsAsync(_writeConnection!, null).ConfigureAwait(false);
                             flush.Completion.TrySetResult();
                             break;
                     }
@@ -160,6 +163,8 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
                     StorageError?.Invoke(exception);
                 }
             }
+
+            await FlushActiveRollupsAsync(_writeConnection!, null).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -194,6 +199,17 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
             telemetry,
             state).ConfigureAwait(false);
 
+        var bucket = timestampMilliseconds - (timestampMilliseconds % 60_000);
+        if (_currentRollupBucket != -1 && bucket != _currentRollupBucket)
+        {
+            await FlushActiveRollupsAsync(connection, transaction).ConfigureAwait(false);
+            _currentRollupBucket = bucket;
+        }
+        else if (_currentRollupBucket == -1)
+        {
+            _currentRollupBucket = bucket;
+        }
+
         foreach (var (metric, value) in values)
         {
             if (value is not { } numericValue)
@@ -201,13 +217,20 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
                 continue;
             }
 
-            await UpsertRollupAsync(
-                connection,
-                transaction,
-                deviceId,
-                timestampMilliseconds,
-                metric,
-                numericValue).ConfigureAwait(false);
+            var key = (deviceId, metric);
+            if (_activeRollups.TryGetValue(key, out var accumulator))
+            {
+                accumulator.Add(numericValue, timestampMilliseconds);
+            }
+            else
+            {
+                _activeRollups[key] = new RollupAccumulator(
+                    deviceId,
+                    bucket,
+                    metric,
+                    numericValue,
+                    timestampMilliseconds);
+            }
         }
 
         if (!_lastStates.TryGetValue(deviceId, out var previousState) || previousState != state)
@@ -309,36 +332,67 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
         await command.ExecuteNonQueryAsync().ConfigureAwait(false);
     }
 
-    private static async Task UpsertRollupAsync(
+    private async Task FlushActiveRollupsAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
-        string deviceId,
-        long timestampMilliseconds,
-        TelemetryMetric metric,
-        double value)
+        SqliteTransaction? transaction)
     {
-        var bucket = timestampMilliseconds - (timestampMilliseconds % 60_000);
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            INSERT INTO telemetry_rollups_1m (
-                device_id, bucket_utc_ms, metric, minimum, maximum, value_sum,
-                sample_count, last_value, last_timestamp_utc_ms)
-            VALUES ($device, $bucket, $metric, $value, $value, $value, 1, $value, $timestamp)
-            ON CONFLICT(device_id, bucket_utc_ms, metric) DO UPDATE SET
-                minimum = MIN(minimum, excluded.minimum),
-                maximum = MAX(maximum, excluded.maximum),
-                value_sum = value_sum + excluded.value_sum,
-                sample_count = sample_count + 1,
-                last_value = excluded.last_value,
-                last_timestamp_utc_ms = excluded.last_timestamp_utc_ms;
-            """;
-        command.Parameters.AddWithValue("$device", deviceId);
-        command.Parameters.AddWithValue("$bucket", bucket);
-        command.Parameters.AddWithValue("$metric", (int)metric);
-        command.Parameters.AddWithValue("$value", value);
-        command.Parameters.AddWithValue("$timestamp", timestampMilliseconds);
-        await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+        if (_activeRollups.Count == 0)
+        {
+            return;
+        }
+
+        var ownsTransaction = transaction is null;
+        var activeTx = transaction;
+        if (ownsTransaction)
+        {
+            activeTx = connection.BeginTransaction();
+        }
+
+        try
+        {
+            foreach (var acc in _activeRollups.Values)
+            {
+                await using var command = connection.CreateCommand();
+                command.Transaction = activeTx;
+                command.CommandText = """
+                    INSERT INTO telemetry_rollups_1m (
+                        device_id, bucket_utc_ms, metric, minimum, maximum, value_sum,
+                        sample_count, last_value, last_timestamp_utc_ms)
+                    VALUES ($device, $bucket, $metric, $min, $max, $sum, $count, $lastVal, $lastTime)
+                    ON CONFLICT(device_id, bucket_utc_ms, metric) DO UPDATE SET
+                        minimum = MIN(minimum, excluded.minimum),
+                        maximum = MAX(maximum, excluded.maximum),
+                        value_sum = value_sum + excluded.value_sum,
+                        sample_count = sample_count + excluded.sample_count,
+                        last_value = excluded.last_value,
+                        last_timestamp_utc_ms = excluded.last_timestamp_utc_ms;
+                    """;
+                command.Parameters.AddWithValue("$device", acc.DeviceId);
+                command.Parameters.AddWithValue("$bucket", acc.BucketUtcMs);
+                command.Parameters.AddWithValue("$metric", (int)acc.Metric);
+                command.Parameters.AddWithValue("$min", acc.Minimum);
+                command.Parameters.AddWithValue("$max", acc.Maximum);
+                command.Parameters.AddWithValue("$sum", acc.ValueSum);
+                command.Parameters.AddWithValue("$count", acc.SampleCount);
+                command.Parameters.AddWithValue("$lastVal", acc.LastValue);
+                command.Parameters.AddWithValue("$lastTime", acc.LastTimestampUtcMs);
+                await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+            }
+
+            if (ownsTransaction && activeTx is not null)
+            {
+                await activeTx.CommitAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            if (ownsTransaction && activeTx is not null)
+            {
+                await activeTx.DisposeAsync().ConfigureAwait(false);
+            }
+
+            _activeRollups.Clear();
+        }
     }
 
     private static async Task InsertStateChangeAsync(
@@ -639,4 +693,32 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
         double NumericValue,
         long? RawValue,
         DateTimeOffset Timestamp);
+
+    private sealed class RollupAccumulator(
+        string deviceId,
+        long bucketUtcMs,
+        TelemetryMetric metric,
+        double initialValue,
+        long initialTimestampUtcMs)
+    {
+        public string DeviceId { get; } = deviceId;
+        public long BucketUtcMs { get; } = bucketUtcMs;
+        public TelemetryMetric Metric { get; } = metric;
+        public double Minimum { get; private set; } = initialValue;
+        public double Maximum { get; private set; } = initialValue;
+        public double ValueSum { get; private set; } = initialValue;
+        public int SampleCount { get; private set; } = 1;
+        public double LastValue { get; private set; } = initialValue;
+        public long LastTimestampUtcMs { get; private set; } = initialTimestampUtcMs;
+
+        public void Add(double value, long timestampUtcMs)
+        {
+            if (value < Minimum) Minimum = value;
+            if (value > Maximum) Maximum = value;
+            ValueSum += value;
+            SampleCount++;
+            LastValue = value;
+            LastTimestampUtcMs = timestampUtcMs;
+        }
+    }
 }
