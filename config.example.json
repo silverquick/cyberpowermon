@@ -4,7 +4,12 @@
     "runtimeLowSeconds": 180
   },
   "ui": {
-    "language": "system"
+    "language": "system",
+    "minimizeToTray": true,
+    "closeToTray": true,
+    "startMinimized": false,
+    "enableNotifications": true,
+    "runOnStartup": false
   },
   "history": {
     "rawRetentionDays": 14,
