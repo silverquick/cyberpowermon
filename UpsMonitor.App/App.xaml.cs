@@ -73,15 +73,50 @@ public partial class App : Application
 
         var window = new MainWindow { DataContext = _viewModel };
         MainWindow = window;
-        window.Show();
+
+        var startMinimized = e.Args.Any(arg => arg.Equals("--tray", StringComparison.OrdinalIgnoreCase)
+                                            || arg.Equals("--minimized", StringComparison.OrdinalIgnoreCase))
+                             || (configuration.Ui.StartMinimized && configuration.Ui.MinimizeToTray);
+
+        if (startMinimized)
+        {
+            // Ensure HWND is created so HwndSource and TrayIcon are initialized
+            _ = new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+        }
+        else
+        {
+            window.Show();
+        }
+
         _viewModel.Start();
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _viewModel?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _historyStore?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _eventSink?.Dispose();
-        base.OnExit(e);
+        try
+        {
+            var cleanupTask = Task.Run(async () =>
+            {
+                if (_viewModel is not null)
+                {
+                    await _viewModel.DisposeAsync().ConfigureAwait(false);
+                }
+
+                if (_historyStore is not null)
+                {
+                    await _historyStore.DisposeAsync().ConfigureAwait(false);
+                }
+            });
+
+            cleanupTask.Wait(TimeSpan.FromSeconds(1.5));
+        }
+        catch
+        {
+        }
+        finally
+        {
+            _eventSink?.Dispose();
+            base.OnExit(e);
+        }
     }
 }

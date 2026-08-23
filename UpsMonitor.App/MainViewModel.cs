@@ -83,6 +83,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         RecordRuntimeBaselineCommand = new AsyncRelayCommand(RecordRuntimeBaselineAsync, SetCommandError);
         ClearRuntimeBaselineCommand = new AsyncRelayCommand(ClearRuntimeBaselineAsync, SetCommandError);
         RefreshHistoryCommand = new AsyncRelayCommand(RefreshHistoryAsync, SetCommandError);
+        ExportTelemetryCsvCommand = new AsyncRelayCommand(ExportTelemetryCsvAsync, SetCommandError);
+        ExportTelemetryJsonCommand = new AsyncRelayCommand(ExportTelemetryJsonAsync, SetCommandError);
+        ExportEventsCsvCommand = new AsyncRelayCommand(ExportEventsCsvAsync, SetCommandError);
 
         _engine.SnapshotUpdated += OnSnapshotUpdated;
         _engine.EventDetected += OnEventDetected;
@@ -96,6 +99,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public event Action<string, string, UpsEventSeverity>? NotificationRequested;
+
+    public event Action<string>? TooltipUpdated;
 
     public ObservableCollection<UpsEventViewModel> Events { get; } = [];
 
@@ -112,6 +119,69 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public ICommand ClearRuntimeBaselineCommand { get; }
 
     public ICommand RefreshHistoryCommand { get; }
+
+    public ICommand ExportTelemetryCsvCommand { get; }
+
+    public ICommand ExportTelemetryJsonCommand { get; }
+
+    public ICommand ExportEventsCsvCommand { get; }
+
+    public bool IsExiting { get; set; }
+
+    public bool MinimizeToTray
+    {
+        get => _configuration.Ui.MinimizeToTray;
+        set
+        {
+            _configuration.Ui.MinimizeToTray = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool CloseToTray
+    {
+        get => _configuration.Ui.CloseToTray;
+        set
+        {
+            _configuration.Ui.CloseToTray = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool StartMinimized
+    {
+        get => _configuration.Ui.StartMinimized;
+        set
+        {
+            _configuration.Ui.StartMinimized = value;
+            OnPropertyChanged();
+            if (RunOnStartup)
+            {
+                StartupManager.SetRunOnStartup(true, value);
+            }
+        }
+    }
+
+    public bool EnableNotifications
+    {
+        get => _configuration.Ui.EnableNotifications;
+        set
+        {
+            _configuration.Ui.EnableNotifications = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool RunOnStartup
+    {
+        get => _configuration.Ui.RunOnStartup;
+        set
+        {
+            _configuration.Ui.RunOnStartup = value;
+            StartupManager.SetRunOnStartup(value, StartMinimized);
+            OnPropertyChanged();
+        }
+    }
 
     public string ConfigurationFile { get; }
 
@@ -346,11 +416,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private void OnEventDetected(UpsEvent upsEvent) =>
         _ = _dispatcher.InvokeAsync(() =>
         {
-            Events.Insert(0, new UpsEventViewModel(upsEvent));
+            var eventVm = new UpsEventViewModel(upsEvent);
+            Events.Insert(0, eventVm);
             while (Events.Count > 500)
             {
                 Events.RemoveAt(Events.Count - 1);
             }
+
+            NotificationRequested?.Invoke(eventVm.Type, eventVm.Message, upsEvent.Severity);
         });
 
     private void OnMonitorError(Exception exception) =>
@@ -547,6 +620,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
 
         RaiseSnapshotProperties();
+        TooltipUpdated?.Invoke($"{Product}\n{StateText} - {BatteryText} ({RuntimeText})");
 
         if (_historyStore is not null && snapshot.Timestamp - _lastHistoryRefresh >= TimeSpan.FromSeconds(10))
         {
@@ -674,6 +748,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
         _configuration.Monitoring.PollIntervalMs = PollIntervalMs;
         _configuration.Ui.Language = SelectedLanguageCode;
+        _configuration.Ui.MinimizeToTray = MinimizeToTray;
+        _configuration.Ui.CloseToTray = CloseToTray;
+        _configuration.Ui.StartMinimized = StartMinimized;
+        _configuration.Ui.EnableNotifications = EnableNotifications;
+        _configuration.Ui.RunOnStartup = RunOnStartup;
         _configuration.BatteryHealth.WarningThresholdPercent = BatteryWarningThresholdPercent;
         _configuration.BatteryHealth.CriticalThresholdPercent = BatteryCriticalThresholdPercent;
         _configuration.BatteryHealth.ComparableLoadTolerancePercent = ComparableLoadTolerancePercent;
@@ -683,6 +762,93 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         if (_lastSnapshot is { } snapshot)
         {
             ApplySnapshot(snapshot);
+        }
+    }
+
+    private async Task ExportTelemetryCsvAsync()
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            FileName = $"ups-telemetry-{DateTime.Now:yyyyMMdd-HHmmss}.csv",
+            DefaultExt = ".csv",
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var range = SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(7);
+            var from = DateTimeOffset.Now - range;
+            var to = DateTimeOffset.Now;
+            await TelemetryExporter.ExportTelemetryCsvAsync(TelemetryDatabaseFile, dialog.FileName, from, to);
+            SettingsStatus = LocalizationManager.Format("ExportSuccess", System.IO.Path.GetFileName(dialog.FileName));
+        }
+        catch (Exception ex)
+        {
+            SettingsStatus = LocalizationManager.Format("ExportFailed", ex.Message);
+            LastError = ex.Message;
+        }
+    }
+
+    private async Task ExportTelemetryJsonAsync()
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+            FileName = $"ups-telemetry-{DateTime.Now:yyyyMMdd-HHmmss}.json",
+            DefaultExt = ".json",
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var range = SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(7);
+            var from = DateTimeOffset.Now - range;
+            var to = DateTimeOffset.Now;
+            await TelemetryExporter.ExportTelemetryJsonAsync(TelemetryDatabaseFile, dialog.FileName, from, to);
+            SettingsStatus = LocalizationManager.Format("ExportSuccess", System.IO.Path.GetFileName(dialog.FileName));
+        }
+        catch (Exception ex)
+        {
+            SettingsStatus = LocalizationManager.Format("ExportFailed", ex.Message);
+            LastError = ex.Message;
+        }
+    }
+
+    private async Task ExportEventsCsvAsync()
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            FileName = $"ups-events-{DateTime.Now:yyyyMMdd-HHmmss}.csv",
+            DefaultExt = ".csv",
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var range = SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(30);
+            var from = DateTimeOffset.Now - range;
+            var to = DateTimeOffset.Now;
+            await TelemetryExporter.ExportEventsCsvAsync(TelemetryDatabaseFile, dialog.FileName, from, to);
+            SettingsStatus = LocalizationManager.Format("ExportSuccess", System.IO.Path.GetFileName(dialog.FileName));
+        }
+        catch (Exception ex)
+        {
+            SettingsStatus = LocalizationManager.Format("ExportFailed", ex.Message);
+            LastError = ex.Message;
         }
     }
 

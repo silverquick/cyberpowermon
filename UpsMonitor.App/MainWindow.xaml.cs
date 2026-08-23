@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
@@ -10,9 +11,16 @@ public partial class MainWindow : Window
     private const int WmDeviceChange = 0x0219;
     private const int DbtDeviceArrival = 0x8000;
     private const int DbtDeviceRemoveComplete = 0x8004;
+
+    private const int WmPowerBroadcast = 0x0218;
+    private const int PbtApmResumeAutomatic = 0x0012;
+    private const int PbtApmPowerStatusChange = 0x000A;
+
     private const int DwmwaUseImmersiveDarkMode = 20;
     private const int DwmwaSystemBackdropType = 38;
     private const int DwmSystemBackdropMainWindow = 2;
+
+    private TrayIconManager? _trayManager;
 
     public MainWindow()
     {
@@ -25,6 +33,44 @@ public partial class MainWindow : Window
         var handle = new WindowInteropHelper(this).Handle;
         HwndSource.FromHwnd(handle)?.AddHook(WindowMessageHook);
         ApplyWindows11Backdrop(handle);
+
+        if (DataContext is MainViewModel viewModel)
+        {
+            _trayManager = new TrayIconManager(this, () => viewModel.EnableNotifications);
+            _trayManager.Initialize();
+
+            viewModel.NotificationRequested += (title, message, severity) =>
+            {
+                _trayManager.ShowNotification(title, message, severity);
+            };
+
+            viewModel.TooltipUpdated += tooltip =>
+            {
+                _trayManager.UpdateTooltip(tooltip);
+            };
+        }
+    }
+
+    protected override void OnStateChanged(EventArgs e)
+    {
+        base.OnStateChanged(e);
+        if (WindowState == WindowState.Minimized && DataContext is MainViewModel { MinimizeToTray: true })
+        {
+            Hide();
+        }
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (DataContext is MainViewModel { CloseToTray: true, IsExiting: false })
+        {
+            e.Cancel = true;
+            Hide();
+            return;
+        }
+
+        _trayManager?.Dispose();
+        base.OnClosing(e);
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -40,11 +86,25 @@ public partial class MainWindow : Window
 
     private IntPtr WindowMessageHook(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (message == TrayIconManager.WmTrayCallback)
+        {
+            _trayManager?.HandleMessage(message, wParam, lParam);
+            handled = true;
+            return IntPtr.Zero;
+        }
+
         if (message == WmDeviceChange
             && (wParam.ToInt64() == DbtDeviceArrival || wParam.ToInt64() == DbtDeviceRemoveComplete)
             && DataContext is MainViewModel viewModel)
         {
             viewModel.NotifyDeviceChange();
+        }
+
+        if (message == WmPowerBroadcast
+            && (wParam.ToInt64() == PbtApmResumeAutomatic || wParam.ToInt64() == PbtApmPowerStatusChange)
+            && DataContext is MainViewModel vm)
+        {
+            vm.NotifyDeviceChange();
         }
 
         return IntPtr.Zero;

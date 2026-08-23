@@ -311,4 +311,17 @@
     <sys:String x:Key="NominalBatteryVoltage">Nominal battery voltage</sys:String>
     <sys:String x:Key="CycleCount">Cycle count</sys:String>
     <sys:String x:Key="NeedReplacement">Replacement requested</sys:String>
+    <sys:String x:Key="SystemSettings">System &amp; Tray Settings</sys:String>
+    <sys:String x:Key="SystemSettingsHelp">Configure system tray minimization, Windows notifications, and startup behavior.</sys:String>
+    <sys:String x:Key="MinimizeToTray">Minimize to system tray</sys:String>
+    <sys:String x:Key="CloseToTray">Close button minimizes to system tray</sys:String>
+    <sys:String x:Key="StartMinimized">Start minimized to system tray</sys:String>
+    <sys:String x:Key="EnableNotifications">Enable Windows notifications (Power loss, low battery, etc.)</sys:String>
+    <sys:String x:Key="RunOnStartup">Run on Windows startup</sys:String>
+    <sys:String x:Key="ExportHistory">Data Export</sys:String>
+    <sys:String x:Key="ExportTelemetryCsv">Export Telemetry (CSV)</sys:String>
+    <sys:String x:Key="ExportTelemetryJson">Export Telemetry (JSON)</sys:String>
+    <sys:String x:Key="ExportEventsCsv">Export Events (CSV)</sys:String>
+    <sys:String x:Key="ExportSuccess">Export completed successfully: {0}</sys:String>
+    <sys:String x:Key="ExportFailed">Export failed: {0}</sys:String>
 </ResourceDictionary>

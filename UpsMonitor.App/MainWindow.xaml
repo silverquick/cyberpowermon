@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:UpsMonitor.App"
         Title="PowerGuard" Height="780" Width="1240" MinHeight="680" MinWidth="1040"
+        Icon="Resources/app.png"
         Background="{DynamicResource WindowBrush}" FontFamily="Segoe UI Variable Text"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
@@ -219,8 +220,8 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="34" Height="34" CornerRadius="9" Background="#2563EB">
-                        <TextBlock Text="&#xE7E8;" FontFamily="Segoe Fluent Icons" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <Border Width="34" Height="34" CornerRadius="9" Background="Transparent" ClipToBounds="True">
+                        <Image Source="Resources/app.png" Width="34" Height="34" RenderOptions.BitmapScalingMode="HighQuality" />
                     </Border>
                     <StackPanel Margin="12,0,0,0">
                         <TextBlock Text="PowerGuard" FontFamily="Segoe UI Variable Display" FontSize="19" FontWeight="SemiBold" />
@@ -480,7 +481,11 @@
                             <StackPanel>
                                 <TextBlock Text="{DynamicResource LocalHistoryStorage}" Style="{StaticResource CaptionStyle}" />
                                 <TextBlock Text="{Binding TelemetryDatabaseFile}" FontFamily="Cascadia Mono" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" />
-                                <TextBlock Text="{DynamicResource LocalHistoryStorageHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" />
+                                <TextBlock Text="{DynamicResource LocalHistoryStorageHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,12" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="{DynamicResource ExportTelemetryCsv}" Command="{Binding ExportTelemetryCsvCommand}" Margin="0,0,8,0" />
+                                    <Button Content="{DynamicResource ExportTelemetryJson}" Command="{Binding ExportTelemetryJsonCommand}" Margin="0,0,8,0" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -628,7 +633,14 @@
                 <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE81C;" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /><TextBlock Text="{DynamicResource Logs}" Margin="13,0,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" /></StackPanel></TabItem.Header>
                 <Grid Margin="28,25,28,28">
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                    <StackPanel><TextBlock Text="{DynamicResource Logs}" Style="{StaticResource PageTitleStyle}" /><TextBlock Text="{DynamicResource LogsSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,18" /></StackPanel>
+                    <Grid Grid.Row="0" Margin="0,0,0,18">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource Logs}" Style="{StaticResource PageTitleStyle}" />
+                            <TextBlock Text="{DynamicResource LogsSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,0" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="{DynamicResource ExportEventsCsv}" Command="{Binding ExportEventsCsvCommand}" VerticalAlignment="Center" />
+                    </Grid>
                     <Border Grid.Row="1" Style="{StaticResource CardStyle}">
                         <ListView ItemsSource="{Binding Events}" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextBrush}" ItemContainerStyle="{StaticResource EventItemStyle}">
                             <ListView.View><GridView ColumnHeaderContainerStyle="{StaticResource EventHeaderStyle}"><GridViewColumn Header="{DynamicResource ColumnTime}" Width="175" DisplayMemberBinding="{Binding Timestamp}" /><GridViewColumn Header="{DynamicResource ColumnEvent}" Width="175" DisplayMemberBinding="{Binding Type}" /><GridViewColumn Header="{DynamicResource ColumnDetails}" Width="480" DisplayMemberBinding="{Binding Message}" /><GridViewColumn Header="{DynamicResource ColumnState}" Width="170" DisplayMemberBinding="{Binding StateTransition}" /></GridView></ListView.View>
@@ -663,6 +675,17 @@
                                 </Grid>
                                 <Button Content="{DynamicResource SaveSettings}" Command="{Binding SaveSettingsCommand}" HorizontalAlignment="Left" Margin="0,20,0,0" />
                                 <TextBlock Text="{Binding SettingsStatus}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,10,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource CardStyle}" MaxWidth="720" HorizontalAlignment="Left">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource SystemSettings}" Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{DynamicResource SystemSettingsHelp}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,14" />
+                                <CheckBox Content="{DynamicResource MinimizeToTray}" IsChecked="{Binding MinimizeToTray, Mode=TwoWay}" />
+                                <CheckBox Content="{DynamicResource CloseToTray}" IsChecked="{Binding CloseToTray, Mode=TwoWay}" />
+                                <CheckBox Content="{DynamicResource StartMinimized}" IsChecked="{Binding StartMinimized, Mode=TwoWay}" />
+                                <CheckBox Content="{DynamicResource EnableNotifications}" IsChecked="{Binding EnableNotifications, Mode=TwoWay}" />
+                                <CheckBox Content="{DynamicResource RunOnStartup}" IsChecked="{Binding RunOnStartup, Mode=TwoWay}" />
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource CardStyle}" MaxWidth="720" HorizontalAlignment="Left">
