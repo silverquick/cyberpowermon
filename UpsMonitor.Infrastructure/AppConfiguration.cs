@@ -54,6 +54,16 @@ public sealed class UiConfiguration
         get => _language;
         set => _language = value is "ja-JP" or "en-US" ? value : "system";
     }
+
+    public bool MinimizeToTray { get; set; } = true;
+
+    public bool CloseToTray { get; set; } = true;
+
+    public bool StartMinimized { get; set; } = false;
+
+    public bool EnableNotifications { get; set; } = true;
+
+    public bool RunOnStartup { get; set; } = false;
 }
 
 public sealed class MonitoringConfiguration

@@ -12,12 +12,27 @@ public enum UpsEventType
     UpsReconnected,
 }
 
+public enum UpsEventSeverity
+{
+    Information,
+    Warning,
+    Critical,
+}
+
 public sealed record UpsEvent(
     DateTimeOffset Timestamp,
     UpsEventType Type,
     string Message,
     UpsPowerState PreviousState,
-    UpsPowerState CurrentState);
+    UpsPowerState CurrentState)
+{
+    public UpsEventSeverity Severity => Type switch
+    {
+        UpsEventType.BatteryCritical or UpsEventType.OverloadDetected => UpsEventSeverity.Critical,
+        UpsEventType.PowerLost or UpsEventType.BatteryLow or UpsEventType.RuntimeLow or UpsEventType.UpsDisconnected => UpsEventSeverity.Warning,
+        _ => UpsEventSeverity.Information,
+    };
+}
 
 public sealed class UpsEventDetector
 {

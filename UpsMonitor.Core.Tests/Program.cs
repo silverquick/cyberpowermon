@@ -19,6 +19,8 @@ var tests = new (string Name, Action Run)[]
     ("Hard battery failures override score", HardFailureOverridesScore),
     ("Self-test failure requests a battery check", SelfTestFailureRequestsCheck),
     ("SQLite history stores samples, rollups, events, and health", SqliteHistoryRoundTrip),
+    ("Event severity classification", EventSeverityClassification),
+    ("Telemetry and event export to CSV/JSON", TelemetryExportRoundTrip),
 };
 
 var failures = new List<string>();
@@ -386,6 +388,100 @@ static async Task SqliteHistoryRoundTripAsync()
         Equal(2L, statistics.SampleCount);
         Equal(2L, statistics.RawValueCount);
         Equal(1L, statistics.EventCount);
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
+}
+
+static void EventSeverityClassification()
+{
+    var evInfo = new UpsEvent(DateTimeOffset.UtcNow, UpsEventType.PowerRestored, "restored", UpsPowerState.OnBattery, UpsPowerState.Online);
+    Equal(UpsEventSeverity.Information, evInfo.Severity);
+
+    var evWarn = new UpsEvent(DateTimeOffset.UtcNow, UpsEventType.PowerLost, "lost", UpsPowerState.Online, UpsPowerState.OnBattery);
+    Equal(UpsEventSeverity.Warning, evWarn.Severity);
+
+    var evCrit = new UpsEvent(DateTimeOffset.UtcNow, UpsEventType.BatteryCritical, "crit", UpsPowerState.LowBattery, UpsPowerState.Critical);
+    Equal(UpsEventSeverity.Critical, evCrit.Severity);
+
+    var evOverload = new UpsEvent(DateTimeOffset.UtcNow, UpsEventType.OverloadDetected, "overload", UpsPowerState.Online, UpsPowerState.Online);
+    Equal(UpsEventSeverity.Critical, evOverload.Severity);
+}
+
+static void TelemetryExportRoundTrip()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsExportTests-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        var dbPath = paths.TelemetryDatabaseFile;
+        var config = new HistoryConfiguration { RawRetentionDays = 1, RawUsageCheckpointSeconds = 30 };
+        var store = new SqliteTelemetryStore(paths, config);
+        store.InitializeAsync().GetAwaiter().GetResult();
+
+        var device = new UpsDeviceInfo(
+            "test-path",
+            0x0764,
+            0x0601,
+            "Vendor",
+            "Product",
+            "12345",
+            0x84,
+            0x04,
+            64,
+            64);
+        var start = DateTimeOffset.UtcNow.AddMinutes(-5);
+
+        var snap = Snapshot(connected: true, ac: true, battery: 100, load: 25, runtime: TimeSpan.FromMinutes(40));
+        snap = snap with { Device = device, Timestamp = start };
+        store.WriteAsync(snap, CancellationToken.None).GetAwaiter().GetResult();
+
+        var ev = new UpsEvent(start.AddSeconds(10), UpsEventType.PowerLost, "Power lost test", UpsPowerState.Online, UpsPowerState.OnBattery);
+        store.WriteAsync(ev, CancellationToken.None).GetAwaiter().GetResult();
+        store.FlushAsync().GetAwaiter().GetResult();
+
+        var csvTelemetryFile = Path.Combine(testRoot, "telemetry.csv");
+        var jsonTelemetryFile = Path.Combine(testRoot, "telemetry.json");
+        var csvEventsFile = Path.Combine(testRoot, "events.csv");
+
+        TelemetryExporter.ExportTelemetryCsvAsync(dbPath, csvTelemetryFile, start.AddMinutes(-1), start.AddMinutes(1)).GetAwaiter().GetResult();
+        TelemetryExporter.ExportTelemetryJsonAsync(dbPath, jsonTelemetryFile, start.AddMinutes(-1), start.AddMinutes(1)).GetAwaiter().GetResult();
+        TelemetryExporter.ExportEventsCsvAsync(dbPath, csvEventsFile, start.AddMinutes(-1), start.AddMinutes(1)).GetAwaiter().GetResult();
+
+        if (!File.Exists(csvTelemetryFile) || new FileInfo(csvTelemetryFile).Length == 0)
+        {
+            throw new InvalidOperationException("CSV telemetry export file is missing or empty.");
+        }
+
+        if (!File.Exists(jsonTelemetryFile) || new FileInfo(jsonTelemetryFile).Length == 0)
+        {
+            throw new InvalidOperationException("JSON telemetry export file is missing or empty.");
+        }
+
+        if (!File.Exists(csvEventsFile) || new FileInfo(csvEventsFile).Length == 0)
+        {
+            throw new InvalidOperationException("CSV events export file is missing or empty.");
+        }
+
+        var csvLines = File.ReadAllLines(csvTelemetryFile);
+        if (csvLines.Length < 2)
+        {
+            throw new InvalidOperationException("CSV telemetry export did not write header and data lines.");
+        }
+
+        var evLines = File.ReadAllLines(csvEventsFile);
+        if (evLines.Length < 2 || !evLines[1].Contains("PowerLost"))
+        {
+            throw new InvalidOperationException("CSV events export does not contain expected PowerLost event.");
+        }
     }
     finally
     {

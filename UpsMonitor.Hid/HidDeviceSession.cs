@@ -167,12 +167,9 @@ internal sealed class HidDeviceSession : IDisposable
         {
             try
             {
-                _inputTask.GetAwaiter().GetResult();
+                _inputTask.Wait(TimeSpan.FromMilliseconds(500));
             }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (IOException)
+            catch
             {
             }
         }
