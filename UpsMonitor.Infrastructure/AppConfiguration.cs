@@ -70,6 +70,7 @@ public sealed class MonitoringConfiguration
 {
     private int _pollIntervalMs = 1000;
     private int _runtimeLowSeconds = 180;
+    private double _electricityRatePerKwh = 31.0;
 
     public int PollIntervalMs
     {
@@ -81,5 +82,11 @@ public sealed class MonitoringConfiguration
     {
         get => _runtimeLowSeconds;
         set => _runtimeLowSeconds = value is >= 0 and <= 86_400 ? value : 180;
+    }
+
+    public double ElectricityRatePerKwh
+    {
+        get => _electricityRatePerKwh;
+        set => _electricityRatePerKwh = value is >= 0.0 and <= 1000.0 ? value : 31.0;
     }
 }

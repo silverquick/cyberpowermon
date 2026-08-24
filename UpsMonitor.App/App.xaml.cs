@@ -1,4 +1,6 @@
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using UpsMonitor.Core;
 using UpsMonitor.Hid;
@@ -8,13 +10,57 @@ namespace UpsMonitor.App;
 
 public partial class App : Application
 {
+    internal const string ShowWindowMessageName = "UpsMonitor_PowerGuard_ShowMainWindow";
+    private const string MutexName = @"Local\UpsMonitor_PowerGuard_SingleInstance";
+    private static Mutex? _singleInstanceMutex;
+
     private MainViewModel? _viewModel;
     private FileUpsEventSink? _eventSink;
     private SqliteTelemetryStore? _historyStore;
 
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern uint RegisterWindowMessage(string lpString);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    private static readonly IntPtr HwndBroadcast = new(0xffff);
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        DispatcherUnhandledException += (_, args) =>
+        {
+            try
+            {
+                File.AppendAllText("error.log", $"[{DateTime.Now}] Unhandled: {args.Exception}\n");
+            }
+            catch { }
+        };
+
+        bool createdNew;
+        try
+        {
+            _singleInstanceMutex = new Mutex(true, MutexName, out createdNew);
+        }
+        catch (AbandonedMutexException)
+        {
+            createdNew = true;
+        }
+
+        if (!createdNew)
+        {
+            var messageId = RegisterWindowMessage(ShowWindowMessageName);
+            if (messageId != 0)
+            {
+                PostMessage(HwndBroadcast, messageId, IntPtr.Zero, IntPtr.Zero);
+            }
+
+            Shutdown();
+            return;
+        }
+
         ThemeManager.ApplySystemTheme(this);
 
         var paths = new AppPaths();
@@ -115,6 +161,20 @@ public partial class App : Application
         }
         finally
         {
+            if (_singleInstanceMutex is not null)
+            {
+                try
+                {
+                    _singleInstanceMutex.ReleaseMutex();
+                }
+                catch
+                {
+                }
+
+                _singleInstanceMutex.Dispose();
+                _singleInstanceMutex = null;
+            }
+
             _eventSink?.Dispose();
             base.OnExit(e);
         }

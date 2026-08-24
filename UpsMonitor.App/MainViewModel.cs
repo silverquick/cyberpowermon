@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using UpsMonitor.Core;
@@ -27,6 +28,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private string _telemetryCountText = string.Empty;
     private IReadOnlyList<UpsTelemetryViewModel> _telemetryItems = [];
     private int _pollIntervalMs;
+    private int _runtimeLowSeconds;
     private string _selectedLanguageCode;
     private UpsSnapshot? _lastSnapshot;
     private UpsTelemetry? _lastTelemetry;
@@ -53,11 +55,25 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private HistoryChartData? _runtimeHistory;
     private HistoryChartData? _batteryVoltageHistory;
     private HistoryChartData? _healthHistory;
+    private HistoryChartData? _powerFactorHistory;
+    private HistoryChartData? _frequencyHistory;
+    private HistoryChartData? _temperatureHistory;
+    private HistoryChartData? _energyHistory;
     private HistoryStateTimelineData? _stateHistory;
+    private string _periodOutageSummaryText = "-";
+    private string _periodVoltageSummaryText = "-";
+    private string _periodPowerSummaryText = "-";
+    private string _periodEnergySummaryText = "-";
+    private string _periodCostSummaryText = "-";
+    private string _periodCo2SummaryText = "-";
+    private TelemetryPeriodSummary? _lastPeriodSummary;
     private bool _isWindowVisible;
     private int _selectedNavigationIndex;
     private UpsSnapshot? _pendingSnapshot;
     private List<UpsTelemetryViewModel> _telemetryItemsList = [];
+    private string _logSearchText = string.Empty;
+    private LogSeverityFilterKind _selectedLogSeverityFilter = LogSeverityFilterKind.All;
+    private IReadOnlyList<LogSeverityFilterOption> _logSeverityFilterOptions = [];
 
     public MainViewModel(
         UpsMonitorEngine engine,
@@ -71,15 +87,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _configuration = configuration;
         _historyStore = historyStore;
         _pollIntervalMs = configuration.Monitoring.PollIntervalMs;
+        _runtimeLowSeconds = configuration.Monitoring.RuntimeLowSeconds;
         _selectedLanguageCode = LocalizationManager.CurrentLanguageCode;
         _batteryWarningThresholdPercent = configuration.BatteryHealth.WarningThresholdPercent;
         _batteryCriticalThresholdPercent = configuration.BatteryHealth.CriticalThresholdPercent;
         _comparableLoadTolerancePercent = configuration.BatteryHealth.ComparableLoadTolerancePercent;
-        RuntimeLowSeconds = configuration.Monitoring.RuntimeLowSeconds;
         ConfigurationFile = paths.ConfigurationFile;
         TelemetryDatabaseFile = paths.TelemetryDatabaseFile;
         LogsDirectory = paths.LogsDirectory;
         _dispatcher = Application.Current.Dispatcher;
+        FilteredEvents = CollectionViewSource.GetDefaultView(Events);
+        FilteredEvents.Filter = FilterEventItem;
+        RefreshLogSeverityOptions();
         RefreshBaselineModeOptions();
         RefreshVendorHealthCategoryOptions();
         RefreshHistoryRangeOptions();
@@ -109,6 +128,42 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public event Action<string>? TooltipUpdated;
 
     public ObservableCollection<UpsEventViewModel> Events { get; } = [];
+
+    public ICollectionView FilteredEvents { get; }
+
+    public string LogSearchText
+    {
+        get => _logSearchText;
+        set
+        {
+            if (SetField(ref _logSearchText, value))
+            {
+                FilteredEvents.Refresh();
+                OnPropertyChanged(nameof(LogCountText));
+            }
+        }
+    }
+
+    public LogSeverityFilterKind SelectedLogSeverityFilter
+    {
+        get => _selectedLogSeverityFilter;
+        set
+        {
+            if (SetField(ref _selectedLogSeverityFilter, value))
+            {
+                FilteredEvents.Refresh();
+                OnPropertyChanged(nameof(LogCountText));
+            }
+        }
+    }
+
+    public IReadOnlyList<LogSeverityFilterOption> LogSeverityFilterOptions
+    {
+        get => _logSeverityFilterOptions;
+        private set => SetField(ref _logSeverityFilterOptions, value);
+    }
+
+    public string LogCountText => LocalizationManager.Format("LogCountFormat", FilteredEvents.Cast<object>().Count(), Events.Count);
 
     public IReadOnlyList<LanguageOption> LanguageOptions { get; } =
     [
@@ -229,7 +284,47 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public HistoryChartData? HealthHistory { get => _healthHistory; private set => SetField(ref _healthHistory, value); }
 
+    public HistoryChartData? PowerFactorHistory { get => _powerFactorHistory; private set => SetField(ref _powerFactorHistory, value); }
+
+    public HistoryChartData? FrequencyHistory { get => _frequencyHistory; private set => SetField(ref _frequencyHistory, value); }
+
+    public HistoryChartData? TemperatureHistory { get => _temperatureHistory; private set => SetField(ref _temperatureHistory, value); }
+
+    public HistoryChartData? EnergyHistory { get => _energyHistory; private set => SetField(ref _energyHistory, value); }
+
     public HistoryStateTimelineData? StateHistory { get => _stateHistory; private set => SetField(ref _stateHistory, value); }
+
+    public string PeriodOutageSummaryText { get => _periodOutageSummaryText; private set => SetField(ref _periodOutageSummaryText, value); }
+    public string PeriodVoltageSummaryText { get => _periodVoltageSummaryText; private set => SetField(ref _periodVoltageSummaryText, value); }
+    public string PeriodPowerSummaryText { get => _periodPowerSummaryText; private set => SetField(ref _periodPowerSummaryText, value); }
+    public string PeriodEnergySummaryText { get => _periodEnergySummaryText; private set => SetField(ref _periodEnergySummaryText, value); }
+    public string PeriodCostSummaryText { get => _periodCostSummaryText; private set => SetField(ref _periodCostSummaryText, value); }
+    public string PeriodCo2SummaryText { get => _periodCo2SummaryText; private set => SetField(ref _periodCo2SummaryText, value); }
+
+    public double ElectricityRatePerKwh
+    {
+        get => _configuration.Monitoring.ElectricityRatePerKwh;
+        set
+        {
+            if (value is >= 0 and <= 1000)
+            {
+                _configuration.Monitoring.ElectricityRatePerKwh = value;
+                OnPropertyChanged();
+                UpdatePeriodSummaries(_lastPeriodSummary);
+            }
+        }
+    }
+
+    public string PowerMarginText { get; private set; } = "N/A";
+    public string VoltageMarginText { get; private set; } = "N/A";
+    public string AvrBoostText { get; private set; } = "N/A";
+    public string AvrBoostAccent { get; private set; } = "#94A3B8";
+    public string CellVoltageText { get; private set; } = "N/A";
+
+    public bool HasFrequencySensor => _lastSnapshot?.Frequency != null || (_lastSnapshot?.Telemetry.Any(t => t.UsagePage == 0x84 && t.Usage == 0x32) ?? false);
+    public bool HasTemperatureSensor => _lastSnapshot?.Temperature != null || (_lastSnapshot?.Telemetry.Any(t => t.UsagePage == 0x84 && t.Usage == 0x36) ?? false);
+    public string FrequencyEmptyText => HasFrequencySensor ? L("HistoryNoData") : L("SensorUnsupported");
+    public string TemperatureEmptyText => HasTemperatureSensor ? L("HistoryNoData") : L("SensorUnsupported");
 
     public bool IsWindowVisible
     {
@@ -270,7 +365,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
     }
 
-    public int RuntimeLowSeconds { get; }
+    public int RuntimeLowSeconds
+    {
+        get => _runtimeLowSeconds;
+        set => SetField(ref _runtimeLowSeconds, value);
+    }
 
     public int PollIntervalMs
     {
@@ -466,6 +565,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                 Events.RemoveAt(Events.Count - 1);
             }
 
+            OnPropertyChanged(nameof(LogCountText));
             NotificationRequested?.Invoke(eventVm.Type, eventVm.Message, upsEvent.Severity);
         });
 
@@ -482,7 +582,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         RefreshBaselineModeOptions();
         RefreshVendorHealthCategoryOptions();
         RefreshHistoryRangeOptions();
+        RefreshLogSeverityOptions();
         OnPropertyChanged(nameof(BaselineInstructionText));
+        OnPropertyChanged(nameof(LogCountText));
         _telemetryItemsList.Clear();
         TelemetryItems = [];
         SettingsStatus = string.Empty;
@@ -674,6 +776,62 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         RechargeableText = FormatBoolean(snapshot.Rechargeable);
         RemainingTimeExpiredText = FormatBoolean(snapshot.RemainingTimeLimitExpired);
         BoostText = FormatBoolean(snapshot.Boost);
+        if (snapshot.Boost == true)
+        {
+            AvrBoostText = L("AvrBoostActive");
+            AvrBoostAccent = "#F59E0B";
+        }
+        else if (snapshot.AcPresent == true)
+        {
+            AvrBoostText = L("AvrNormal");
+            AvrBoostAccent = "#22C55E";
+        }
+        else
+        {
+            AvrBoostText = "-";
+            AvrBoostAccent = "#94A3B8";
+        }
+
+        if (snapshot.ConfigActivePower is { } ratedW && snapshot.ActivePower is { } curW)
+        {
+            var remainW = Math.Max(0, ratedW - curW);
+            if (snapshot.ConfigApparentPower is { } ratedVa && snapshot.ApparentPower is { } curVa)
+            {
+                var remainVa = Math.Max(0, ratedVa - curVa);
+                PowerMarginText = $"残り {remainW:0.#} W / {remainVa:0.#} VA";
+            }
+            else
+            {
+                PowerMarginText = $"残り {remainW:0.#} W";
+            }
+        }
+        else
+        {
+            PowerMarginText = "N/A";
+        }
+
+        if (snapshot.InputVoltage is { } inV && snapshot.LowVoltageTransfer is { } lowV)
+        {
+            var margin = inV - lowV;
+            VoltageMarginText = margin >= 0 ? $"下限({lowV:0.#}V)まで +{margin:0.#} V" : $"下限({lowV:0.#}V)超過 {margin:0.#} V";
+        }
+        else
+        {
+            VoltageMarginText = "N/A";
+        }
+
+        if (snapshot.BatteryVoltage is { } batV)
+        {
+            var nominalV = snapshot.NominalBatteryVoltage ?? 24.0;
+            var cellCount = (int)Math.Max(1, Math.Round(nominalV / 2.0));
+            var cellV = batV / cellCount;
+            CellVoltageText = $"{cellV:0.00} V/cell ({cellCount}セル)";
+        }
+        else
+        {
+            CellVoltageText = "N/A";
+        }
+
         AudibleAlarmText = LocalizeTextOrNa(snapshot.AudibleAlarmState);
         SelfTestText = LocalizeTextOrNa(snapshot.SelfTestState);
         TransferRangeText = snapshot.LowVoltageTransfer is { } low && snapshot.HighVoltageTransfer is { } high
@@ -838,6 +996,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             return;
         }
 
+        if (RuntimeLowSeconds is < 0 or > 86_400)
+        {
+            SettingsStatus = "Invalid runtime low threshold (0-86400).";
+            return;
+        }
+
         if (!AreHealthSettingsValid())
         {
             SettingsStatus = L("BatteryHealthThresholdValidation");
@@ -845,6 +1009,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
 
         _configuration.Monitoring.PollIntervalMs = PollIntervalMs;
+        _configuration.Monitoring.RuntimeLowSeconds = RuntimeLowSeconds;
+        _configuration.Monitoring.ElectricityRatePerKwh = ElectricityRatePerKwh;
         _configuration.Ui.Language = SelectedLanguageCode;
         _configuration.Ui.MinimizeToTray = MinimizeToTray;
         _configuration.Ui.CloseToTray = CloseToTray;
@@ -856,6 +1022,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _configuration.BatteryHealth.ComparableLoadTolerancePercent = ComparableLoadTolerancePercent;
         await _configurationStore.SaveAsync(_configuration);
         _engine.SetPollInterval(PollIntervalMs);
+        _engine.SetRuntimeLowThreshold(TimeSpan.FromSeconds(RuntimeLowSeconds));
         SettingsStatus = LocalizationManager.Format("SettingsSavedFormat", DateTimeOffset.Now.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
         if (_lastSnapshot is { } snapshot)
         {
@@ -1005,11 +1172,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                 [
                     Series(TelemetryMetric.ActivePowerWatts, "HistorySeriesActivePower", "#60A5FA"),
                     Series(TelemetryMetric.ApparentPowerVoltAmperes, "HistorySeriesApparentPower", "#A78BFA"),
-                ]);
+                ],
+                PowerReferenceLines());
             BatteryChargeHistory = Chart(
                 history,
                 markers,
-                [Series(TelemetryMetric.BatteryPercent, "HistorySeriesBatteryCharge", "#22C55E")]);
+                [Series(TelemetryMetric.BatteryPercent, "HistorySeriesBatteryCharge", "#22C55E")],
+                BatteryChargeReferenceLines());
             RuntimeHistory = Chart(
                 history,
                 markers,
@@ -1019,6 +1188,19 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                 markers,
                 [Series(TelemetryMetric.BatteryVoltage, "HistorySeriesBatteryVoltage", "#38BDF8")]);
             HealthHistory = HealthChart(history, markers);
+            PowerFactorHistory = PowerFactorChart(history, markers);
+            FrequencyHistory = Chart(
+                history,
+                markers,
+                [Series(TelemetryMetric.FrequencyHertz, "HistorySeriesFrequency", "#10B981")],
+                FrequencyReferenceLines());
+            TemperatureHistory = Chart(
+                history,
+                markers,
+                [Series(TelemetryMetric.TemperatureCelsius, "HistorySeriesTemperature", "#F43F5E")]);
+            EnergyHistory = EnergyChart(history, markers);
+            UpdatePeriodSummaries(history.Summary);
+
             StateHistory = new HistoryStateTimelineData
             {
                 From = history.From,
@@ -1122,6 +1304,142 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         return lines;
     }
 
+    private IReadOnlyList<HistoryChartReferenceLine> PowerReferenceLines()
+    {
+        var lines = new List<HistoryChartReferenceLine>();
+        if (_lastSnapshot?.ConfigActivePower is { } ratedWatts)
+        {
+            lines.Add(new(L("HistoryReferenceRatedPower"), "#EF4444", ratedWatts));
+        }
+
+        return lines;
+    }
+
+    private IReadOnlyList<HistoryChartReferenceLine> BatteryChargeReferenceLines()
+    {
+        var lines = new List<HistoryChartReferenceLine>();
+        if (_lastSnapshot?.WarningCapacityLimit is { } warn)
+        {
+            lines.Add(new(L("HistoryReferenceWarningCapacity"), "#F59E0B", warn));
+        }
+
+        if (_lastSnapshot?.RemainingCapacityLimit is { } low)
+        {
+            lines.Add(new(L("HistoryReferenceShutdownCapacity"), "#EF4444", low));
+        }
+
+        return lines;
+    }
+
+    private static HistoryChartData PowerFactorChart(
+        TelemetryHistoryResult history,
+        IReadOnlyList<HistoryEventMarker> markers)
+    {
+        var activePoints = HistoryPoints(history, TelemetryMetric.ActivePowerWatts);
+        var apparentPoints = HistoryPoints(history, TelemetryMetric.ApparentPowerVoltAmperes);
+        var pfPoints = new List<TelemetryHistoryPoint>();
+
+        var apparentByTime = apparentPoints.ToDictionary(p => p.Timestamp);
+        foreach (var ap in activePoints)
+        {
+            if (apparentByTime.TryGetValue(ap.Timestamp, out var va) && va.Average > 1.0)
+            {
+                var factor = Math.Clamp(ap.Average / va.Average * 100.0, 0.0, 100.0);
+                pfPoints.Add(new TelemetryHistoryPoint(ap.Timestamp, factor, factor, factor, factor));
+            }
+        }
+
+        return new HistoryChartData
+        {
+            From = history.From,
+            To = history.To,
+            Series = [new HistoryChartSeries(L("HistorySeriesPowerFactor"), "#38BDF8", pfPoints)],
+            Events = markers,
+        };
+    }
+
+    private static HistoryChartData EnergyChart(
+        TelemetryHistoryResult history,
+        IReadOnlyList<HistoryEventMarker> markers)
+    {
+        var activePoints = HistoryPoints(history, TelemetryMetric.ActivePowerWatts);
+        var energyPoints = new List<TelemetryHistoryPoint>();
+        var accumulatedKwh = 0.0;
+
+        for (var i = 0; i < activePoints.Count; i++)
+        {
+            if (i > 0)
+            {
+                var pPrev = activePoints[i - 1];
+                var pCurr = activePoints[i];
+                var dtHours = (pCurr.Timestamp - pPrev.Timestamp).TotalHours;
+                if (dtHours is > 0 and <= 2.0)
+                {
+                    var wattHours = ((pPrev.Average + pCurr.Average) / 2.0) * dtHours;
+                    accumulatedKwh += wattHours / 1000.0;
+                }
+            }
+
+            energyPoints.Add(new TelemetryHistoryPoint(activePoints[i].Timestamp, accumulatedKwh, accumulatedKwh, accumulatedKwh, accumulatedKwh));
+        }
+
+        return new HistoryChartData
+        {
+            From = history.From,
+            To = history.To,
+            Series = [new HistoryChartSeries(L("HistorySeriesEnergy"), "#10B981", energyPoints)],
+            Events = markers,
+        };
+    }
+
+    private IReadOnlyList<HistoryChartReferenceLine> FrequencyReferenceLines()
+    {
+        return
+        [
+            new(L("HistoryReference50Hz"), "#6EE7B7", 50.0),
+            new(L("HistoryReference60Hz"), "#93C5FD", 60.0),
+        ];
+    }
+
+    private void UpdatePeriodSummaries(TelemetryPeriodSummary? summary)
+    {
+        _lastPeriodSummary = summary;
+        if (summary is null)
+        {
+            PeriodOutageSummaryText = "-";
+            PeriodVoltageSummaryText = "-";
+            PeriodPowerSummaryText = "-";
+            PeriodEnergySummaryText = "-";
+            PeriodCostSummaryText = "-";
+            PeriodCo2SummaryText = "-";
+            return;
+        }
+
+        PeriodOutageSummaryText = $"{summary.OutageCount} {L("TimesUnit")} ({FormatDuration(summary.TotalOutageDuration)})";
+        PeriodVoltageSummaryText = summary.MinInputVoltage.HasValue && summary.MaxInputVoltage.HasValue && summary.AvgInputVoltage.HasValue
+            ? $"Min {summary.MinInputVoltage.Value:0.#}V  Avg {summary.AvgInputVoltage.Value:0.#}V  Max {summary.MaxInputVoltage.Value:0.#}V"
+            : "-";
+        PeriodPowerSummaryText = summary.AvgActivePowerWatts.HasValue
+            ? $"Avg {summary.AvgActivePowerWatts.Value:0.#}W  (Peak {summary.PeakActivePowerWatts.GetValueOrDefault():0.#}W / {summary.PeakLoadPercent.GetValueOrDefault():0.#}%)"
+            : "-";
+        PeriodEnergySummaryText = summary.TotalEnergyKwh.HasValue
+            ? $"{summary.TotalEnergyKwh.Value:0.##} kWh  (Min Bat {summary.MinBatteryPercent.GetValueOrDefault():0.#}%)"
+            : "-";
+
+        if (summary.TotalEnergyKwh is { } kwh)
+        {
+            var cost = kwh * _configuration.Monitoring.ElectricityRatePerKwh;
+            PeriodCostSummaryText = $"約 {cost:N0} {L("CurrencyUnit")} ({_configuration.Monitoring.ElectricityRatePerKwh:0.#}{L("CurrencyUnit")}/kWh)";
+            var co2 = kwh * 0.457;
+            PeriodCo2SummaryText = $"{co2:0.##} kg-CO₂";
+        }
+        else
+        {
+            PeriodCostSummaryText = "-";
+            PeriodCo2SummaryText = "-";
+        }
+    }
+
     private static HistoryEventMarker ToHistoryEventMarker(UpsEvent upsEvent) => new(
         upsEvent.Timestamp,
         LocalizeEventType(upsEvent.Type),
@@ -1176,6 +1494,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             nameof(SelfTestText), nameof(TransferRangeText), nameof(RatedPowerText),
             nameof(BatteryChemistryText), nameof(OemInformationText), nameof(InputVoltageSummaryText),
             nameof(InputOutputText), nameof(ReportBytesText),
+            nameof(FrequencyEmptyText), nameof(TemperatureEmptyText),
+            nameof(PowerMarginText), nameof(VoltageMarginText), nameof(AvrBoostText), nameof(AvrBoostAccent),
+            nameof(CellVoltageText),
         };
 
         foreach (var name in names)
@@ -1526,9 +1847,65 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         return true;
     }
 
+    private void RefreshLogSeverityOptions()
+    {
+        LogSeverityFilterOptions =
+        [
+            new(LogSeverityFilterKind.All, L("FilterAll")),
+            new(LogSeverityFilterKind.Information, L("FilterInformation")),
+            new(LogSeverityFilterKind.Warning, L("FilterWarning")),
+            new(LogSeverityFilterKind.Critical, L("FilterCritical")),
+        ];
+    }
+
+    private bool FilterEventItem(object obj)
+    {
+        if (obj is not UpsEventViewModel evt)
+        {
+            return false;
+        }
+
+        if (SelectedLogSeverityFilter != LogSeverityFilterKind.All)
+        {
+            var matchesSeverity = SelectedLogSeverityFilter switch
+            {
+                LogSeverityFilterKind.Information => evt.Severity == UpsEventSeverity.Information,
+                LogSeverityFilterKind.Warning => evt.Severity == UpsEventSeverity.Warning,
+                LogSeverityFilterKind.Critical => evt.Severity == UpsEventSeverity.Critical,
+                _ => true,
+            };
+
+            if (!matchesSeverity)
+            {
+                return false;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(_logSearchText))
+        {
+            return true;
+        }
+
+        var query = _logSearchText.Trim();
+        return evt.Message.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+            || evt.Type.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+            || evt.StateTransition.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+            || evt.Timestamp.Contains(query, StringComparison.CurrentCultureIgnoreCase);
+    }
+
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
+
+public enum LogSeverityFilterKind
+{
+    All,
+    Information,
+    Warning,
+    Critical,
+}
+
+public sealed record LogSeverityFilterOption(LogSeverityFilterKind Kind, string DisplayName);
 
 public sealed class UpsEventViewModel : INotifyPropertyChanged
 {
@@ -1540,6 +1917,8 @@ public sealed class UpsEventViewModel : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public UpsEventSeverity Severity => _source.Severity;
 
     public string Timestamp => _source.Timestamp.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
 

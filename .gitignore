@@ -4,3 +4,6 @@ obj/
 *.user
 *.suo
 artifacts/
+*.log
+.codex-tmp/
+TestResults/
