@@ -80,6 +80,11 @@ public sealed class UpsMonitorEngine : IAsyncDisposable
         Wake();
     }
 
+    public void SetRuntimeLowThreshold(TimeSpan threshold)
+    {
+        _eventDetector.SetRuntimeLowThreshold(threshold);
+    }
+
     public void NotifyDeviceChange()
     {
         _rescanRequested = true;

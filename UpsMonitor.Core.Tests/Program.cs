@@ -21,6 +21,7 @@ var tests = new (string Name, Action Run)[]
     ("SQLite history stores samples, rollups, events, and health", SqliteHistoryRoundTrip),
     ("Event severity classification", EventSeverityClassification),
     ("Telemetry and event export to CSV/JSON", TelemetryExportRoundTrip),
+    ("Dynamic runtime-low threshold update", DynamicRuntimeLowThreshold),
 };
 
 var failures = new List<string>();
@@ -394,6 +395,11 @@ static async Task SqliteHistoryRoundTripAsync()
         Equal(1, result.Events.Count);
         Equal(1, result.StateChanges.Count);
         Equal(1, result.BatteryHealth.Count);
+        Equal(true, result.Summary != null);
+        Near(98, result.Summary!.MinInputVoltage);
+        Near(101, result.Summary!.MaxInputVoltage);
+        Near(390, result.Summary!.PeakActivePowerWatts);
+        Equal(true, result.Summary!.TotalEnergyKwh.HasValue);
         Equal(3L, statistics.SampleCount);
         Equal(2L, statistics.RawValueCount);
         Equal(1L, statistics.EventCount);
@@ -505,6 +511,22 @@ static void TelemetryExportRoundTrip()
             Directory.Delete(testRoot, recursive: true);
         }
     }
+}
+
+static void DynamicRuntimeLowThreshold()
+{
+    var detector = new UpsEventDetector(TimeSpan.FromMinutes(3));
+    var snap1 = Snapshot(ac: false, discharging: true, runtime: TimeSpan.FromMinutes(5));
+    var events1 = detector.Observe(snap1);
+    // Should NOT have RuntimeLow since 5m > 3m
+    Equal(false, events1.Any(e => e.Type == UpsEventType.RuntimeLow));
+
+    // Dynamically increase threshold to 6 minutes
+    detector.SetRuntimeLowThreshold(TimeSpan.FromMinutes(6));
+    var snap2 = Snapshot(ac: false, discharging: true, runtime: TimeSpan.FromMinutes(5));
+    var events2 = detector.Observe(snap2);
+    // Now it should trigger RuntimeLow since 5m <= 6m
+    HasType(events2, UpsEventType.RuntimeLow);
 }
 
 static UpsSnapshot Snapshot(

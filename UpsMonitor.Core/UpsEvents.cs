@@ -36,18 +36,23 @@ public sealed record UpsEvent(
 
 public sealed class UpsEventDetector
 {
-    private readonly TimeSpan _runtimeLowThreshold;
+    private TimeSpan _runtimeLowThreshold;
     private UpsSnapshot? _previous;
     private bool _runtimeWasLow;
 
     public UpsEventDetector(TimeSpan runtimeLowThreshold)
     {
-        if (runtimeLowThreshold < TimeSpan.Zero)
+        SetRuntimeLowThreshold(runtimeLowThreshold);
+    }
+
+    public void SetRuntimeLowThreshold(TimeSpan threshold)
+    {
+        if (threshold < TimeSpan.Zero)
         {
-            throw new ArgumentOutOfRangeException(nameof(runtimeLowThreshold));
+            throw new ArgumentOutOfRangeException(nameof(threshold), "Runtime low threshold cannot be negative.");
         }
 
-        _runtimeLowThreshold = runtimeLowThreshold;
+        _runtimeLowThreshold = threshold;
     }
 
     public IReadOnlyList<UpsEvent> Observe(UpsSnapshot current)

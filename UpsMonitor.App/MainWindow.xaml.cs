@@ -96,8 +96,36 @@ public partial class MainWindow : Window
         base.OnKeyDown(e);
     }
 
+    private uint _showWindowMessageId;
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern uint RegisterWindowMessage(string lpString);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
     private IntPtr WindowMessageHook(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (_showWindowMessageId == 0)
+        {
+            _showWindowMessageId = RegisterWindowMessage(App.ShowWindowMessageName);
+        }
+
+        if (_showWindowMessageId != 0 && (uint)message == _showWindowMessageId)
+        {
+            Show();
+            if (WindowState == WindowState.Minimized)
+            {
+                WindowState = WindowState.Normal;
+            }
+
+            Activate();
+            SetForegroundWindow(window);
+            handled = true;
+            return IntPtr.Zero;
+        }
+
         if (message == TrayIconManager.WmTrayCallback)
         {
             _trayManager?.HandleMessage(message, wParam, lParam);
