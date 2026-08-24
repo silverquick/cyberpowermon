@@ -43,6 +43,28 @@ public sealed record BatteryHealthObservation
     public required BatteryReplacementStatus ReplacementStatus { get; init; }
 }
 
+public sealed record TelemetryPeriodSummary
+{
+    public int OutageCount { get; init; }
+    public TimeSpan TotalOutageDuration { get; init; }
+    public double? MinInputVoltage { get; init; }
+    public double? AvgInputVoltage { get; init; }
+    public double? MaxInputVoltage { get; init; }
+    public double? MinOutputVoltage { get; init; }
+    public double? AvgOutputVoltage { get; init; }
+    public double? MaxOutputVoltage { get; init; }
+    public double? PeakLoadPercent { get; init; }
+    public double? AvgLoadPercent { get; init; }
+    public double? PeakActivePowerWatts { get; init; }
+    public double? AvgActivePowerWatts { get; init; }
+    public double? TotalEnergyKwh { get; init; }
+    public double? MinBatteryPercent { get; init; }
+    public double? AvgBatteryVoltage { get; init; }
+    public double? AvgFrequencyHertz { get; init; }
+    public double? AvgTemperatureCelsius { get; init; }
+    public double? AvgPowerFactor { get; init; }
+}
+
 public sealed record TelemetryHistoryResult
 {
     public required DateTimeOffset From { get; init; }
@@ -52,6 +74,7 @@ public sealed record TelemetryHistoryResult
     public required IReadOnlyList<UpsStateChange> StateChanges { get; init; }
     public required IReadOnlyList<BatteryHealthObservation> BatteryHealth { get; init; }
     public required long SourceSampleCount { get; init; }
+    public TelemetryPeriodSummary? Summary { get; init; }
 }
 
 public sealed record TelemetryDatabaseStatistics

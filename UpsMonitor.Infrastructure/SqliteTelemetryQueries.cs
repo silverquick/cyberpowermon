@@ -101,6 +101,8 @@ public sealed partial class SqliteTelemetryStore
             useRawSamples,
             cancellationToken).ConfigureAwait(false);
 
+        var summary = BuildPeriodSummary(from, to, events, stateChanges, histories);
+
         return new TelemetryHistoryResult
         {
             From = from,
@@ -110,6 +112,7 @@ public sealed partial class SqliteTelemetryStore
             StateChanges = stateChanges,
             BatteryHealth = health,
             SourceSampleCount = sourceSampleCount,
+            Summary = summary,
         };
     }
 
@@ -393,4 +396,104 @@ public sealed partial class SqliteTelemetryStore
 
     private static DateTimeOffset FromMilliseconds(long milliseconds) =>
         DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
+
+    private static TelemetryPeriodSummary BuildPeriodSummary(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        IReadOnlyList<UpsEvent> events,
+        IReadOnlyList<UpsStateChange> stateChanges,
+        IReadOnlyDictionary<TelemetryMetric, TelemetryMetricHistory> metrics)
+    {
+        var outageCount = events.Count(e => e.Type == UpsEventType.PowerLost);
+        if (outageCount == 0 && stateChanges.Count > 0)
+        {
+            outageCount = stateChanges.Count(s => s.State is UpsPowerState.OnBattery or UpsPowerState.LowBattery or UpsPowerState.Critical);
+        }
+
+        var totalOutageMs = 0.0;
+        if (stateChanges.Count > 0)
+        {
+            for (var i = 0; i < stateChanges.Count; i++)
+            {
+                var current = stateChanges[i];
+                if (current.State is UpsPowerState.OnBattery or UpsPowerState.LowBattery or UpsPowerState.Critical)
+                {
+                    var nextTime = (i + 1 < stateChanges.Count) ? stateChanges[i + 1].Timestamp : to;
+                    var duration = nextTime - current.Timestamp;
+                    if (duration > TimeSpan.Zero)
+                    {
+                        totalOutageMs += duration.TotalMilliseconds;
+                    }
+                }
+            }
+        }
+
+        var inputPoints = metrics.GetValueOrDefault(TelemetryMetric.InputVoltage)?.Points ?? [];
+        var outputPoints = metrics.GetValueOrDefault(TelemetryMetric.OutputVoltage)?.Points ?? [];
+        var loadPoints = metrics.GetValueOrDefault(TelemetryMetric.LoadPercent)?.Points ?? [];
+        var activePoints = metrics.GetValueOrDefault(TelemetryMetric.ActivePowerWatts)?.Points ?? [];
+        var apparentPoints = metrics.GetValueOrDefault(TelemetryMetric.ApparentPowerVoltAmperes)?.Points ?? [];
+        var batteryPoints = metrics.GetValueOrDefault(TelemetryMetric.BatteryPercent)?.Points ?? [];
+        var batVoltPoints = metrics.GetValueOrDefault(TelemetryMetric.BatteryVoltage)?.Points ?? [];
+        var freqPoints = metrics.GetValueOrDefault(TelemetryMetric.FrequencyHertz)?.Points ?? [];
+        var tempPoints = metrics.GetValueOrDefault(TelemetryMetric.TemperatureCelsius)?.Points ?? [];
+
+        double? totalEnergyKwh = null;
+        if (activePoints.Count > 0)
+        {
+            var energySumWattHours = 0.0;
+            for (var i = 0; i < activePoints.Count - 1; i++)
+            {
+                var p1 = activePoints[i];
+                var p2 = activePoints[i + 1];
+                var dtHours = (p2.Timestamp - p1.Timestamp).TotalHours;
+                if (dtHours is > 0 and <= 2.0)
+                {
+                    energySumWattHours += ((p1.Average + p2.Average) / 2.0) * dtHours;
+                }
+            }
+
+            if (energySumWattHours == 0.0 && activePoints.Count > 0)
+            {
+                var avgW = activePoints.Average(p => p.Average);
+                var hours = (to - from).TotalHours;
+                energySumWattHours = avgW * hours;
+            }
+
+            totalEnergyKwh = energySumWattHours / 1000.0;
+        }
+
+        double? avgPowerFactor = null;
+        if (activePoints.Count > 0 && apparentPoints.Count > 0)
+        {
+            var avgW = activePoints.Average(p => p.Average);
+            var avgVa = apparentPoints.Average(p => p.Average);
+            if (avgVa > 1.0)
+            {
+                avgPowerFactor = Math.Clamp(avgW / avgVa * 100.0, 0.0, 100.0);
+            }
+        }
+
+        return new TelemetryPeriodSummary
+        {
+            OutageCount = outageCount,
+            TotalOutageDuration = TimeSpan.FromMilliseconds(totalOutageMs),
+            MinInputVoltage = inputPoints.Count > 0 ? inputPoints.Min(p => p.Minimum) : null,
+            AvgInputVoltage = inputPoints.Count > 0 ? inputPoints.Average(p => p.Average) : null,
+            MaxInputVoltage = inputPoints.Count > 0 ? inputPoints.Max(p => p.Maximum) : null,
+            MinOutputVoltage = outputPoints.Count > 0 ? outputPoints.Min(p => p.Minimum) : null,
+            AvgOutputVoltage = outputPoints.Count > 0 ? outputPoints.Average(p => p.Average) : null,
+            MaxOutputVoltage = outputPoints.Count > 0 ? outputPoints.Max(p => p.Maximum) : null,
+            PeakLoadPercent = loadPoints.Count > 0 ? loadPoints.Max(p => p.Maximum) : null,
+            AvgLoadPercent = loadPoints.Count > 0 ? loadPoints.Average(p => p.Average) : null,
+            PeakActivePowerWatts = activePoints.Count > 0 ? activePoints.Max(p => p.Maximum) : null,
+            AvgActivePowerWatts = activePoints.Count > 0 ? activePoints.Average(p => p.Average) : null,
+            TotalEnergyKwh = totalEnergyKwh,
+            MinBatteryPercent = batteryPoints.Count > 0 ? batteryPoints.Min(p => p.Minimum) : null,
+            AvgBatteryVoltage = batVoltPoints.Count > 0 ? batVoltPoints.Average(p => p.Average) : null,
+            AvgFrequencyHertz = freqPoints.Count > 0 ? freqPoints.Average(p => p.Average) : null,
+            AvgTemperatureCelsius = tempPoints.Count > 0 && tempPoints.Any(p => p.Average > -50) ? tempPoints.Where(p => p.Average > -50).Average(p => p.Average) : null,
+            AvgPowerFactor = avgPowerFactor,
+        };
+    }
 }

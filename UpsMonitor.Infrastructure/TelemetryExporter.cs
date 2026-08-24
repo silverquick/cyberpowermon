@@ -8,6 +8,24 @@ namespace UpsMonitor.Infrastructure;
 
 public static class TelemetryExporter
 {
+    public static Task ExportAllTelemetryCsvAsync(
+        string databasePath,
+        string destinationFilePath,
+        CancellationToken cancellationToken = default) =>
+        ExportTelemetryCsvAsync(databasePath, destinationFilePath, DateTimeOffset.MinValue, DateTimeOffset.MaxValue, cancellationToken);
+
+    public static Task ExportAllTelemetryJsonAsync(
+        string databasePath,
+        string destinationFilePath,
+        CancellationToken cancellationToken = default) =>
+        ExportTelemetryJsonAsync(databasePath, destinationFilePath, DateTimeOffset.MinValue, DateTimeOffset.MaxValue, cancellationToken);
+
+    public static Task ExportAllEventsCsvAsync(
+        string databasePath,
+        string destinationFilePath,
+        CancellationToken cancellationToken = default) =>
+        ExportEventsCsvAsync(databasePath, destinationFilePath, DateTimeOffset.MinValue, DateTimeOffset.MaxValue, cancellationToken);
+
     public static async Task ExportTelemetryCsvAsync(
         string databasePath,
         string destinationFilePath,

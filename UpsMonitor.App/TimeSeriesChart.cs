@@ -194,10 +194,12 @@ public sealed class TimeSeriesChart : FrameworkElement
 
         if (!Compact && _cursorX is { } cursorX && cursorX >= plot.Left && cursorX <= plot.Right)
         {
-            drawingContext.DrawLine(
-                new Pen(new SolidColorBrush(Color.FromArgb(180, 226, 232, 240)), 1),
-                new(cursorX, plot.Top),
-                new(cursorX, plot.Bottom));
+            var cursorPen = new Pen(new SolidColorBrush(Color.FromArgb(160, 148, 163, 184)), 1)
+            {
+                DashStyle = DashStyles.Dash,
+            };
+            drawingContext.DrawLine(cursorPen, new(cursorX, plot.Top), new(cursorX, plot.Bottom));
+            DrawHoverTooltip(drawingContext, data, cursorX, plot, textBrush, mutedBrush, borderBrush);
         }
     }
 
@@ -318,6 +320,68 @@ public sealed class TimeSeriesChart : FrameworkElement
         }
     }
 
+    private void DrawHoverTooltip(
+        DrawingContext drawingContext,
+        HistoryChartData data,
+        double cursorX,
+        Rect plot,
+        Brush textBrush,
+        Brush mutedBrush,
+        Brush borderBrush)
+    {
+        var ratio = Math.Clamp((cursorX - plot.Left) / plot.Width, 0.0, 1.0);
+        var timestamp = data.From + TimeSpan.FromTicks((long)((data.To - data.From).Ticks * ratio));
+        var timeLabel = timestamp.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
+
+        var lines = new List<(Brush Color, string Text)>();
+        foreach (var series in data.Series)
+        {
+            var point = series.Points.MinBy(item => Math.Abs((item.Timestamp - timestamp).Ticks));
+            if (point is not null)
+            {
+                var valueStr = $"{point.Average:0.##}{(string.IsNullOrEmpty(Unit) ? string.Empty : $" {Unit}")}";
+                lines.Add((ParseBrush(series.Color), $"{series.DisplayName}: {valueStr}"));
+            }
+        }
+
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        var headerText = CreateText(timeLabel, 10.5, mutedBrush);
+        var itemTexts = lines.Select(l => (l.Color, Text: CreateText(l.Text, 11, textBrush))).ToList();
+
+        var contentWidth = Math.Max(headerText.Width, itemTexts.Max(it => it.Text.Width + 14));
+        var boxWidth = contentWidth + 20;
+        var lineHeight = 16.0;
+        var boxHeight = 12 + headerText.Height + 6 + (itemTexts.Count * lineHeight) + 6;
+
+        // Position tooltip to left or right of cursor
+        var boxX = cursorX + 14 + boxWidth > plot.Right
+            ? cursorX - boxWidth - 14
+            : cursorX + 14;
+        boxX = Math.Clamp(boxX, plot.Left + 4, plot.Right - boxWidth - 4);
+        var boxY = Math.Clamp(plot.Top + 10, plot.Top + 4, plot.Bottom - boxHeight - 4);
+
+        var tooltipRect = new Rect(boxX, boxY, boxWidth, boxHeight);
+        var bgBrush = ResourceBrush("PanelBrush", new SolidColorBrush(Color.FromArgb(240, 24, 28, 36)));
+        var bgPen = new Pen(borderBrush, 1);
+
+        drawingContext.DrawRoundedRectangle(bgBrush, bgPen, tooltipRect, 6, 6);
+
+        var currentY = boxY + 8;
+        drawingContext.DrawText(headerText, new(boxX + 10, currentY));
+        currentY += headerText.Height + 6;
+
+        foreach (var item in itemTexts)
+        {
+            drawingContext.DrawEllipse(item.Color, null, new Point(boxX + 14, currentY + 7), 3.5, 3.5);
+            drawingContext.DrawText(item.Text, new(boxX + 22, currentY));
+            currentY += lineHeight;
+        }
+    }
+
     private static void DrawAxes(DrawingContext drawingContext, Rect plot, Brush borderBrush)
     {
         var pen = new Pen(borderBrush, 1);
@@ -340,19 +404,6 @@ public sealed class TimeSeriesChart : FrameworkElement
         }
 
         _cursorX = position.X;
-        var ratio = (position.X - LeftMargin) / plotWidth;
-        var timestamp = data.From + TimeSpan.FromTicks((long)((data.To - data.From).Ticks * ratio));
-        var values = new List<string> { timestamp.LocalDateTime.ToString("g", CultureInfo.CurrentCulture) };
-        foreach (var series in data.Series)
-        {
-            var point = series.Points.MinBy(item => Math.Abs((item.Timestamp - timestamp).Ticks));
-            if (point is not null)
-            {
-                values.Add($"{series.DisplayName}: {point.Average:0.###}{(string.IsNullOrEmpty(Unit) ? string.Empty : $" {Unit}")}");
-            }
-        }
-
-        ToolTip = string.Join(Environment.NewLine, values);
         InvalidateVisual();
     }
 
