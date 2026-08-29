@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using UpsMonitor.Core;
 
@@ -685,109 +686,218 @@ public sealed partial class SqliteTelemetryStore
         }
     }
 
+    public async Task<IReadOnlyList<EnergyReportItem>> QueryEnergyReportsAsync(
+        string deviceId,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        EnergyReportPeriod granularity,
+        double electricityRatePerKwh,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
+        if (to <= from)
+        {
+            throw new ArgumentOutOfRangeException(nameof(to));
+        }
+
+        await FlushAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        return await QueryEnergyReportsAsync(
+            connection,
+            deviceId,
+            from,
+            to,
+            granularity,
+            electricityRatePerKwh,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<IReadOnlyList<EnergyReportItem>> QueryEnergyReportsAsync(
+        SqliteConnection connection,
+        string deviceId,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        EnergyReportPeriod granularity,
+        double electricityRatePerKwh,
+        CancellationToken cancellationToken)
+    {
+        var periods = new List<(string Key, DateTimeOffset Start, DateTimeOffset End)>();
+        string strftimeFormat;
+
+        if (granularity == EnergyReportPeriod.Day)
+        {
+            strftimeFormat = "%Y-%m-%d";
+            var fromDate = DateOnly.FromDateTime(from.LocalDateTime);
+            var toDate = DateOnly.FromDateTime(to.LocalDateTime);
+            var current = fromDate;
+            while (current <= toDate)
+            {
+                var localStart = current.ToDateTime(TimeOnly.MinValue);
+                var localEnd = current.AddDays(1).ToDateTime(TimeOnly.MinValue);
+                var startOffset = TimeZoneInfo.Local.GetUtcOffset(localStart);
+                var endOffset = TimeZoneInfo.Local.GetUtcOffset(localEnd);
+                var start = new DateTimeOffset(localStart, startOffset);
+                var end = new DateTimeOffset(localEnd, endOffset);
+                var key = current.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                periods.Add((key, start, end));
+                current = current.AddDays(1);
+            }
+        }
+        else
+        {
+            strftimeFormat = "%Y-%m";
+            var startMonth = new DateTime(from.LocalDateTime.Year, from.LocalDateTime.Month, 1);
+            var endMonth = new DateTime(to.LocalDateTime.Year, to.LocalDateTime.Month, 1);
+            var current = startMonth;
+            while (current <= endMonth)
+            {
+                var localStart = current;
+                var localEnd = current.AddMonths(1);
+                var startOffset = TimeZoneInfo.Local.GetUtcOffset(localStart);
+                var endOffset = TimeZoneInfo.Local.GetUtcOffset(localEnd);
+                var start = new DateTimeOffset(localStart, startOffset);
+                var end = new DateTimeOffset(localEnd, endOffset);
+                var key = current.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+                periods.Add((key, start, end));
+                current = current.AddMonths(1);
+            }
+        }
+
+        if (periods.Count == 0)
+        {
+            return [];
+        }
+
+        var fromMs = from.ToUniversalTime().ToUnixTimeMilliseconds();
+        var toMs = to.ToUniversalTime().ToUnixTimeMilliseconds();
+
+        // 1. telemetry_rollups_1m から ActivePowerWatts の集計を取得
+        // 各 1 分 bucket の電力量 (kWh) = (value_sum / sample_count) / 60.0 / 1000.0
+        // 観測された bucket だけ SUM を計算
+        var powerData = new Dictionary<string, (double EnergyKwh, double AvgWatts, double PeakWatts)>();
+        await using (var powerCmd = connection.CreateCommand())
+        {
+            powerCmd.CommandText = $"""
+                SELECT
+                    strftime('{strftimeFormat}', datetime(bucket_utc_ms / 1000, 'unixepoch', 'localtime')) AS period_key,
+                    SUM((value_sum * 1.0 / sample_count) / 60.0 / 1000.0) AS energy_kwh,
+                    SUM(value_sum) / SUM(sample_count) AS avg_watts,
+                    MAX(maximum) AS peak_watts
+                FROM telemetry_rollups_1m
+                WHERE device_id = $device
+                    AND metric = $metric
+                    AND bucket_utc_ms >= $from
+                    AND bucket_utc_ms <= $to
+                GROUP BY period_key;
+                """;
+            AddRangeParameters(powerCmd, deviceId, fromMs, toMs);
+            powerCmd.Parameters.AddWithValue("$metric", (int)TelemetryMetric.ActivePowerWatts);
+            await using var reader = await powerCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var key = reader.GetString(0);
+                var energyKwh = reader.GetDouble(1);
+                var avgWatts = reader.GetDouble(2);
+                var peakWatts = reader.GetDouble(3);
+                powerData[key] = (energyKwh, avgWatts, peakWatts);
+            }
+        }
+
+        // 2. ups_events から停電イベント件数を取得
+        var outageData = new Dictionary<string, int>();
+        await using (var outageCmd = connection.CreateCommand())
+        {
+            outageCmd.CommandText = $"""
+                SELECT
+                    strftime('{strftimeFormat}', datetime(timestamp_utc_ms / 1000, 'unixepoch', 'localtime')) AS period_key,
+                    COUNT(*) AS outage_count
+                FROM ups_events
+                WHERE device_id = $device
+                    AND timestamp_utc_ms >= $from
+                    AND timestamp_utc_ms <= $to
+                    AND event_type = $eventType
+                GROUP BY period_key;
+                """;
+            AddRangeParameters(outageCmd, deviceId, fromMs, toMs);
+            outageCmd.Parameters.AddWithValue("$eventType", (int)UpsEventType.PowerLost);
+            await using var reader = await outageCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var key = reader.GetString(0);
+                var count = reader.GetInt32(1);
+                outageData[key] = count;
+            }
+        }
+
+        var result = new List<EnergyReportItem>(periods.Count);
+        foreach (var (key, start, end) in periods)
+        {
+            var outageCount = outageData.GetValueOrDefault(key, 0);
+            if (powerData.TryGetValue(key, out var power))
+            {
+                var cost = power.EnergyKwh * electricityRatePerKwh;
+                result.Add(new EnergyReportItem(
+                    granularity,
+                    start,
+                    end,
+                    power.EnergyKwh,
+                    cost,
+                    power.PeakWatts,
+                    power.AvgWatts,
+                    outageCount));
+            }
+            else
+            {
+                result.Add(new EnergyReportItem(
+                    granularity,
+                    start,
+                    end,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    outageCount));
+            }
+        }
+
+        return result;
+    }
+
     public async Task<IReadOnlyList<DailyEnergyReportItem>> QueryDailyEnergyReportsAsync(
         string deviceId,
         int days,
         double electricityRatePerKwh,
         CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-        await FlushAsync(cancellationToken).ConfigureAwait(false);
-        await using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (days <= 0)
+        {
+            return [];
+        }
 
-        var list = new List<DailyEnergyReportItem>();
         var today = DateOnly.FromDateTime(DateTime.Now);
+        var fromDate = today.AddDays(-(days - 1));
+        var localNow = DateTimeOffset.Now;
+        var from = new DateTimeOffset(fromDate.ToDateTime(TimeOnly.MinValue), localNow.Offset);
+        var to = new DateTimeOffset(today.ToDateTime(TimeOnly.MaxValue), localNow.Offset);
 
-        var dayRanges = new List<(DateOnly Date, long StartUtc, long EndUtc)>();
-        for (var i = days - 1; i >= 0; i--)
-        {
-            var targetDate = today.AddDays(-i);
-            var startUtc = new DateTimeOffset(targetDate.ToDateTime(TimeOnly.MinValue), DateTimeOffset.Now.Offset).ToUniversalTime().ToUnixTimeMilliseconds();
-            var endUtc = new DateTimeOffset(targetDate.ToDateTime(TimeOnly.MaxValue), DateTimeOffset.Now.Offset).ToUniversalTime().ToUnixTimeMilliseconds();
-            dayRanges.Add((targetDate, startUtc, endUtc));
-        }
+        var items = await QueryEnergyReportsAsync(
+            deviceId,
+            from,
+            to,
+            EnergyReportPeriod.Day,
+            electricityRatePerKwh,
+            cancellationToken).ConfigureAwait(false);
 
-        if (dayRanges.Count == 0)
-        {
-            return list;
-        }
-
-        var overallStartUtc = dayRanges[0].StartUtc;
-        var overallEndUtc = dayRanges[^1].EndUtc;
-
-        // 1. 日別の active_power_watts 集計を一括取得
-        var powerData = new Dictionary<string, (double AvgWatts, double PeakWatts)>();
-        await using (var powerCmd = connection.CreateCommand())
-        {
-            powerCmd.CommandText = """
-                SELECT
-                    strftime('%Y-%m-%d', datetime(timestamp_utc_ms / 1000, 'unixepoch', 'localtime')) AS day_str,
-                    AVG(active_power_watts),
-                    MAX(active_power_watts)
-                FROM telemetry_samples
-                WHERE device_id = $device
-                    AND timestamp_utc_ms >= $from
-                    AND timestamp_utc_ms <= $to
-                    AND active_power_watts IS NOT NULL
-                GROUP BY day_str;
-                """;
-            AddRangeParameters(powerCmd, deviceId, overallStartUtc, overallEndUtc);
-            await using var reader = await powerCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                var dayStr = reader.GetString(0);
-                var avg = reader.GetDouble(1);
-                var max = reader.GetDouble(2);
-                powerData[dayStr] = (avg, max);
-            }
-        }
-
-        // 2. 日別の停電イベント件数を一括取得
-        var outageData = new Dictionary<string, int>();
-        await using (var outageCmd = connection.CreateCommand())
-        {
-            outageCmd.CommandText = """
-                SELECT
-                    strftime('%Y-%m-%d', datetime(timestamp_utc_ms / 1000, 'unixepoch', 'localtime')) AS day_str,
-                    COUNT(*)
-                FROM ups_events
-                WHERE device_id = $device
-                    AND timestamp_utc_ms >= $from
-                    AND timestamp_utc_ms <= $to
-                    AND event_type = 0
-                GROUP BY day_str;
-                """;
-            AddRangeParameters(outageCmd, deviceId, overallStartUtc, overallEndUtc);
-            await using var reader = await outageCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                var dayStr = reader.GetString(0);
-                var count = reader.GetInt32(1);
-                outageData[dayStr] = count;
-            }
-        }
-
-        foreach (var (targetDate, _, _) in dayRanges)
-        {
-            var dateKey = targetDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-            var outageCount = outageData.GetValueOrDefault(dateKey, 0);
-
-            if (powerData.TryGetValue(dateKey, out var power))
-            {
-                var avgWatts = power.AvgWatts;
-                var peakWatts = power.PeakWatts;
-                var energyKwh = (avgWatts * 24.0) / 1000.0;
-                var cost = energyKwh * electricityRatePerKwh;
-                list.Add(new DailyEnergyReportItem(targetDate, energyKwh, cost, peakWatts, avgWatts, outageCount));
-            }
-            else
-            {
-                list.Add(new DailyEnergyReportItem(targetDate, 0.0, 0.0, 0.0, 0.0, outageCount));
-            }
-        }
-
-        return list;
+        return items.Select(i => new DailyEnergyReportItem(
+            DateOnly.FromDateTime(i.PeriodStart.LocalDateTime),
+            i.EnergyKwh,
+            i.EstimatedCost,
+            i.PeakWatts,
+            i.AvgWatts,
+            i.OutageCount)).ToList();
     }
 
     public async Task<PowerTroubleSummary> QueryPowerTroubleSummaryAsync(
