@@ -574,6 +574,9 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
             PRAGMA synchronous=NORMAL;
             PRAGMA foreign_keys=ON;
             PRAGMA busy_timeout=5000;
+            PRAGMA cache_size=-20000;
+            PRAGMA mmap_size=268435456;
+            PRAGMA temp_store=MEMORY;
 
             CREATE TABLE IF NOT EXISTS telemetry_samples (
                 id INTEGER PRIMARY KEY,
@@ -602,6 +605,8 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
             );
             CREATE INDEX IF NOT EXISTS ix_telemetry_samples_device_time
                 ON telemetry_samples(device_id, timestamp_utc_ms);
+            CREATE INDEX IF NOT EXISTS ix_telemetry_samples_time
+                ON telemetry_samples(timestamp_utc_ms);
 
             CREATE TABLE IF NOT EXISTS telemetry_rollups_1m (
                 device_id TEXT NOT NULL,
@@ -636,6 +641,8 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
             );
             CREATE INDEX IF NOT EXISTS ix_raw_values_device_metric_time
                 ON raw_telemetry_values(device_id, metric_key, timestamp_utc_ms);
+            CREATE INDEX IF NOT EXISTS ix_raw_values_time
+                ON raw_telemetry_values(timestamp_utc_ms);
 
             CREATE TABLE IF NOT EXISTS ups_events (
                 id INTEGER PRIMARY KEY,
