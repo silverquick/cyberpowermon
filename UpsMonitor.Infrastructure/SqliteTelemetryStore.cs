@@ -18,12 +18,14 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
     private readonly Dictionary<string, RawValueCheckpoint> _rawValueCheckpoints = [];
     private readonly Dictionary<string, BatteryHealthObservation> _healthCheckpoints = [];
     private readonly Dictionary<string, UpsPowerState> _lastStates = [];
+    private readonly object _initLock = new();
+    private Task? _initTask;
     private long _currentRollupBucket = -1;
     private SqliteConnection? _writeConnection;
     private Task? _writerTask;
     private DateTimeOffset _lastCleanup = DateTimeOffset.MinValue;
     private string? _lastDeviceId;
-    private bool _initialized;
+    private volatile bool _initialized;
     private bool _disposed;
 
     public SqliteTelemetryStore(AppPaths paths, HistoryConfiguration configuration)
@@ -45,14 +47,19 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
 
     public string DatabasePath => _databasePath;
 
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_initialized)
+        lock (_initLock)
         {
-            return;
+            _initTask ??= InitializeCoreAsync(CancellationToken.None);
         }
 
+        return _initTask;
+    }
+
+    private async Task InitializeCoreAsync(CancellationToken cancellationToken)
+    {
         Directory.CreateDirectory(Path.GetDirectoryName(_databasePath)!);
         _writeConnection = new SqliteConnection(_connectionString);
         await _writeConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -83,7 +90,7 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
 
     public async Task FlushAsync(CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Queue(new FlushWriteRequest(completion), cancellationToken);
         await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -98,9 +105,26 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
 
         _disposed = true;
         _writeQueue.Writer.TryComplete();
+        if (_initTask is not null)
+        {
+            try
+            {
+                await _initTask.ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+        }
+
         if (_writerTask is not null)
         {
-            await _writerTask.ConfigureAwait(false);
+            try
+            {
+                await _writerTask.ConfigureAwait(false);
+            }
+            catch
+            {
+            }
         }
 
         if (_writeConnection is not null)
@@ -112,7 +136,7 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
     private void Queue(HistoryWriteRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        EnsureInitialized();
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (!_writeQueue.Writer.TryWrite(request))
         {
             throw new InvalidOperationException("The telemetry history write queue is closed.");
@@ -126,6 +150,18 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
         {
             throw new InvalidOperationException("The telemetry history store has not been initialized.");
         }
+    }
+
+    private async Task EnsureInitializedAsync(CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        Task initTask;
+        lock (_initLock)
+        {
+            initTask = _initTask ??= InitializeCoreAsync(CancellationToken.None);
+        }
+
+        await initTask.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private async Task ProcessWriteQueueAsync()
@@ -568,13 +604,35 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
+        await using (var pragmaCommand = connection.CreateCommand())
+        {
+            pragmaCommand.CommandText = """
+                PRAGMA journal_mode=WAL;
+                PRAGMA synchronous=NORMAL;
+                PRAGMA foreign_keys=ON;
+                PRAGMA busy_timeout=5000;
+                """;
+            await pragmaCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        long currentVersion = 0;
+        await using (var versionCommand = connection.CreateCommand())
+        {
+            versionCommand.CommandText = "PRAGMA user_version;";
+            var result = await versionCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (result is not null and not DBNull)
+            {
+                currentVersion = Convert.ToInt64(result, CultureInfo.InvariantCulture);
+            }
+        }
+
+        if (currentVersion >= 1)
+        {
+            return;
+        }
+
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA foreign_keys=ON;
-            PRAGMA busy_timeout=5000;
-
             CREATE TABLE IF NOT EXISTS telemetry_samples (
                 id INTEGER PRIMARY KEY,
                 device_id TEXT NOT NULL,
