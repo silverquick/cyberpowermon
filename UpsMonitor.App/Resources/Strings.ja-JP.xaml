@@ -471,5 +471,4 @@
     <sys:String x:Key="ColumnEstimatedRuntime">推定稼働時間</sys:String>
     <sys:String x:Key="ColumnDischargeCurrent">推定放電電流</sys:String>
     <sys:String x:Key="MinutesUnit">分</sys:String>
-    <sys:String x:Key="TimesUnit">回</sys:String>
 </ResourceDictionary>

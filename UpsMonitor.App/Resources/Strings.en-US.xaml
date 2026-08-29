@@ -471,5 +471,4 @@
     <sys:String x:Key="ColumnEstimatedRuntime">Est. Runtime</sys:String>
     <sys:String x:Key="ColumnDischargeCurrent">Est. Current</sys:String>
     <sys:String x:Key="MinutesUnit">min</sys:String>
-    <sys:String x:Key="TimesUnit">times</sys:String>
 </ResourceDictionary>
