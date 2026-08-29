@@ -37,6 +37,12 @@ var tests = new (string Name, Action Run)[]
     ("Navigation refresh on tab selection", NavigationRefreshOnTabSelection),
     ("Navigation refresh on visibility change", NavigationRefreshOnVisibilityChange),
     ("Navigation refresh on language change", NavigationRefreshOnLanguageChange),
+    ("High load alert detector edge and hysteresis", HighLoadAlertDetectorEdgeAndHysteresis),
+    ("Voltage abnormal alert detector edge and hysteresis", VoltageAbnormalAlertDetectorEdgeAndHysteresis),
+    ("Alert detector disconnected produces no alerts", AlertDetectorDisconnectedNoAlerts),
+    ("Dynamic alert thresholds update", DynamicAlertThresholdsUpdate),
+    ("Engine alert thresholds propagation and persistence", EngineAlertThresholdsPropagationAndPersistence),
+    ("Alert events SQLite round trip", AlertEventsSqliteRoundTrip),
 };
 
 var failures = new List<string>();
@@ -861,14 +867,33 @@ static void ConfigurationNewFeatures()
     Equal(80.0, config.Alerts.HighLoadWarningPercent);
     Equal(92.0, config.Alerts.LowVoltageWarningThreshold);
     Equal(108.0, config.Alerts.HighVoltageWarningThreshold);
+    Equal(5.0, config.Alerts.LoadHysteresisPercent);
+    Equal(2.0, config.Alerts.VoltageHysteresisVolts);
     Equal(false, config.Webhook.Enabled);
     Equal(false, config.ExternalCommand.Enabled);
+    Equal(string.Empty, config.ExternalCommand.CommandOnHighLoad);
+    Equal(string.Empty, config.ExternalCommand.CommandOnVoltageAbnormal);
+
+    var thresholds = config.Alerts.ToAlertThresholds();
+    Equal(80.0, thresholds.HighLoadPercent);
+    Equal(92.0, thresholds.LowVoltage);
+    Equal(108.0, thresholds.HighVoltage);
+    Equal(5.0, thresholds.LoadHysteresisPercent);
+    Equal(2.0, thresholds.VoltageHysteresisVolts);
 
     // Modify and verify
     config.Ui.Theme = "dark";
     Equal("dark", config.Ui.Theme);
     config.Alerts.HighLoadWarningPercent = 85.0;
     Equal(85.0, config.Alerts.HighLoadWarningPercent);
+    config.Alerts.LoadHysteresisPercent = 10.0;
+    Equal(10.0, config.Alerts.LoadHysteresisPercent);
+    config.Alerts.VoltageHysteresisVolts = 3.5;
+    Equal(3.5, config.Alerts.VoltageHysteresisVolts);
+    config.ExternalCommand.CommandOnHighLoad = "scripts/on_high_load.bat";
+    Equal("scripts/on_high_load.bat", config.ExternalCommand.CommandOnHighLoad);
+    config.ExternalCommand.CommandOnVoltageAbnormal = "scripts/on_voltage.bat";
+    Equal("scripts/on_voltage.bat", config.ExternalCommand.CommandOnVoltageAbnormal);
 }
 
 static void DailyEnergyAndTroubleSummaryQueries()
@@ -1015,6 +1040,7 @@ static UpsSnapshot Snapshot(
     double? load = null,
     double? activePower = null,
     double? apparentPower = null,
+    double? inputVoltage = null,
     bool? fullyCharged = null,
     bool? replacement = null,
     string? selfTest = null,
@@ -1037,6 +1063,7 @@ static UpsSnapshot Snapshot(
         PercentLoad = load,
         ActivePower = activePower,
         ApparentPower = apparentPower,
+        InputVoltage = inputVoltage,
         FullyCharged = fullyCharged,
         NeedReplacement = replacement,
         SelfTestState = selfTest,
@@ -1499,6 +1526,241 @@ static void NavigationRefreshOnLanguageChange()
     Equal(0, sim.HistoryRefreshCount);
 }
 
+static void HighLoadAlertDetectorEdgeAndHysteresis()
+{
+    var thresholds = new UpsAlertThresholds(HighLoadPercent: 80.0, LoadHysteresisPercent: 5.0);
+    var detector = new UpsEventDetector(TimeSpan.FromMinutes(3), thresholds);
+
+    // Initial observation with high load (85% >= 80%) should trigger HighLoadWarning immediately
+    var initialHigh = detector.Observe(Snapshot(connected: true, ac: true, load: 85.0));
+    HasType(initialHigh, UpsEventType.HighLoadWarning);
+    Equal(1, initialHigh.Count(e => e.Type == UpsEventType.HighLoadWarning));
+
+    // Continued high load (85%) should NOT produce additional events (edge triggered)
+    var continuedHigh = detector.Observe(Snapshot(connected: true, ac: true, load: 85.0));
+    Equal(0, continuedHigh.Count(e => e.Type == UpsEventType.HighLoadWarning));
+
+    // Inside hysteresis band (78%: between 75% and 80%) should NOT clear the alert or trigger new events
+    var inHysteresis = detector.Observe(Snapshot(connected: true, ac: true, load: 78.0));
+    Equal(0, inHysteresis.Count(e => e.Type == UpsEventType.HighLoadWarning));
+
+    // Load drops below recovery threshold (74% < 75%) -> clears active state, no event
+    var recovered = detector.Observe(Snapshot(connected: true, ac: true, load: 74.0));
+    Equal(0, recovered.Count(e => e.Type == UpsEventType.HighLoadWarning));
+
+    // Load rises again to 82% (>= 80%) -> triggers HighLoadWarning again!
+    var retriggered = detector.Observe(Snapshot(connected: true, ac: true, load: 82.0));
+    HasType(retriggered, UpsEventType.HighLoadWarning);
+}
+
+static void VoltageAbnormalAlertDetectorEdgeAndHysteresis()
+{
+    var thresholds = new UpsAlertThresholds(LowVoltage: 92.0, HighVoltage: 108.0, VoltageHysteresisVolts: 2.0);
+    var detector = new UpsEventDetector(TimeSpan.FromMinutes(3), thresholds);
+
+    // Initial normal voltage (100V) -> no alert
+    var initialNormal = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: 100.0));
+    Equal(0, initialNormal.Count(e => e.Type == UpsEventType.VoltageAbnormal));
+
+    // Sag: Input voltage drops to 90V (<= 92V) -> triggers VoltageAbnormal
+    var lowVoltage = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: 90.0));
+    HasType(lowVoltage, UpsEventType.VoltageAbnormal);
+
+    // Continued low voltage (90V) -> no additional event
+    var lowContinued = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: 90.0));
+    Equal(0, lowContinued.Count(e => e.Type == UpsEventType.VoltageAbnormal));
+
+    // Inside low hysteresis band (93V: 92V < 93V <= 94V) -> remains active, no event
+    var lowHysteresis = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: 93.0));
+    Equal(0, lowHysteresis.Count(e => e.Type == UpsEventType.VoltageAbnormal));
+
+    // Recovers above recovery threshold (95V > 94V) -> cleared, no event
+    var lowRecovered = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: 95.0));
+    Equal(0, lowRecovered.Count(e => e.Type == UpsEventType.VoltageAbnormal));
+
+    // Surge: Input voltage rises to 110V (>= 108V) -> triggers VoltageAbnormal
+    var highVoltage = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: 110.0));
+    HasType(highVoltage, UpsEventType.VoltageAbnormal);
+
+    // Continued high voltage (110V) -> no event
+    var highContinued = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: 110.0));
+    Equal(0, highContinued.Count(e => e.Type == UpsEventType.VoltageAbnormal));
+
+    // Inside high hysteresis band (107V: 106V <= 107V < 108V) -> remains active, no event
+    var highHysteresis = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: 107.0));
+    Equal(0, highHysteresis.Count(e => e.Type == UpsEventType.VoltageAbnormal));
+
+    // Recovers below recovery threshold (105V < 106V) -> cleared, no event
+    var highRecovered = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: 105.0));
+    Equal(0, highRecovered.Count(e => e.Type == UpsEventType.VoltageAbnormal));
+
+    // During power outage (ac: false), 0V input voltage must NOT trigger VoltageAbnormal (it is a PowerLost event)
+    var powerOutage = detector.Observe(Snapshot(connected: true, ac: false, inputVoltage: 0.0));
+    HasType(powerOutage, UpsEventType.PowerLost);
+    Equal(0, powerOutage.Count(e => e.Type == UpsEventType.VoltageAbnormal));
+}
+
+static void AlertDetectorDisconnectedNoAlerts()
+{
+    var detector = new UpsEventDetector(TimeSpan.FromMinutes(3));
+    _ = detector.Observe(Snapshot(connected: true, ac: true));
+
+    // Disconnected snapshot with abnormal load and voltage -> only UpsDisconnected, no alert events
+    var disconnected = detector.Observe(Snapshot(connected: false, load: 99.0, inputVoltage: 150.0));
+    HasSingle(disconnected, UpsEventType.UpsDisconnected);
+    Equal(0, disconnected.Count(e => e.Type is UpsEventType.HighLoadWarning or UpsEventType.VoltageAbnormal));
+}
+
+static void DynamicAlertThresholdsUpdate()
+{
+    var detector = new UpsEventDetector(TimeSpan.FromMinutes(3), new UpsAlertThresholds(HighLoadPercent: 80.0, LowVoltage: 92.0, HighVoltage: 108.0));
+
+    // Load at 75% -> no alert with threshold 80%
+    var snap1 = Snapshot(connected: true, ac: true, load: 75.0, inputVoltage: 95.0);
+    var ev1 = detector.Observe(snap1);
+    Equal(0, ev1.Count(e => e.Type is UpsEventType.HighLoadWarning or UpsEventType.VoltageAbnormal));
+
+    // Dynamically lower high load threshold to 70%
+    detector.SetAlertThresholds(new UpsAlertThresholds(HighLoadPercent: 70.0, LowVoltage: 92.0, HighVoltage: 108.0));
+    var snap2 = Snapshot(connected: true, ac: true, load: 75.0, inputVoltage: 95.0);
+    var ev2 = detector.Observe(snap2);
+    HasType(ev2, UpsEventType.HighLoadWarning);
+
+    // Dynamically raise low voltage threshold to 96V
+    detector.SetAlertThresholds(new UpsAlertThresholds(HighLoadPercent: 70.0, LowVoltage: 96.0, HighVoltage: 108.0));
+    var snap3 = Snapshot(connected: true, ac: true, load: 75.0, inputVoltage: 95.0);
+    var ev3 = detector.Observe(snap3);
+    HasType(ev3, UpsEventType.VoltageAbnormal);
+}
+
+static void EngineAlertThresholdsPropagationAndPersistence() => EngineAlertThresholdsPropagationAndPersistenceAsync().GetAwaiter().GetResult();
+
+static async Task EngineAlertThresholdsPropagationAndPersistenceAsync()
+{
+    var recordedEvents = new List<UpsEvent>();
+    var mockSink = new RecordingEventSink(recordedEvents);
+    var mockProvider = new TestAlertUpsProvider();
+
+    var thresholds = new UpsAlertThresholds(HighLoadPercent: 70.0, LowVoltage: 90.0, HighVoltage: 110.0);
+    await using var engine = new UpsMonitorEngine(
+        mockProvider,
+        mockSink,
+        pollIntervalMs: 250,
+        runtimeLowThreshold: TimeSpan.FromMinutes(3),
+        snapshotSink: null,
+        alertThresholds: thresholds);
+
+    var detectedEvents = new List<UpsEvent>();
+    engine.EventDetected += ev =>
+    {
+        lock (detectedEvents)
+        {
+            detectedEvents.Add(ev);
+        }
+    };
+
+    // 1. Initial normal snapshot
+    mockProvider.CurrentSnapshot = Snapshot(connected: true, ac: true, load: 50.0, inputVoltage: 100.0, device: mockProvider.Device);
+    engine.Start();
+
+    await WaitForConditionAsync(() => {
+        lock (detectedEvents) { return detectedEvents.Any(e => e.Type == UpsEventType.UpsReconnected); }
+    }, TimeSpan.FromSeconds(2));
+
+    // 2. High load (75% >= 70%) -> HighLoadWarning emitted to EventDetected and mockSink
+    mockProvider.CurrentSnapshot = Snapshot(connected: true, ac: true, load: 75.0, inputVoltage: 100.0, device: mockProvider.Device);
+    engine.NotifyDeviceChange();
+
+    await WaitForConditionAsync(() => {
+        lock (detectedEvents) { return detectedEvents.Any(e => e.Type == UpsEventType.HighLoadWarning); }
+    }, TimeSpan.FromSeconds(2));
+
+    lock (detectedEvents)
+    {
+        HasType(detectedEvents, UpsEventType.HighLoadWarning);
+    }
+    lock (recordedEvents)
+    {
+        HasType(recordedEvents, UpsEventType.HighLoadWarning);
+    }
+
+    // 3. Dynamic alert threshold update from engine
+    engine.SetAlertThresholds(new UpsAlertThresholds(HighLoadPercent: 90.0, LowVoltage: 98.0, HighVoltage: 110.0));
+    // Input voltage is 95V (<= 98V) -> VoltageAbnormal
+    mockProvider.CurrentSnapshot = Snapshot(connected: true, ac: true, load: 75.0, inputVoltage: 95.0, device: mockProvider.Device);
+    engine.NotifyDeviceChange();
+
+    await WaitForConditionAsync(() => {
+        lock (detectedEvents) { return detectedEvents.Any(e => e.Type == UpsEventType.VoltageAbnormal); }
+    }, TimeSpan.FromSeconds(2));
+
+    lock (detectedEvents)
+    {
+        HasType(detectedEvents, UpsEventType.VoltageAbnormal);
+    }
+    lock (recordedEvents)
+    {
+        HasType(recordedEvents, UpsEventType.VoltageAbnormal);
+    }
+
+    await engine.StopAsync();
+}
+
+static void AlertEventsSqliteRoundTrip() => AlertEventsSqliteRoundTripAsync().GetAwaiter().GetResult();
+
+static async Task AlertEventsSqliteRoundTripAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsAlertDbTests-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        await store.InitializeAsync();
+
+        var device = new UpsDeviceInfo("test-path", 0x0764, 0x0601, "Vendor", "Product", "SN-ALERT", 0x84, 0x04, 64, 64);
+        var devId = UpsDeviceIdentity.Create(device);
+        var now = DateTimeOffset.UtcNow;
+
+        var snap = Snapshot(connected: true, ac: true, device: device, timestamp: now.AddMinutes(-6), inputVoltage: 100.0);
+        await store.WriteAsync(snap, CancellationToken.None);
+
+        var highLoadEv = new UpsEvent(now.AddMinutes(-5), UpsEventType.HighLoadWarning, "UPS load is high: 85%", UpsPowerState.Online, UpsPowerState.Online);
+        var voltageEv = new UpsEvent(now.AddMinutes(-2), UpsEventType.VoltageAbnormal, "Input voltage is abnormal: 88V", UpsPowerState.Online, UpsPowerState.Online);
+
+        // Record via IUpsEventSink
+        await ((IUpsEventSink)store).WriteAsync(highLoadEv, CancellationToken.None);
+        await ((IUpsEventSink)store).WriteAsync(voltageEv, CancellationToken.None);
+        await store.FlushAsync();
+
+        var history = await store.QueryHistoryAsync(devId, now.AddMinutes(-10), now.AddMinutes(1), [TelemetryMetric.InputVoltage]);
+        Equal(2, history.Events.Count);
+        HasType(history.Events, UpsEventType.HighLoadWarning);
+        HasType(history.Events, UpsEventType.VoltageAbnormal);
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
+}
+
+static async Task WaitForConditionAsync(Func<bool> condition, TimeSpan timeout)
+{
+    var start = DateTimeOffset.UtcNow;
+    while (!condition())
+    {
+        if (DateTimeOffset.UtcNow - start > timeout)
+        {
+            throw new TimeoutException("Condition was not met within timeout.");
+        }
+        await Task.Delay(20);
+    }
+}
+
 sealed class MockUpsProvider : IUpsProvider
 {
     public UpsDeviceInfo? Device { get; private set; } = new UpsDeviceInfo("Path", 0x1234, 0x5678, "Mock", "Model", "SN123", 0x84, 0x04, 64, 64);
@@ -1640,5 +1902,27 @@ sealed class NavigationSessionSimulator
         }
         AnalyticsRefreshCount++;
         _lastAnalyticsRefresh = _currentTime;
+    }
+}
+
+sealed class TestAlertUpsProvider : IUpsProvider
+{
+    public UpsDeviceInfo? Device { get; set; } = new UpsDeviceInfo("Path", 0x1234, 0x5678, "Mock", "Model", "SN123", 0x84, 0x04, 64, 64);
+    public UpsSnapshot CurrentSnapshot { get; set; } = new UpsSnapshot { IsConnected = true, Timestamp = DateTimeOffset.Now };
+    public Task<bool> ConnectAsync(CancellationToken cancellationToken) => Task.FromResult(true);
+    public Task<UpsSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken) => Task.FromResult(CurrentSnapshot);
+    public void Disconnect() { }
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+sealed class RecordingEventSink(List<UpsEvent> list) : IUpsEventSink
+{
+    public Task WriteAsync(UpsEvent upsEvent, CancellationToken cancellationToken)
+    {
+        lock (list)
+        {
+            list.Add(upsEvent);
+        }
+        return Task.CompletedTask;
     }
 }
