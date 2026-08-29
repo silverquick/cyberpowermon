@@ -28,6 +28,7 @@ var tests = new (string Name, Action Run)[]
     ("Runtime estimator load calculation", RuntimeEstimatorCalculation),
     ("Configuration theme, alerts, webhook, and command settings", ConfigurationNewFeatures),
     ("Daily energy reports and trouble summary queries", DailyEnergyAndTroubleSummaryQueries),
+    ("Accurate energy reports and monthly aggregation", AccurateEnergyReportsAndMonthlyAggregation),
     ("Performance benchmark and EXPLAIN QUERY PLAN", PerformanceBenchmark),
     ("Event detector zero-allocation when quiet", EventDetectorZeroAllocationWhenQuiet),
     ("Command runner execution, large output, and escaping", CommandRunnerExecutionAndEscaping),
@@ -1209,20 +1210,21 @@ static async Task PerformanceBenchmarkAsync()
                 }
             }
 
-            Explain("1. QueryDailyEnergyReportsAsync (Batch daily active power)",
+            Explain("1. QueryEnergyReportsAsync (Batch daily/monthly active power via rollups)",
                 """
                 SELECT
-                    strftime('%Y-%m-%d', datetime(timestamp_utc_ms / 1000, 'unixepoch', 'localtime')) AS day_str,
-                    AVG(active_power_watts),
-                    MAX(active_power_watts)
-                FROM telemetry_samples
+                    strftime('%Y-%m-%d', datetime(bucket_utc_ms / 1000, 'unixepoch', 'localtime')) AS period_key,
+                    SUM((value_sum * 1.0 / sample_count) / 60.0 / 1000.0) AS energy_kwh,
+                    SUM(value_sum) / SUM(sample_count) AS avg_watts,
+                    MAX(maximum) AS peak_watts
+                FROM telemetry_rollups_1m
                 WHERE device_id = $device
-                    AND timestamp_utc_ms >= $from
-                    AND timestamp_utc_ms <= $to
-                    AND active_power_watts IS NOT NULL
-                GROUP BY day_str;
+                    AND metric = $metric
+                    AND bucket_utc_ms >= $from
+                    AND bucket_utc_ms <= $to
+                GROUP BY period_key;
                 """,
-                ("$device", devId), ("$from", start.ToUnixTimeMilliseconds()), ("$to", start.AddDays(30).ToUnixTimeMilliseconds()));
+                ("$device", devId), ("$metric", (int)TelemetryMetric.ActivePowerWatts), ("$from", start.ToUnixTimeMilliseconds()), ("$to", start.AddDays(30).ToUnixTimeMilliseconds()));
 
             Explain("2. QueryPowerTroubleSummaryAsync (Single-scan Sag/Surge counts)",
                 """
@@ -1497,6 +1499,271 @@ static void NavigationRefreshOnLanguageChange()
     sim.ChangeLanguage();
     Equal(0, sim.AnalyticsRefreshCount);
     Equal(0, sim.HistoryRefreshCount);
+}
+
+static void AccurateEnergyReportsAndMonthlyAggregation() => AccurateEnergyReportsAndMonthlyAggregationAsync().GetAwaiter().GetResult();
+
+static async Task AccurateEnergyReportsAndMonthlyAggregationAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsEnergyCoreTests_{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        // raw retention は 7 日に設定（30日超のデータは samples から消える想定）
+        var config = new HistoryConfiguration { RawRetentionDays = 7, RawUsageCheckpointSeconds = 30 };
+        var store = new SqliteTelemetryStore(paths, config);
+        await store.InitializeAsync();
+
+        var device = new UpsDeviceInfo("test-device", 0x0764, 0x0601, "CPS", "Test UPS", "TEST-E-01", 0x84, 0x04, 64, 64);
+        var devId = UpsDeviceIdentity.Create(device);
+
+        var localTz = TimeZoneInfo.Local;
+        var localNow = DateTimeOffset.Now;
+
+        // 1. 200W を 60 連続分 → 約 0.2kWh & 料金換算 (31.0 円/kWh -> 6.2 円)
+        var baseDate = DateOnly.FromDateTime(localNow.LocalDateTime);
+        var t1StartLocal = baseDate.ToDateTime(new TimeOnly(10, 0, 0));
+        var t1Start = new DateTimeOffset(t1StartLocal, localTz.GetUtcOffset(t1StartLocal));
+
+        using (var conn = new SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+
+            cmd.CommandText = """
+                INSERT INTO telemetry_rollups_1m (
+                    device_id, bucket_utc_ms, metric, minimum, maximum, value_sum, sample_count, last_value, last_timestamp_utc_ms
+                ) VALUES ($dev, $bucket, $metric, $min, $max, $sum, $cnt, $lastVal, $lastTime);
+                """;
+            var pDev = cmd.Parameters.Add("$dev", SqliteType.Text);
+            var pBucket = cmd.Parameters.Add("$bucket", SqliteType.Integer);
+            var pMetric = cmd.Parameters.Add("$metric", SqliteType.Integer);
+            var pMin = cmd.Parameters.Add("$min", SqliteType.Real);
+            var pMax = cmd.Parameters.Add("$max", SqliteType.Real);
+            var pSum = cmd.Parameters.Add("$sum", SqliteType.Real);
+            var pCnt = cmd.Parameters.Add("$cnt", SqliteType.Integer);
+            var pLastVal = cmd.Parameters.Add("$lastVal", SqliteType.Real);
+            var pLastTime = cmd.Parameters.Add("$lastTime", SqliteType.Integer);
+
+            pDev.Value = devId;
+            pMetric.Value = (int)TelemetryMetric.ActivePowerWatts;
+
+            // 1. 60 連続分 (200W)
+            for (var m = 0; m < 60; m++)
+            {
+                var bucketTime = t1Start.AddMinutes(m);
+                var bMs = bucketTime.ToUnixTimeMilliseconds();
+                pBucket.Value = bMs;
+                pMin.Value = 200.0;
+                pMax.Value = 200.0;
+                pSum.Value = 200.0 * 60; // 60 サンプル
+                pCnt.Value = 60;
+                pLastVal.Value = 200.0;
+                pLastTime.Value = bMs + 59000;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // 2. 1 分のみ (200W) -> 昨日 14:00
+            var yesterdayLocal = baseDate.AddDays(-1).ToDateTime(new TimeOnly(14, 0, 0));
+            var tYesterday = new DateTimeOffset(yesterdayLocal, localTz.GetUtcOffset(yesterdayLocal));
+            {
+                var bMs = tYesterday.ToUnixTimeMilliseconds();
+                pBucket.Value = bMs;
+                pMin.Value = 200.0;
+                pMax.Value = 200.0;
+                pSum.Value = 200.0 * 60;
+                pCnt.Value = 60;
+                pLastVal.Value = 200.0;
+                pLastTime.Value = bMs + 59000;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // 3. 長い欠測を積分しない -> 2日前 00:00 に 200W (1分)、23:00 に 200W (1分) のみ
+            var twoDaysAgo0Local = baseDate.AddDays(-2).ToDateTime(new TimeOnly(0, 0, 0));
+            var twoDaysAgo23Local = baseDate.AddDays(-2).ToDateTime(new TimeOnly(23, 0, 0));
+            var tTwoDaysAgo0 = new DateTimeOffset(twoDaysAgo0Local, localTz.GetUtcOffset(twoDaysAgo0Local));
+            var tTwoDaysAgo23 = new DateTimeOffset(twoDaysAgo23Local, localTz.GetUtcOffset(twoDaysAgo23Local));
+            foreach (var t in new[] { tTwoDaysAgo0, tTwoDaysAgo23 })
+            {
+                var bMs = t.ToUnixTimeMilliseconds();
+                pBucket.Value = bMs;
+                pMin.Value = 200.0;
+                pMax.Value = 200.0;
+                pSum.Value = 200.0 * 60;
+                pCnt.Value = 60;
+                pLastVal.Value = 200.0;
+                pLastTime.Value = bMs + 59000;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // 4. 当日部分期間 -> 3日前 (120分稼働 100W)
+            var threeDaysAgoLocal = baseDate.AddDays(-3).ToDateTime(new TimeOnly(8, 0, 0));
+            var tThreeDaysAgo = new DateTimeOffset(threeDaysAgoLocal, localTz.GetUtcOffset(threeDaysAgoLocal));
+            for (var m = 0; m < 120; m++)
+            {
+                var bucketTime = tThreeDaysAgo.AddMinutes(m);
+                var bMs = bucketTime.ToUnixTimeMilliseconds();
+                pBucket.Value = bMs;
+                pMin.Value = 100.0;
+                pMax.Value = 100.0;
+                pSum.Value = 100.0 * 60;
+                pCnt.Value = 60;
+                pLastVal.Value = 100.0;
+                pLastTime.Value = bMs + 59000;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // 5. 月跨ぎ / 月次集計 -> 2026年5月31日 12:00 (60分 100W) と 2026年6月1日 12:00 (60分 100W)
+            var may31Local = new DateTime(2026, 5, 31, 12, 0, 0);
+            var jun1Local = new DateTime(2026, 6, 1, 12, 0, 0);
+            var tMay31 = new DateTimeOffset(may31Local, localTz.GetUtcOffset(may31Local));
+            var tJun1 = new DateTimeOffset(jun1Local, localTz.GetUtcOffset(jun1Local));
+            for (var m = 0; m < 60; m++)
+            {
+                var bMs = tMay31.AddMinutes(m).ToUnixTimeMilliseconds();
+                pBucket.Value = bMs;
+                pMin.Value = 100.0;
+                pMax.Value = 100.0;
+                pSum.Value = 100.0 * 60;
+                pCnt.Value = 60;
+                pLastVal.Value = 100.0;
+                pLastTime.Value = bMs + 59000;
+                await cmd.ExecuteNonQueryAsync();
+            }
+            for (var m = 0; m < 60; m++)
+            {
+                var bMs = tJun1.AddMinutes(m).ToUnixTimeMilliseconds();
+                pBucket.Value = bMs;
+                pMin.Value = 100.0;
+                pMax.Value = 100.0;
+                pSum.Value = 100.0 * 60;
+                pCnt.Value = 60;
+                pLastVal.Value = 100.0;
+                pLastTime.Value = bMs + 59000;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // 8. 35日前（30日超）の rollup データ (60分 200W = 0.2kWh)
+            var thirtyFiveDaysAgoLocal = baseDate.AddDays(-35).ToDateTime(new TimeOnly(10, 0, 0));
+            var tThirtyFive = new DateTimeOffset(thirtyFiveDaysAgoLocal, localTz.GetUtcOffset(thirtyFiveDaysAgoLocal));
+            for (var m = 0; m < 60; m++)
+            {
+                var bMs = tThirtyFive.AddMinutes(m).ToUnixTimeMilliseconds();
+                pBucket.Value = bMs;
+                pMin.Value = 200.0;
+                pMax.Value = 200.0;
+                pSum.Value = 200.0 * 60;
+                pCnt.Value = 60;
+                pLastVal.Value = 200.0;
+                pLastTime.Value = bMs + 59000;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // 7. 停電イベントの登録 (5月に2回、6月に1回、baseDateに1回)
+            using var evCmd = conn.CreateCommand();
+            evCmd.Transaction = tx;
+            evCmd.CommandText = """
+                INSERT INTO ups_events (device_id, timestamp_utc_ms, event_type, message, previous_state, current_state)
+                VALUES ($dev, $time, 0, 'Power lost', 1, 2);
+                """;
+            var epDev = evCmd.Parameters.Add("$dev", SqliteType.Text);
+            var epTime = evCmd.Parameters.Add("$time", SqliteType.Integer);
+            epDev.Value = devId;
+
+            epTime.Value = tMay31.ToUnixTimeMilliseconds();
+            await evCmd.ExecuteNonQueryAsync();
+            epTime.Value = tMay31.AddMinutes(30).ToUnixTimeMilliseconds();
+            await evCmd.ExecuteNonQueryAsync();
+            epTime.Value = tJun1.ToUnixTimeMilliseconds();
+            await evCmd.ExecuteNonQueryAsync();
+            epTime.Value = t1Start.AddMinutes(10).ToUnixTimeMilliseconds();
+            await evCmd.ExecuteNonQueryAsync();
+
+            await tx.CommitAsync();
+        }
+
+        // --- 検証 1 & 料金換算 ---
+        // 200W x 60分 = 0.2kWh, 31.0円/kWh -> 6.2円, 停電1回
+        var day0Start = new DateTimeOffset(baseDate.ToDateTime(TimeOnly.MinValue), localTz.GetUtcOffset(baseDate.ToDateTime(TimeOnly.MinValue)));
+        var day0End = day0Start.AddDays(1);
+        var reportsDay0 = await store.QueryEnergyReportsAsync(devId, day0Start, day0End.AddTicks(-1), EnergyReportPeriod.Day, 31.0);
+        Equal(1, reportsDay0.Count);
+        Near(0.2, reportsDay0[0].EnergyKwh, 0.0001);
+        Near(6.2, reportsDay0[0].EstimatedCost, 0.001);
+        Near(200.0, reportsDay0[0].AvgWatts, 0.01);
+        Near(200.0, reportsDay0[0].PeakWatts, 0.01);
+        Equal(1, reportsDay0[0].OutageCount);
+
+        // --- 検証 2 ---
+        // 1分のみ = 200W x (1/60)h / 1000 = 0.003333... kWh
+        var day1Start = day0Start.AddDays(-1);
+        var reportsDay1 = await store.QueryEnergyReportsAsync(devId, day1Start, day1Start.AddDays(1).AddTicks(-1), EnergyReportPeriod.Day, 31.0);
+        Equal(1, reportsDay1.Count);
+        Near(200.0 / 60000.0, reportsDay1[0].EnergyKwh, 0.00001);
+        Near(200.0, reportsDay1[0].AvgWatts, 0.01);
+        Near(200.0, reportsDay1[0].PeakWatts, 0.01);
+
+        // --- 検証 3 ---
+        // 長い欠測を積分しない: 2分のみ観測 -> 2 x (200 / 60000) = 0.006666... kWh (旧AVG*24の4.8kWhにならない)
+        var day2Start = day0Start.AddDays(-2);
+        var reportsDay2 = await store.QueryEnergyReportsAsync(devId, day2Start, day2Start.AddDays(1).AddTicks(-1), EnergyReportPeriod.Day, 31.0);
+        Equal(1, reportsDay2.Count);
+        Near(2 * 200.0 / 60000.0, reportsDay2[0].EnergyKwh, 0.00001);
+
+        // --- 検証 4 ---
+        // 部分期間: 120分稼働 100W -> 120 x (100 / 60000) = 0.2 kWh (24時間換算の2.4kWhにならない)
+        var day3Start = day0Start.AddDays(-3);
+        var reportsDay3 = await store.QueryEnergyReportsAsync(devId, day3Start, day3Start.AddDays(1).AddTicks(-1), EnergyReportPeriod.Day, 31.0);
+        Equal(1, reportsDay3.Count);
+        Near(0.2, reportsDay3[0].EnergyKwh, 0.0001);
+        Near(100.0, reportsDay3[0].AvgWatts, 0.01);
+
+        // --- 検証 5 & 7 ---
+        // 月跨ぎ / 月次集計 / 停電 period 集約
+        var mayStart = new DateTimeOffset(new DateTime(2026, 5, 1), localTz.GetUtcOffset(new DateTime(2026, 5, 1)));
+        var junEnd = new DateTimeOffset(new DateTime(2026, 6, 30, 23, 59, 59), localTz.GetUtcOffset(new DateTime(2026, 6, 30)));
+        var monthReports = await store.QueryEnergyReportsAsync(devId, mayStart, junEnd, EnergyReportPeriod.Month, 30.0);
+        Equal(2, monthReports.Count);
+
+        // 5月: 0.1 kWh (60分 100W), 停電 2回
+        Equal(EnergyReportPeriod.Month, monthReports[0].Period);
+        Near(0.1, monthReports[0].EnergyKwh, 0.0001);
+        Near(3.0, monthReports[0].EstimatedCost, 0.01);
+        Equal(2, monthReports[0].OutageCount);
+
+        // 6月: 0.1 kWh (60分 100W), 停電 1回
+        Equal(EnergyReportPeriod.Month, monthReports[1].Period);
+        Near(0.1, monthReports[1].EnergyKwh, 0.0001);
+        Near(3.0, monthReports[1].EstimatedCost, 0.01);
+        Equal(1, monthReports[1].OutageCount);
+
+        // --- 検証 8 ---
+        // 35日前 (30日超) の rollup 参照
+        var day35Start = day0Start.AddDays(-35);
+        var reportsDay35 = await store.QueryEnergyReportsAsync(devId, day35Start, day35Start.AddDays(1).AddTicks(-1), EnergyReportPeriod.Day, 31.0);
+        Equal(1, reportsDay35.Count);
+        Near(0.2, reportsDay35[0].EnergyKwh, 0.0001);
+
+        // --- 旧 API Wrapper の検証 ---
+        var oldReports = await store.QueryDailyEnergyReportsAsync(devId, 4, 31.0);
+        Equal(4, oldReports.Count);
+        // 今日 (0.2kWh)
+        Near(0.2, oldReports[^1].EnergyKwh, 0.0001);
+        Equal(1, oldReports[^1].OutageCount);
+
+        await store.DisposeAsync();
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            try { Directory.Delete(testRoot, recursive: true); } catch { }
+        }
+    }
 }
 
 sealed class MockUpsProvider : IUpsProvider

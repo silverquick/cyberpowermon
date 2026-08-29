@@ -86,6 +86,22 @@ public sealed record TelemetryDatabaseStatistics
     public DateTimeOffset? LastSample { get; init; }
 }
 
+public enum EnergyReportPeriod
+{
+    Day,
+    Month,
+}
+
+public sealed record EnergyReportItem(
+    EnergyReportPeriod Period,
+    DateTimeOffset PeriodStart,
+    DateTimeOffset PeriodEnd,
+    double EnergyKwh,
+    double EstimatedCost,
+    double PeakWatts,
+    double AvgWatts,
+    int OutageCount);
+
 public sealed record DailyEnergyReportItem(
     DateOnly Date,
     double EnergyKwh,
