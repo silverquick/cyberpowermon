@@ -1031,13 +1031,17 @@
                                 <CheckBox Content="{DynamicResource ExternalCommandEnableLabel}" IsChecked="{Binding ExternalCommandEnabled, Mode=TwoWay}" Margin="0,0,0,12" />
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="180" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
                                     <TextBlock Grid.Row="0" Text="{DynamicResource CmdPowerLostLabel}" VerticalAlignment="Center" Margin="0,0,8,10" />
                                     <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding CommandOnPowerLost, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" Margin="0,0,0,10" />
                                     <TextBlock Grid.Row="1" Text="{DynamicResource CmdPowerRestoredLabel}" VerticalAlignment="Center" Margin="0,0,8,10" />
                                     <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding CommandOnPowerRestored, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" Margin="0,0,0,10" />
-                                    <TextBlock Grid.Row="2" Text="{DynamicResource CmdBatteryLowLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding CommandOnBatteryLow, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" />
+                                    <TextBlock Grid.Row="2" Text="{DynamicResource CmdBatteryLowLabel}" VerticalAlignment="Center" Margin="0,0,8,10" />
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding CommandOnBatteryLow, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" Margin="0,0,0,10" />
+                                    <TextBlock Grid.Row="3" Text="{DynamicResource SettingsCommandOnHighLoad}" VerticalAlignment="Center" Margin="0,0,8,10" />
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding CommandOnHighLoad, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" Margin="0,0,0,10" />
+                                    <TextBlock Grid.Row="4" Text="{DynamicResource SettingsCommandOnVoltageAbnormal}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding CommandOnVoltageAbnormal, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" />
                                 </Grid>
                             </StackPanel>
                         </Border>

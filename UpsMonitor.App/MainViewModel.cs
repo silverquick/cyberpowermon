@@ -93,7 +93,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private IReadOnlyList<RuntimeEstimateTableItem> _standardLoadEstimates = [];
     private PowerTroubleSummary? _troubleSummary;
     private string _troubleSummaryText = "-";
-    private DateTimeOffset _lastCustomAlertTime = DateTimeOffset.MinValue;
 
     private IReadOnlyList<AnalyticsMetricOption> _analyticsMetricOptions = [];
     private AnalyticsMetricOption? _selectedAnalyticsMetric;
@@ -377,6 +376,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         get => _configuration.ExternalCommand.CommandOnBatteryLow;
         set { _configuration.ExternalCommand.CommandOnBatteryLow = value; OnPropertyChanged(); }
+    }
+
+    public string CommandOnHighLoad
+    {
+        get => _configuration.ExternalCommand.CommandOnHighLoad;
+        set { _configuration.ExternalCommand.CommandOnHighLoad = value; OnPropertyChanged(); }
+    }
+
+    public string CommandOnVoltageAbnormal
+    {
+        get => _configuration.ExternalCommand.CommandOnVoltageAbnormal;
+        set { _configuration.ExternalCommand.CommandOnVoltageAbnormal = value; OnPropertyChanged(); }
     }
 
     public double LoadSimulationTargetWatts
@@ -932,6 +943,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                     UpsEventType.PowerLost => _configuration.ExternalCommand.CommandOnPowerLost,
                     UpsEventType.PowerRestored => _configuration.ExternalCommand.CommandOnPowerRestored,
                     UpsEventType.BatteryLow or UpsEventType.BatteryCritical => _configuration.ExternalCommand.CommandOnBatteryLow,
+                    UpsEventType.HighLoadWarning => _configuration.ExternalCommand.CommandOnHighLoad,
+                    UpsEventType.VoltageAbnormal => _configuration.ExternalCommand.CommandOnVoltageAbnormal,
                     _ => string.Empty,
                 };
 
@@ -1033,7 +1046,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
         TooltipUpdated?.Invoke($"{Product}\n{StateText} - {BatteryText} ({RuntimeText})");
         DynamicTrayIconUpdated?.Invoke(state, telemetry.BatteryChargePercent.Value, snapshot.AcPresent ?? false);
-        CheckCustomAlerts(snapshot, telemetry);
         RecalculateSimulation();
 
         if (_historyStore is not null && snapshot.Device is { } historyDevice)
@@ -1378,34 +1390,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         ApplySnapshot(_lastSnapshot);
     }
 
-    private void CheckCustomAlerts(UpsSnapshot snapshot, UpsTelemetry telemetry)
-    {
-        if (!snapshot.IsConnected) return;
-
-        var now = DateTimeOffset.Now;
-        if (now - _lastCustomAlertTime < TimeSpan.FromSeconds(30)) return;
-
-        if (telemetry.LoadPercent.IsValid && telemetry.LoadPercent.Value >= _configuration.Alerts.HighLoadWarningPercent)
-        {
-            _lastCustomAlertTime = now;
-            if (EnableSoundAlerts)
-            {
-                try { System.Media.SystemSounds.Exclamation.Play(); } catch { }
-            }
-        }
-        else if (snapshot.InputVoltage is { } v && snapshot.AcPresent is true)
-        {
-            if (v < _configuration.Alerts.LowVoltageWarningThreshold || v > _configuration.Alerts.HighVoltageWarningThreshold)
-            {
-                _lastCustomAlertTime = now;
-                if (EnableSoundAlerts)
-                {
-                    try { System.Media.SystemSounds.Beep.Play(); } catch { }
-                }
-            }
-        }
-    }
-
     private void RecalculateSimulation()
     {
         var batPercent = _lastTelemetry?.BatteryChargePercent.Value ?? 100.0;
@@ -1483,10 +1467,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _configuration.ExternalCommand.CommandOnPowerLost = CommandOnPowerLost;
         _configuration.ExternalCommand.CommandOnPowerRestored = CommandOnPowerRestored;
         _configuration.ExternalCommand.CommandOnBatteryLow = CommandOnBatteryLow;
+        _configuration.ExternalCommand.CommandOnHighLoad = CommandOnHighLoad;
+        _configuration.ExternalCommand.CommandOnVoltageAbnormal = CommandOnVoltageAbnormal;
 
         await _configurationStore.SaveAsync(_configuration);
         _engine.SetPollInterval(PollIntervalMs);
         _engine.SetRuntimeLowThreshold(TimeSpan.FromSeconds(RuntimeLowSeconds));
+        _engine.SetAlertThresholds(_configuration.Alerts.ToAlertThresholds());
         SettingsStatus = LocalizationManager.Format("SettingsSavedFormat", DateTimeOffset.Now.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
         if (_lastSnapshot is { } snapshot)
         {
