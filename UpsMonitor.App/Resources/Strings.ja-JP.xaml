@@ -447,8 +447,10 @@
     <sys:String x:Key="SettingsCommandOnHighLoad">高負荷時のコマンド</sys:String>
     <sys:String x:Key="SettingsCommandOnVoltageAbnormal">電圧異常時のコマンド</sys:String>
 
-    <sys:String x:Key="DailyEnergyReportTitle">日別消費電力量 &amp; 推定電気代レポート（過去7日間）</sys:String>
-    <sys:String x:Key="DailyEnergyReportSubtitle">日別の積算電力と電気料金・停電発生回数を集計しています</sys:String>
+    <sys:String x:Key="DailyEnergyReportTitle">消費電力量 &amp; 推定電気代レポート</sys:String>
+    <sys:String x:Key="DailyEnergyReportSubtitle">積算電力と電気料金・停電発生回数を集計しています</sys:String>
+    <sys:String x:Key="EnergyGranularityDay">日次</sys:String>
+    <sys:String x:Key="EnergyGranularityMonth">月次</sys:String>
     <sys:String x:Key="ColumnDate">日付</sys:String>
     <sys:String x:Key="ColumnEnergyKwh">電力量 (kWh)</sys:String>
     <sys:String x:Key="ColumnEstimatedCost">推定電気代</sys:String>

@@ -93,6 +93,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private IReadOnlyList<RuntimeEstimateTableItem> _standardLoadEstimates = [];
     private PowerTroubleSummary? _troubleSummary;
     private string _troubleSummaryText = "-";
+    private EnergyReportPeriod _energyReportGranularity = EnergyReportPeriod.Day;
 
     private IReadOnlyList<AnalyticsMetricOption> _analyticsMetricOptions = [];
     private AnalyticsMetricOption? _selectedAnalyticsMetric;
@@ -405,6 +406,48 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public string SimulatedRuntimeText { get => _simulatedRuntimeText; private set => SetField(ref _simulatedRuntimeText, value); }
     public IReadOnlyList<RuntimeEstimateTableItem> StandardLoadEstimates { get => _standardLoadEstimates; private set => SetField(ref _standardLoadEstimates, value); }
     public ObservableCollection<DailyEnergyReportItem> DailyEnergyReports { get; } = [];
+    public ObservableCollection<EnergyReportItem> EnergyReports { get; } = [];
+
+    public EnergyReportPeriod EnergyReportGranularity
+    {
+        get => _energyReportGranularity;
+        set
+        {
+            if (SetField(ref _energyReportGranularity, value))
+            {
+                OnPropertyChanged(nameof(IsEnergyReportDay));
+                OnPropertyChanged(nameof(IsEnergyReportMonth));
+                if (_lastSnapshot is not null && IsHistoryRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
+                {
+                    _ = RefreshHistoryAsync();
+                }
+            }
+        }
+    }
+
+    public bool IsEnergyReportDay
+    {
+        get => EnergyReportGranularity == EnergyReportPeriod.Day;
+        set
+        {
+            if (value)
+            {
+                EnergyReportGranularity = EnergyReportPeriod.Day;
+            }
+        }
+    }
+
+    public bool IsEnergyReportMonth
+    {
+        get => EnergyReportGranularity == EnergyReportPeriod.Month;
+        set
+        {
+            if (value)
+            {
+                EnergyReportGranularity = EnergyReportPeriod.Month;
+            }
+        }
+    }
     public PowerTroubleSummary? TroubleSummary { get => _troubleSummary; private set => SetField(ref _troubleSummary, value); }
     public string TroubleSummaryText { get => _troubleSummaryText; private set => SetField(ref _troubleSummaryText, value); }
 
@@ -1665,6 +1708,36 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                 foreach (var item in dailyReports)
                 {
                     DailyEnergyReports.Add(item);
+                }
+            }
+
+            // 電力量レポート（日次/月次）の取得
+            DateTimeOffset energyFrom;
+            if (EnergyReportGranularity == EnergyReportPeriod.Month)
+            {
+                var firstDayOfThisMonth = new DateTimeOffset(to.Year, to.Month, 1, 0, 0, 0, to.Offset);
+                energyFrom = firstDayOfThisMonth.AddMonths(-11);
+            }
+            else
+            {
+                var today = new DateTimeOffset(to.Year, to.Month, to.Day, 0, 0, 0, to.Offset);
+                energyFrom = today.AddDays(-29);
+            }
+
+            var energyReports = await _historyStore.QueryEnergyReportsAsync(
+                UpsDeviceIdentity.Create(device),
+                energyFrom,
+                to,
+                EnergyReportGranularity,
+                _configuration.Monitoring.ElectricityRatePerKwh,
+                refreshCancellation.Token);
+
+            if (!EnergyReports.SequenceEqual(energyReports))
+            {
+                EnergyReports.Clear();
+                foreach (var item in energyReports)
+                {
+                    EnergyReports.Add(item);
                 }
             }
 
