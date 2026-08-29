@@ -496,4 +496,133 @@ public sealed partial class SqliteTelemetryStore
             AvgPowerFactor = avgPowerFactor,
         };
     }
+
+    public async Task<IReadOnlyList<DailyEnergyReportItem>> QueryDailyEnergyReportsAsync(
+        string deviceId,
+        int days,
+        double electricityRatePerKwh,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureInitialized();
+        await FlushAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        var list = new List<DailyEnergyReportItem>();
+        var today = DateOnly.FromDateTime(DateTime.Now);
+
+        for (var i = days - 1; i >= 0; i--)
+        {
+            var targetDate = today.AddDays(-i);
+            var startUtc = new DateTimeOffset(targetDate.ToDateTime(TimeOnly.MinValue), DateTimeOffset.Now.Offset).ToUniversalTime().ToUnixTimeMilliseconds();
+            var endUtc = new DateTimeOffset(targetDate.ToDateTime(TimeOnly.MaxValue), DateTimeOffset.Now.Offset).ToUniversalTime().ToUnixTimeMilliseconds();
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT
+                    AVG(active_power_watts),
+                    MAX(active_power_watts),
+                    (SELECT COUNT(*) FROM ups_events WHERE device_id = $device AND timestamp_utc_ms >= $from AND timestamp_utc_ms <= $to AND event_type = 0)
+                FROM telemetry_samples
+                WHERE device_id = $device
+                    AND timestamp_utc_ms >= $from
+                    AND timestamp_utc_ms <= $to
+                    AND active_power_watts IS NOT NULL;
+                """;
+            AddRangeParameters(command, deviceId, startUtc, endUtc);
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && !reader.IsDBNull(0))
+            {
+                var avgWatts = reader.GetDouble(0);
+                var peakWatts = reader.GetDouble(1);
+                var outageCount = reader.GetInt32(2);
+
+                // 24時間分の積算kWh
+                var energyKwh = (avgWatts * 24.0) / 1000.0;
+                var cost = energyKwh * electricityRatePerKwh;
+
+                list.Add(new DailyEnergyReportItem(targetDate, energyKwh, cost, peakWatts, avgWatts, outageCount));
+            }
+            else
+            {
+                list.Add(new DailyEnergyReportItem(targetDate, 0.0, 0.0, 0.0, 0.0, 0));
+            }
+        }
+
+        return list;
+    }
+
+    public async Task<PowerTroubleSummary> QueryPowerTroubleSummaryAsync(
+        string deviceId,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        double lowVoltageSagThreshold = 95.0,
+        double highVoltageSurgeThreshold = 105.0,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureInitialized();
+        await FlushAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        var fromMs = from.ToUniversalTime().ToUnixTimeMilliseconds();
+        var toMs = to.ToUniversalTime().ToUnixTimeMilliseconds();
+
+        // 1. サグ・サージ件数カウント
+        long sagCount = 0;
+        long surgeCount = 0;
+        await using (var voltCmd = connection.CreateCommand())
+        {
+            voltCmd.CommandText = """
+                SELECT
+                    (SELECT COUNT(*) FROM telemetry_samples WHERE device_id = $device AND timestamp_utc_ms >= $from AND timestamp_utc_ms <= $to AND input_voltage > 0 AND input_voltage < $sag),
+                    (SELECT COUNT(*) FROM telemetry_samples WHERE device_id = $device AND timestamp_utc_ms >= $from AND timestamp_utc_ms <= $to AND input_voltage > $surge);
+                """;
+            AddRangeParameters(voltCmd, deviceId, fromMs, toMs);
+            voltCmd.Parameters.AddWithValue("$sag", lowVoltageSagThreshold);
+            voltCmd.Parameters.AddWithValue("$surge", highVoltageSurgeThreshold);
+
+            await using var reader = await voltCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                sagCount = reader.GetInt64(0);
+                surgeCount = reader.GetInt64(1);
+            }
+        }
+
+        // 2. トラブルイベントの取得
+        var events = await QueryEventsAsync(connection, deviceId, fromMs, toMs, cancellationToken).ConfigureAwait(false);
+        var troubleEvents = events.Where(e => e.Severity != UpsEventSeverity.Information).ToList();
+
+        var stateChanges = await QueryStateChangesAsync(connection, deviceId, fromMs, toMs, cancellationToken).ConfigureAwait(false);
+        var totalOutageMs = 0.0;
+        var outageCount = events.Count(e => e.Type == UpsEventType.PowerLost);
+
+        if (stateChanges.Count > 0)
+        {
+            for (var i = 0; i < stateChanges.Count; i++)
+            {
+                var current = stateChanges[i];
+                if (current.State is UpsPowerState.OnBattery or UpsPowerState.LowBattery or UpsPowerState.Critical)
+                {
+                    var nextTime = (i + 1 < stateChanges.Count) ? stateChanges[i + 1].Timestamp : to;
+                    var duration = nextTime - current.Timestamp;
+                    if (duration > TimeSpan.Zero)
+                    {
+                        totalOutageMs += duration.TotalMilliseconds;
+                    }
+                }
+            }
+        }
+
+        return new PowerTroubleSummary
+        {
+            TotalOutages = outageCount,
+            TotalOutageDuration = TimeSpan.FromMilliseconds(totalOutageMs),
+            VoltageSagCount = (int)sagCount,
+            VoltageSurgeCount = (int)surgeCount,
+            TroubleEvents = troubleEvents,
+        };
+    }
 }

@@ -7,10 +7,22 @@ namespace UpsMonitor.App;
 internal static class ThemeManager
 {
     internal static bool IsDarkMode { get; private set; } = true;
+    internal static string CurrentThemeMode { get; private set; } = "system";
 
     internal static void ApplySystemTheme(Application application)
     {
-        IsDarkMode = ReadSystemDarkMode();
+        ApplyTheme(application, "system");
+    }
+
+    internal static void ApplyTheme(Application application, string themeMode)
+    {
+        CurrentThemeMode = themeMode;
+        IsDarkMode = themeMode switch
+        {
+            "dark" => true,
+            "light" => false,
+            _ => ReadSystemDarkMode(),
+        };
         var colors = IsDarkMode
             ? new Dictionary<string, string>
             {

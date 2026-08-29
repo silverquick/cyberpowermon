@@ -371,4 +371,73 @@
     <sys:String x:Key="ExportEventsCsv">Export Events (CSV)</sys:String>
     <sys:String x:Key="ExportSuccess">Export completed successfully: {0}</sys:String>
     <sys:String x:Key="ExportFailed">Export failed: {0}</sys:String>
+
+    <!-- New Features Resources -->
+    <sys:String x:Key="OpenMiniMonitor">Mini Monitor</sys:String>
+    <sys:String x:Key="OpenMiniMonitorHelp">Open a compact always-on-top desktop widget</sys:String>
+
+    <sys:String x:Key="ThemeLabel">Theme</sys:String>
+    <sys:String x:Key="ThemeHelp">Application appearance theme</sys:String>
+    <sys:String x:Key="ThemeSystem">Follow System</sys:String>
+    <sys:String x:Key="ThemeDark">Dark</sys:String>
+    <sys:String x:Key="ThemeLight">Light</sys:String>
+
+    <sys:String x:Key="TestNotificationBtn">Send Test Notification</sys:String>
+
+    <sys:String x:Key="CustomAlertsTitle">Custom Alerts &amp; Sound</sys:String>
+    <sys:String x:Key="CustomAlertsSubtitle">Configure overload/voltage warnings and audio alerts</sys:String>
+    <sys:String x:Key="EnableSoundAlertsLabel">Play system sound on warning events</sys:String>
+    <sys:String x:Key="HighLoadThresholdLabel">High load warning threshold (%)</sys:String>
+    <sys:String x:Key="LowVoltageThresholdLabel">Low voltage (sag) threshold (V)</sys:String>
+    <sys:String x:Key="HighVoltageThresholdLabel">High voltage (surge) threshold (V)</sys:String>
+
+    <sys:String x:Key="WebhookTitle">Webhook Notifications</sys:String>
+    <sys:String x:Key="WebhookSubtitle">Send async notifications to Discord, Slack, or generic Webhooks</sys:String>
+    <sys:String x:Key="WebhookEnableLabel">Enable Webhook notifications</sys:String>
+    <sys:String x:Key="WebhookUrlLabel">Webhook URL</sys:String>
+    <sys:String x:Key="WebhookEventsLabel">Notify on events:</sys:String>
+    <sys:String x:Key="WebhookEventPowerLost">Power Outage (AC Lost)</sys:String>
+    <sys:String x:Key="WebhookEventPowerRestored">Power Restored</sys:String>
+    <sys:String x:Key="WebhookEventBatteryLow">Battery Low / Critical</sys:String>
+    <sys:String x:Key="WebhookEventHighLoad">Overload / High Load</sys:String>
+    <sys:String x:Key="WebhookTestBtn">Send Webhook Test</sys:String>
+    <sys:String x:Key="WebhookUrlRequired">Please enter a Webhook URL.</sys:String>
+    <sys:String x:Key="WebhookTesting">Sending test...</sys:String>
+    <sys:String x:Key="WebhookTestSuccess">Webhook test sent successfully.</sys:String>
+    <sys:String x:Key="WebhookTestFailed">Webhook test failed. Please verify URL.</sys:String>
+
+    <sys:String x:Key="ExternalCommandTitle">Event-driven Automation Commands</sys:String>
+    <sys:String x:Key="ExternalCommandSubtitle">Run custom scripts or batch files upon UPS events</sys:String>
+    <sys:String x:Key="ExternalCommandEnableLabel">Enable event command execution</sys:String>
+    <sys:String x:Key="CmdPowerLostLabel">Command on Power Outage</sys:String>
+    <sys:String x:Key="CmdPowerRestoredLabel">Command on Power Restored</sys:String>
+    <sys:String x:Key="CmdBatteryLowLabel">Command on Low Battery</sys:String>
+
+    <sys:String x:Key="DailyEnergyReportTitle">Daily Energy &amp; Cost Report (Last 7 Days)</sys:String>
+    <sys:String x:Key="DailyEnergyReportSubtitle">Daily energy consumption, estimated costs, and outage counts</sys:String>
+    <sys:String x:Key="ColumnDate">Date</sys:String>
+    <sys:String x:Key="ColumnEnergyKwh">Energy (kWh)</sys:String>
+    <sys:String x:Key="ColumnEstimatedCost">Est. Cost</sys:String>
+    <sys:String x:Key="ColumnPeakWatts">Peak Power</sys:String>
+    <sys:String x:Key="ColumnAvgWatts">Avg Power</sys:String>
+    <sys:String x:Key="ColumnOutages">Outages</sys:String>
+
+    <sys:String x:Key="TroubleSummaryTitle">Power Troubles &amp; Voltage Quality</sys:String>
+    <sys:String x:Key="TroubleSummarySubtitle">Outages, voltage sags, and surges during selected period</sys:String>
+    <sys:String x:Key="TotalOutagesLabel">Trouble Summary</sys:String>
+    <sys:String x:Key="TroubleEventsRecent">Recent Trouble Events</sys:String>
+    <sys:String x:Key="SagLabel">Sags</sys:String>
+    <sys:String x:Key="SurgeLabel">Surges</sys:String>
+
+    <sys:String x:Key="SimulatorTitle">Load Runtime Simulator</sys:String>
+    <sys:String x:Key="SimulatorSubtitle">Simulate backup runtime based on battery charge and SOH</sys:String>
+    <sys:String x:Key="TargetLoadWattsLabel">Target Load Power:</sys:String>
+    <sys:String x:Key="SimulatedRuntimeResultLabel">Estimated Runtime:</sys:String>
+    <sys:String x:Key="StandardLoadTableTitle">Standard Load Estimates</sys:String>
+    <sys:String x:Key="ColumnTargetLoad">Target Load (W)</sys:String>
+    <sys:String x:Key="ColumnLoadRatio">Load Ratio</sys:String>
+    <sys:String x:Key="ColumnEstimatedRuntime">Est. Runtime</sys:String>
+    <sys:String x:Key="ColumnDischargeCurrent">Est. Current</sys:String>
+    <sys:String x:Key="MinutesUnit">min</sys:String>
+    <sys:String x:Key="TimesUnit">times</sys:String>
 </ResourceDictionary>

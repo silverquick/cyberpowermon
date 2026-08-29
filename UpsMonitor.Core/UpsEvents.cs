@@ -10,6 +10,8 @@ public enum UpsEventType
     OverloadDetected,
     UpsDisconnected,
     UpsReconnected,
+    VoltageAbnormal,
+    HighLoadWarning,
 }
 
 public enum UpsEventSeverity
@@ -29,7 +31,9 @@ public sealed record UpsEvent(
     public UpsEventSeverity Severity => Type switch
     {
         UpsEventType.BatteryCritical or UpsEventType.OverloadDetected => UpsEventSeverity.Critical,
-        UpsEventType.PowerLost or UpsEventType.BatteryLow or UpsEventType.RuntimeLow or UpsEventType.UpsDisconnected => UpsEventSeverity.Warning,
+        UpsEventType.PowerLost or UpsEventType.BatteryLow or UpsEventType.RuntimeLow
+            or UpsEventType.UpsDisconnected or UpsEventType.VoltageAbnormal
+            or UpsEventType.HighLoadWarning => UpsEventSeverity.Warning,
         _ => UpsEventSeverity.Information,
     };
 }

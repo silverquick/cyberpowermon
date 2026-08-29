@@ -74,6 +74,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private string _logSearchText = string.Empty;
     private LogSeverityFilterKind _selectedLogSeverityFilter = LogSeverityFilterKind.All;
     private IReadOnlyList<LogSeverityFilterOption> _logSeverityFilterOptions = [];
+    private IReadOnlyList<ThemeOption> _themeOptions = [];
+    private string _webhookStatus = string.Empty;
+    private double _loadSimulationTargetWatts = 200.0;
+    private string _simulatedRuntimeText = "-";
+    private IReadOnlyList<RuntimeEstimateTableItem> _standardLoadEstimates = [];
+    private PowerTroubleSummary? _troubleSummary;
+    private string _troubleSummaryText = "-";
+    private DateTimeOffset _lastCustomAlertTime = DateTimeOffset.MinValue;
 
     public MainViewModel(
         UpsMonitorEngine engine,
@@ -98,6 +106,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _dispatcher = Application.Current.Dispatcher;
         FilteredEvents = CollectionViewSource.GetDefaultView(Events);
         FilteredEvents.Filter = FilterEventItem;
+        RefreshThemeOptions();
         RefreshLogSeverityOptions();
         RefreshBaselineModeOptions();
         RefreshVendorHealthCategoryOptions();
@@ -109,6 +118,27 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         ExportTelemetryCsvCommand = new AsyncRelayCommand(ExportTelemetryCsvAsync, SetCommandError);
         ExportTelemetryJsonCommand = new AsyncRelayCommand(ExportTelemetryJsonAsync, SetCommandError);
         ExportEventsCsvCommand = new AsyncRelayCommand(ExportEventsCsvAsync, SetCommandError);
+        TestNotificationCommand = new AsyncRelayCommand(() =>
+        {
+            TestNotificationRequested?.Invoke(UpsEventSeverity.Warning);
+            return Task.CompletedTask;
+        }, SetCommandError);
+        TestWebhookCommand = new AsyncRelayCommand(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(WebhookUrl))
+            {
+                WebhookStatus = L("WebhookUrlRequired");
+                return;
+            }
+            WebhookStatus = L("WebhookTesting");
+            var success = await WebhookNotifier.SendTestNotificationAsync(WebhookUrl);
+            WebhookStatus = success ? L("WebhookTestSuccess") : L("WebhookTestFailed");
+        }, SetCommandError);
+        OpenMiniMonitorCommand = new AsyncRelayCommand(() =>
+        {
+            ShowMiniMonitorRequested?.Invoke();
+            return Task.CompletedTask;
+        }, SetCommandError);
 
         _engine.SnapshotUpdated += OnSnapshotUpdated;
         _engine.EventDetected += OnEventDetected;
@@ -127,9 +157,145 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public event Action<string>? TooltipUpdated;
 
+    public event Action<UpsPowerState, double?, bool>? DynamicTrayIconUpdated;
+
+    public event Action<UpsEventSeverity>? TestNotificationRequested;
+
+    public event Action? ShowMiniMonitorRequested;
+
     public ObservableCollection<UpsEventViewModel> Events { get; } = [];
 
     public ICollectionView FilteredEvents { get; }
+
+    public ICommand OpenMiniMonitorCommand { get; }
+
+    public ICommand TestNotificationCommand { get; }
+
+    public ICommand TestWebhookCommand { get; }
+
+    public string SelectedTheme
+    {
+        get => _configuration.Ui.Theme;
+        set
+        {
+            if (_configuration.Ui.Theme != value)
+            {
+                _configuration.Ui.Theme = value;
+                ThemeManager.ApplyTheme(Application.Current, value);
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public IReadOnlyList<ThemeOption> ThemeOptions
+    {
+        get => _themeOptions;
+        private set => SetField(ref _themeOptions, value);
+    }
+
+    public bool EnableSoundAlerts
+    {
+        get => _configuration.Alerts.EnableSoundAlerts;
+        set { _configuration.Alerts.EnableSoundAlerts = value; OnPropertyChanged(); }
+    }
+
+    public double HighLoadWarningPercent
+    {
+        get => _configuration.Alerts.HighLoadWarningPercent;
+        set { _configuration.Alerts.HighLoadWarningPercent = value; OnPropertyChanged(); }
+    }
+
+    public double LowVoltageWarningThreshold
+    {
+        get => _configuration.Alerts.LowVoltageWarningThreshold;
+        set { _configuration.Alerts.LowVoltageWarningThreshold = value; OnPropertyChanged(); }
+    }
+
+    public double HighVoltageWarningThreshold
+    {
+        get => _configuration.Alerts.HighVoltageWarningThreshold;
+        set { _configuration.Alerts.HighVoltageWarningThreshold = value; OnPropertyChanged(); }
+    }
+
+    public bool WebhookEnabled
+    {
+        get => _configuration.Webhook.Enabled;
+        set { _configuration.Webhook.Enabled = value; OnPropertyChanged(); }
+    }
+
+    public string WebhookUrl
+    {
+        get => _configuration.Webhook.Url;
+        set { _configuration.Webhook.Url = value; OnPropertyChanged(); }
+    }
+
+    public bool WebhookNotifyOnPowerLost
+    {
+        get => _configuration.Webhook.NotifyOnPowerLost;
+        set { _configuration.Webhook.NotifyOnPowerLost = value; OnPropertyChanged(); }
+    }
+
+    public bool WebhookNotifyOnPowerRestored
+    {
+        get => _configuration.Webhook.NotifyOnPowerRestored;
+        set { _configuration.Webhook.NotifyOnPowerRestored = value; OnPropertyChanged(); }
+    }
+
+    public bool WebhookNotifyOnBatteryLow
+    {
+        get => _configuration.Webhook.NotifyOnBatteryLow;
+        set { _configuration.Webhook.NotifyOnBatteryLow = value; OnPropertyChanged(); }
+    }
+
+    public bool WebhookNotifyOnHighLoad
+    {
+        get => _configuration.Webhook.NotifyOnHighLoad;
+        set { _configuration.Webhook.NotifyOnHighLoad = value; OnPropertyChanged(); }
+    }
+
+    public string WebhookStatus { get => _webhookStatus; private set => SetField(ref _webhookStatus, value); }
+
+    public bool ExternalCommandEnabled
+    {
+        get => _configuration.ExternalCommand.Enabled;
+        set { _configuration.ExternalCommand.Enabled = value; OnPropertyChanged(); }
+    }
+
+    public string CommandOnPowerLost
+    {
+        get => _configuration.ExternalCommand.CommandOnPowerLost;
+        set { _configuration.ExternalCommand.CommandOnPowerLost = value; OnPropertyChanged(); }
+    }
+
+    public string CommandOnPowerRestored
+    {
+        get => _configuration.ExternalCommand.CommandOnPowerRestored;
+        set { _configuration.ExternalCommand.CommandOnPowerRestored = value; OnPropertyChanged(); }
+    }
+
+    public string CommandOnBatteryLow
+    {
+        get => _configuration.ExternalCommand.CommandOnBatteryLow;
+        set { _configuration.ExternalCommand.CommandOnBatteryLow = value; OnPropertyChanged(); }
+    }
+
+    public double LoadSimulationTargetWatts
+    {
+        get => _loadSimulationTargetWatts;
+        set
+        {
+            if (SetField(ref _loadSimulationTargetWatts, Math.Clamp(value, 10.0, 3000.0)))
+            {
+                RecalculateSimulation();
+            }
+        }
+    }
+
+    public string SimulatedRuntimeText { get => _simulatedRuntimeText; private set => SetField(ref _simulatedRuntimeText, value); }
+    public IReadOnlyList<RuntimeEstimateTableItem> StandardLoadEstimates { get => _standardLoadEstimates; private set => SetField(ref _standardLoadEstimates, value); }
+    public ObservableCollection<DailyEnergyReportItem> DailyEnergyReports { get; } = [];
+    public PowerTroubleSummary? TroubleSummary { get => _troubleSummary; private set => SetField(ref _troubleSummary, value); }
+    public string TroubleSummaryText { get => _troubleSummaryText; private set => SetField(ref _troubleSummaryText, value); }
 
     public string LogSearchText
     {
@@ -567,6 +733,57 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
             OnPropertyChanged(nameof(LogCountText));
             NotificationRequested?.Invoke(eventVm.Type, eventVm.Message, upsEvent.Severity);
+
+            if (EnableSoundAlerts)
+            {
+                try
+                {
+                    if (upsEvent.Severity == UpsEventSeverity.Critical)
+                    {
+                        System.Media.SystemSounds.Hand.Play();
+                    }
+                    else if (upsEvent.Severity == UpsEventSeverity.Warning)
+                    {
+                        System.Media.SystemSounds.Exclamation.Play();
+                    }
+                }
+                catch { }
+            }
+
+            // Webhook 送信
+            if (_configuration.Webhook.Enabled && _lastSnapshot is { } snapshot)
+            {
+                var shouldSend = upsEvent.Type switch
+                {
+                    UpsEventType.PowerLost => _configuration.Webhook.NotifyOnPowerLost,
+                    UpsEventType.PowerRestored => _configuration.Webhook.NotifyOnPowerRestored,
+                    UpsEventType.BatteryLow or UpsEventType.BatteryCritical => _configuration.Webhook.NotifyOnBatteryLow,
+                    UpsEventType.OverloadDetected or UpsEventType.HighLoadWarning => _configuration.Webhook.NotifyOnHighLoad,
+                    _ => false,
+                };
+
+                if (shouldSend)
+                {
+                    _ = WebhookNotifier.SendNotificationAsync(_configuration.Webhook.Url, upsEvent, snapshot);
+                }
+            }
+
+            // 外部コマンド実行
+            if (_configuration.ExternalCommand.Enabled && _lastSnapshot is { } cmdSnapshot)
+            {
+                var cmd = upsEvent.Type switch
+                {
+                    UpsEventType.PowerLost => _configuration.ExternalCommand.CommandOnPowerLost,
+                    UpsEventType.PowerRestored => _configuration.ExternalCommand.CommandOnPowerRestored,
+                    UpsEventType.BatteryLow or UpsEventType.BatteryCritical => _configuration.ExternalCommand.CommandOnBatteryLow,
+                    _ => string.Empty,
+                };
+
+                if (!string.IsNullOrWhiteSpace(cmd))
+                {
+                    _ = CommandRunner.RunCommandAsync(cmd, upsEvent, cmdSnapshot);
+                }
+            }
         });
 
     private void OnMonitorError(Exception exception) =>
@@ -579,6 +796,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         _selectedLanguageCode = LocalizationManager.CurrentLanguageCode;
         OnPropertyChanged(nameof(SelectedLanguageCode));
+        RefreshThemeOptions();
         RefreshBaselineModeOptions();
         RefreshVendorHealthCategoryOptions();
         RefreshHistoryRangeOptions();
@@ -607,6 +825,16 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             _ = RefreshHistoryAsync();
         }
+    }
+
+    private void RefreshThemeOptions()
+    {
+        ThemeOptions =
+        [
+            new("system", L("ThemeSystem")),
+            new("dark", L("ThemeDark")),
+            new("light", L("ThemeLight")),
+        ];
     }
 
     private void ApplyWaitingState()
@@ -643,6 +871,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         RuntimeText = FormatValidatedDuration(telemetry.RuntimeRemaining);
 
         TooltipUpdated?.Invoke($"{Product}\n{StateText} - {BatteryText} ({RuntimeText})");
+        DynamicTrayIconUpdated?.Invoke(state, telemetry.BatteryChargePercent.Value, snapshot.AcPresent ?? false);
+        CheckCustomAlerts(snapshot, telemetry);
+        RecalculateSimulation();
 
         if (_historyStore is not null && snapshot.Device is { } historyDevice)
         {
@@ -988,6 +1219,65 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         ApplySnapshot(_lastSnapshot);
     }
 
+    private void CheckCustomAlerts(UpsSnapshot snapshot, UpsTelemetry telemetry)
+    {
+        if (!snapshot.IsConnected) return;
+
+        var now = DateTimeOffset.Now;
+        if (now - _lastCustomAlertTime < TimeSpan.FromSeconds(30)) return;
+
+        if (telemetry.LoadPercent.IsValid && telemetry.LoadPercent.Value >= _configuration.Alerts.HighLoadWarningPercent)
+        {
+            _lastCustomAlertTime = now;
+            if (EnableSoundAlerts)
+            {
+                try { System.Media.SystemSounds.Exclamation.Play(); } catch { }
+            }
+        }
+        else if (snapshot.InputVoltage is { } v && snapshot.AcPresent is true)
+        {
+            if (v < _configuration.Alerts.LowVoltageWarningThreshold || v > _configuration.Alerts.HighVoltageWarningThreshold)
+            {
+                _lastCustomAlertTime = now;
+                if (EnableSoundAlerts)
+                {
+                    try { System.Media.SystemSounds.Beep.Play(); } catch { }
+                }
+            }
+        }
+    }
+
+    private void RecalculateSimulation()
+    {
+        var batPercent = _lastTelemetry?.BatteryChargePercent.Value ?? 100.0;
+        var soh = (_lastSnapshot is not null) ? FindHealthProfile(_lastSnapshot.Device)?.AnchorHealthPercent ?? 100.0 : 100.0;
+        var nomVolt = _lastTelemetry?.NominalBatteryVoltage.Value ?? 24.0;
+        var ratedWatts = _lastSnapshot?.ConfigActivePower ?? 780.0;
+        var currentRuntime = _lastTelemetry?.RuntimeRemaining.Value;
+        var currentLoad = _lastTelemetry?.ActivePowerWatts.Value;
+
+        var simulatedTime = RuntimeEstimator.EstimateRuntime(
+            LoadSimulationTargetWatts,
+            batPercent,
+            soh,
+            nomVolt,
+            batteryCapacityAh: null,
+            baselineRuntimeAtCurrentLoad: currentRuntime,
+            currentActiveLoadWatts: currentLoad,
+            ratedActivePowerWatts: ratedWatts);
+
+        SimulatedRuntimeText = $"{simulatedTime.TotalMinutes:0.#} {L("MinutesUnit")}";
+
+        StandardLoadEstimates = RuntimeEstimator.GenerateStandardLoadEstimates(
+            batPercent,
+            soh,
+            nomVolt,
+            ratedWatts,
+            currentRuntime,
+            currentLoad);
+        OnPropertyChanged(nameof(StandardLoadEstimates));
+    }
+
     private async Task SaveSettingsAsync()
     {
         if (PollIntervalMs is < 250 or > 60_000)
@@ -1012,6 +1302,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _configuration.Monitoring.RuntimeLowSeconds = RuntimeLowSeconds;
         _configuration.Monitoring.ElectricityRatePerKwh = ElectricityRatePerKwh;
         _configuration.Ui.Language = SelectedLanguageCode;
+        _configuration.Ui.Theme = SelectedTheme;
         _configuration.Ui.MinimizeToTray = MinimizeToTray;
         _configuration.Ui.CloseToTray = CloseToTray;
         _configuration.Ui.StartMinimized = StartMinimized;
@@ -1020,6 +1311,21 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _configuration.BatteryHealth.WarningThresholdPercent = BatteryWarningThresholdPercent;
         _configuration.BatteryHealth.CriticalThresholdPercent = BatteryCriticalThresholdPercent;
         _configuration.BatteryHealth.ComparableLoadTolerancePercent = ComparableLoadTolerancePercent;
+        _configuration.Alerts.EnableSoundAlerts = EnableSoundAlerts;
+        _configuration.Alerts.HighLoadWarningPercent = HighLoadWarningPercent;
+        _configuration.Alerts.LowVoltageWarningThreshold = LowVoltageWarningThreshold;
+        _configuration.Alerts.HighVoltageWarningThreshold = HighVoltageWarningThreshold;
+        _configuration.Webhook.Enabled = WebhookEnabled;
+        _configuration.Webhook.Url = WebhookUrl;
+        _configuration.Webhook.NotifyOnPowerLost = WebhookNotifyOnPowerLost;
+        _configuration.Webhook.NotifyOnPowerRestored = WebhookNotifyOnPowerRestored;
+        _configuration.Webhook.NotifyOnBatteryLow = WebhookNotifyOnBatteryLow;
+        _configuration.Webhook.NotifyOnHighLoad = WebhookNotifyOnHighLoad;
+        _configuration.ExternalCommand.Enabled = ExternalCommandEnabled;
+        _configuration.ExternalCommand.CommandOnPowerLost = CommandOnPowerLost;
+        _configuration.ExternalCommand.CommandOnPowerRestored = CommandOnPowerRestored;
+        _configuration.ExternalCommand.CommandOnBatteryLow = CommandOnBatteryLow;
+
         await _configurationStore.SaveAsync(_configuration);
         _engine.SetPollInterval(PollIntervalMs);
         _engine.SetRuntimeLowThreshold(TimeSpan.FromSeconds(RuntimeLowSeconds));
@@ -1200,6 +1506,32 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                 [Series(TelemetryMetric.TemperatureCelsius, "HistorySeriesTemperature", "#F43F5E")]);
             EnergyHistory = EnergyChart(history, markers);
             UpdatePeriodSummaries(history.Summary);
+
+            // 日別集計レポートの取得
+            var dailyReports = await _historyStore.QueryDailyEnergyReportsAsync(
+                UpsDeviceIdentity.Create(device),
+                7,
+                _configuration.Monitoring.ElectricityRatePerKwh,
+                refreshCancellation.Token);
+            DailyEnergyReports.Clear();
+            foreach (var item in dailyReports)
+            {
+                DailyEnergyReports.Add(item);
+            }
+
+            // 停電・電圧サマリーの取得
+            TroubleSummary = await _historyStore.QueryPowerTroubleSummaryAsync(
+                UpsDeviceIdentity.Create(device),
+                from,
+                to,
+                _configuration.Alerts.LowVoltageWarningThreshold,
+                _configuration.Alerts.HighVoltageWarningThreshold,
+                refreshCancellation.Token);
+
+            if (TroubleSummary is not null)
+            {
+                TroubleSummaryText = $"{TroubleSummary.TotalOutages} {L("TimesUnit")} ({FormatDuration(TroubleSummary.TotalOutageDuration)}) / {L("SagLabel")}: {TroubleSummary.VoltageSagCount}, {L("SurgeLabel")}: {TroubleSummary.VoltageSurgeCount}";
+            }
 
             StateHistory = new HistoryStateTimelineData
             {
@@ -2070,6 +2402,11 @@ public sealed record BatteryBaselineModeOption(
 public sealed record VendorHealthCategoryOption(
     VendorBatteryHealthCategory Category,
     string DisplayName)
+{
+    public override string ToString() => DisplayName;
+}
+
+public sealed record ThemeOption(string Code, string DisplayName)
 {
     public override string ToString() => DisplayName;
 }

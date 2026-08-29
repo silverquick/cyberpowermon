@@ -1,0 +1,27 @@
+# タスクリスト: 包括的機能改善 (Feature Enhancements)
+
+- [x] 1. 設計とテストの準備 <!-- id: 0 -->
+    - [x] 1.1 `UpsMonitor.Core` に負荷別ランタイム推計ロジック (`RuntimeEstimator`) を設計 <!-- id: 1 -->
+    - [x] 1.2 `UpsMonitor.Infrastructure` に Webhook 送信 (`WebhookNotifier`)、外部コマンド実行 (`CommandRunner`)、日別/月別集計クエリを設計 <!-- id: 2 -->
+    - [x] 1.3 `UpsMonitor.Core.Tests` に各新機能の単体テストを追加 <!-- id: 3 -->
+- [x] 2. Core レイヤーの実装 <!-- id: 4 -->
+    - [x] 2.1 `RuntimeEstimator.cs`: バッテリー容量・電圧・SOH・負荷に基づく推定稼働時間シミュレータの実装 <!-- id: 5 -->
+    - [x] 2.2 カスタムアラート閾値（電圧・負荷・温度等）の評価ロジックの追加 <!-- id: 6 -->
+- [x] 3. Infrastructure レイヤーの実装 <!-- id: 7 -->
+    - [x] 3.1 `AppConfiguration.cs`: テーマ、カスタムアラート、Webhook、外部コマンド実行、省電力・ミニモニター設定の追加 <!-- id: 8 -->
+    - [x] 3.2 `WebhookNotifier.cs`: Discord / Slack / 汎用 Webhook への非同期通知サービス実装 <!-- id: 9 -->
+    - [x] 3.3 `CommandRunner.cs`: イベント発生時の外部スクリプト/コマンド非同期実行サービス実装 <!-- id: 10 -->
+    - [x] 3.4 `SqliteTelemetryQueries.cs`: 日別/月別電力・電気代集計、停電・電圧異常（サグ/サージ）履歴サマリークエリの実装 <!-- id: 11 -->
+- [x] 4. App (UI/UX & タスクトレイ) レイヤーの実装 <!-- id: 12 -->
+    - [x] 4.1 `TrayIconManager.cs`: GDI+ による動的トレイアイコン描画（電源状態＋バッテリー残量バッジ・ゲージ）、通知テスト機能の追加 <!-- id: 13 -->
+    - [x] 4.2 `ThemeManager.cs`: システム追従 / ダーク / ライトの手動テーマ切り替え対応 <!-- id: 14 -->
+    - [x] 4.3 `MiniMonitorWindow.xaml` / `.cs`: デスクトップ常時最前面（Topmost）のコンパクト・ミニモニターウィンドウの実装 <!-- id: 15 -->
+    - [x] 4.4 `MainWindow.xaml` & `MainViewModel.cs`:
+        - [x] Dashboard / History: 日別・月別電力消費＆電気代レポート、停電サマリー、負荷別ランタイム推計シミュレータUI <!-- id: 16 -->
+        - [x] Logs: 日付範囲・イベント種別による詳細フィルタリング <!-- id: 17 -->
+        - [x] Settings: テーマ切り替え、通知テスト、カスタムアラート、Webhook、コマンド実行設定カード <!-- id: 18 -->
+    - [x] 4.5 日本語・英語ローカライズリソース (`Strings.ja-JP.xaml`, `Strings.en-US.xaml`) の更新 <!-- id: 19 -->
+- [x] 5. テスト・ビルド・動作検証 <!-- id: 20 -->
+    - [x] 5.1 `UpsMonitor.Core.Tests` の実行・全テストパス確認 <!-- id: 21 -->
+    - [x] 5.2 全体ビルドの正常確認 <!-- id: 22 -->
+    - [x] 5.3 `walkthrough.md` の作成 <!-- id: 23 -->

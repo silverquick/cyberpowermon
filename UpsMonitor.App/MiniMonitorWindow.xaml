@@ -1,0 +1,72 @@
+<Window x:Class="UpsMonitor.App.MiniMonitorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PowerGuard Mini" Height="130" Width="260"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" WindowStartupLocation="Manual"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown"
+        MouseDoubleClick="Window_MouseDoubleClick">
+    <Border Background="{DynamicResource NavigationBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="12"
+            Padding="14,10"
+            Margin="6">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="14" Opacity="0.35" ShadowDepth="3" Direction="270" Color="Black" />
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="8" Height="8" CornerRadius="4" Background="{Binding StatusAccent}" Margin="0,0,7,0" />
+                    <TextBlock Text="{Binding StateText}" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource TextBrush}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Width="20" Height="20" Padding="0" Margin="0,0,4,0" Background="Transparent" BorderThickness="0"
+                            ToolTip="Open Main Window" Click="OpenMainWindow_Click">
+                        <TextBlock Text="&#xE740;" FontFamily="Segoe Fluent Icons" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                    <Button Width="20" Height="20" Padding="0" Background="Transparent" BorderThickness="0"
+                            ToolTip="Close Mini Monitor" Click="Close_Click">
+                        <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons" FontSize="10" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <!-- Metrics row -->
+            <Grid Grid.Row="1" Margin="0,8,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="{DynamicResource Battery}" FontSize="10" Foreground="{DynamicResource MutedTextBrush}" />
+                    <TextBlock Text="{Binding BatteryText}" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                    <TextBlock Text="{DynamicResource Power}" FontSize="10" Foreground="{DynamicResource MutedTextBrush}" />
+                    <TextBlock Text="{Binding ActivePowerText}" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                    <TextBlock Text="{DynamicResource EstimatedRuntime}" FontSize="10" Foreground="{DynamicResource MutedTextBrush}" />
+                    <TextBlock Text="{Binding RuntimeText}" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Battery Progress Bar -->
+            <ProgressBar Grid.Row="2" Height="4" Value="{Binding BatteryProgress, Mode=OneWay}" Maximum="100" Foreground="{Binding StatusAccent}" Background="{DynamicResource SecondaryPanelBrush}" BorderThickness="0" />
+        </Grid>
+    </Border>
+</Window>

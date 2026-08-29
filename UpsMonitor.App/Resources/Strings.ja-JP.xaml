@@ -371,4 +371,73 @@
     <sys:String x:Key="ExportEventsCsv">イベントログ CSV エクスポート</sys:String>
     <sys:String x:Key="ExportSuccess">エクスポートが完了しました: {0}</sys:String>
     <sys:String x:Key="ExportFailed">エクスポートに失敗しました: {0}</sys:String>
+
+    <!-- 新機能・改善リソース -->
+    <sys:String x:Key="OpenMiniMonitor">ミニモニター</sys:String>
+    <sys:String x:Key="OpenMiniMonitorHelp">デスクトップ上に常時最前面の小型モニターを表示します</sys:String>
+
+    <sys:String x:Key="ThemeLabel">テーマ</sys:String>
+    <sys:String x:Key="ThemeHelp">アプリの外観テーマを設定します</sys:String>
+    <sys:String x:Key="ThemeSystem">システム設定に従う</sys:String>
+    <sys:String x:Key="ThemeDark">ダーク (Dark)</sys:String>
+    <sys:String x:Key="ThemeLight">ライト (Light)</sys:String>
+
+    <sys:String x:Key="TestNotificationBtn">通知テストを送信</sys:String>
+
+    <sys:String x:Key="CustomAlertsTitle">カスタムアラート &amp; 音声設定</sys:String>
+    <sys:String x:Key="CustomAlertsSubtitle">過負荷・電圧異常の検出と音声通知を設定します</sys:String>
+    <sys:String x:Key="EnableSoundAlertsLabel">警告発生時にシステム警告音を鳴らす</sys:String>
+    <sys:String x:Key="HighLoadThresholdLabel">高負荷警告しきい値（%）</sys:String>
+    <sys:String x:Key="LowVoltageThresholdLabel">低電圧（サグ）警告しきい値（V）</sys:String>
+    <sys:String x:Key="HighVoltageThresholdLabel">高電圧（サージ）警告しきい値（V）</sys:String>
+
+    <sys:String x:Key="WebhookTitle">Webhook 外部通知連携</sys:String>
+    <sys:String x:Key="WebhookSubtitle">Discord / Slack / 汎用 Webhook にイベントを非同期送信します</sys:String>
+    <sys:String x:Key="WebhookEnableLabel">Webhook 通知を有効にする</sys:String>
+    <sys:String x:Key="WebhookUrlLabel">Webhook URL</sys:String>
+    <sys:String x:Key="WebhookEventsLabel">通知対象イベント：</sys:String>
+    <sys:String x:Key="WebhookEventPowerLost">商用電源断（停電）</sys:String>
+    <sys:String x:Key="WebhookEventPowerRestored">商用電源復電</sys:String>
+    <sys:String x:Key="WebhookEventBatteryLow">バッテリー低下・危険</sys:String>
+    <sys:String x:Key="WebhookEventHighLoad">過負荷・高負荷警告</sys:String>
+    <sys:String x:Key="WebhookTestBtn">Webhook テスト送信</sys:String>
+    <sys:String x:Key="WebhookUrlRequired">Webhook URLを入力してください。</sys:String>
+    <sys:String x:Key="WebhookTesting">送信テスト中…</sys:String>
+    <sys:String x:Key="WebhookTestSuccess">Webhook 送信に成功しました。</sys:String>
+    <sys:String x:Key="WebhookTestFailed">Webhook 送信に失敗しました。URLを確認してください。</sys:String>
+
+    <sys:String x:Key="ExternalCommandTitle">イベント連動スクリプト実行</sys:String>
+    <sys:String x:Key="ExternalCommandSubtitle">重要イベント発生時に指定したコマンドやバッチファイルを実行します</sys:String>
+    <sys:String x:Key="ExternalCommandEnableLabel">イベント連動コマンド実行を有効にする</sys:String>
+    <sys:String x:Key="CmdPowerLostLabel">停電時実行コマンド</sys:String>
+    <sys:String x:Key="CmdPowerRestoredLabel">復電時実行コマンド</sys:String>
+    <sys:String x:Key="CmdBatteryLowLabel">残量低下時実行コマンド</sys:String>
+
+    <sys:String x:Key="DailyEnergyReportTitle">日別消費電力量 &amp; 推定電気代レポート（過去7日間）</sys:String>
+    <sys:String x:Key="DailyEnergyReportSubtitle">日別の積算電力と電気料金・停電発生回数を集計しています</sys:String>
+    <sys:String x:Key="ColumnDate">日付</sys:String>
+    <sys:String x:Key="ColumnEnergyKwh">電力量 (kWh)</sys:String>
+    <sys:String x:Key="ColumnEstimatedCost">推定電気代</sys:String>
+    <sys:String x:Key="ColumnPeakWatts">最大電力</sys:String>
+    <sys:String x:Key="ColumnAvgWatts">平均電力</sys:String>
+    <sys:String x:Key="ColumnOutages">停電回数</sys:String>
+
+    <sys:String x:Key="TroubleSummaryTitle">電源トラブル &amp; 電圧品質サマリー</sys:String>
+    <sys:String x:Key="TroubleSummarySubtitle">選択期間中の停電および電圧サグ・サージの統計です</sys:String>
+    <sys:String x:Key="TotalOutagesLabel">停電・電圧変動サマリー</sys:String>
+    <sys:String x:Key="TroubleEventsRecent">直近の電源トラブルイベント</sys:String>
+    <sys:String x:Key="SagLabel">電圧低下(サグ)</sys:String>
+    <sys:String x:Key="SurgeLabel">電圧上昇(サージ)</sys:String>
+
+    <sys:String x:Key="SimulatorTitle">負荷別ランタイム推計シミュレータ</sys:String>
+    <sys:String x:Key="SimulatorSubtitle">現在のバッテリー残量・健全度(SOH)に基づく推定稼働時間を計算します</sys:String>
+    <sys:String x:Key="TargetLoadWattsLabel">想定負荷電力：</sys:String>
+    <sys:String x:Key="SimulatedRuntimeResultLabel">推定稼働可能時間：</sys:String>
+    <sys:String x:Key="StandardLoadTableTitle">標準負荷別ランタイム一覧</sys:String>
+    <sys:String x:Key="ColumnTargetLoad">想定負荷 (W)</sys:String>
+    <sys:String x:Key="ColumnLoadRatio">定格負荷率</sys:String>
+    <sys:String x:Key="ColumnEstimatedRuntime">推定稼働時間</sys:String>
+    <sys:String x:Key="ColumnDischargeCurrent">推定放電電流</sys:String>
+    <sys:String x:Key="MinutesUnit">分</sys:String>
+    <sys:String x:Key="TimesUnit">回</sys:String>
 </ResourceDictionary>
