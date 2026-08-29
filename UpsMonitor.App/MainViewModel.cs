@@ -13,6 +13,18 @@ namespace UpsMonitor.App;
 
 public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
+    public const int DashboardIndex = 0;
+    public const int HistoryIndex = 1;
+    public const int UpsIndex = 2;
+    public const int AnalyticsIndex = 3;
+    public const int DevicesIndex = 4;
+    public const int ActionsIndex = 5;
+    public const int LogsIndex = 6;
+    public const int SettingsIndex = 7;
+
+    public static bool IsHistoryRefreshTarget(int index) => index is DashboardIndex or HistoryIndex;
+    public static bool IsAnalyticsRefreshTarget(int index) => index is AnalyticsIndex;
+
     private readonly UpsMonitorEngine _engine;
     private readonly JsonConfigurationStore _configurationStore;
     private readonly AppConfiguration _configuration;
@@ -643,11 +655,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                         ApplySnapshotCore(pending);
                     }
 
-                    if ((_selectedNavigationIndex is 0 or 1) && _lastSnapshot is not null && DateTimeOffset.Now - _lastHistoryRefresh >= TimeSpan.FromSeconds(5))
+                    if (IsHistoryRefreshTarget(_selectedNavigationIndex) && _lastSnapshot is not null && DateTimeOffset.Now - _lastHistoryRefresh >= TimeSpan.FromSeconds(5))
                     {
                         _ = RefreshHistoryAsync();
                     }
-                    else if (_selectedNavigationIndex is 2 && _lastSnapshot is not null && DateTimeOffset.Now - _lastAnalyticsRefresh >= TimeSpan.FromSeconds(5))
+                    else if (IsAnalyticsRefreshTarget(_selectedNavigationIndex) && _lastSnapshot is not null && DateTimeOffset.Now - _lastAnalyticsRefresh >= TimeSpan.FromSeconds(5))
                     {
                         _ = RefreshAnalyticsAsync();
                     }
@@ -663,11 +675,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             if (SetField(ref _selectedNavigationIndex, value))
             {
-                if (value is 0 or 1 && _isWindowVisible && _lastSnapshot is not null && DateTimeOffset.Now - _lastHistoryRefresh >= TimeSpan.FromSeconds(5))
+                if (IsHistoryRefreshTarget(value) && _isWindowVisible && _lastSnapshot is not null && DateTimeOffset.Now - _lastHistoryRefresh >= TimeSpan.FromSeconds(5))
                 {
                     _ = RefreshHistoryAsync();
                 }
-                else if (value is 2 && _isWindowVisible && _lastSnapshot is not null && DateTimeOffset.Now - _lastAnalyticsRefresh >= TimeSpan.FromSeconds(5))
+                else if (IsAnalyticsRefreshTarget(value) && _isWindowVisible && _lastSnapshot is not null && DateTimeOffset.Now - _lastAnalyticsRefresh >= TimeSpan.FromSeconds(5))
                 {
                     _ = RefreshAnalyticsAsync();
                 }
@@ -966,11 +978,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             upsEvent.RefreshLanguage();
         }
 
-        if (_lastSnapshot is not null && (_selectedNavigationIndex is 0 or 1) && _isWindowVisible)
+        if (_lastSnapshot is not null && IsHistoryRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
         {
             _ = RefreshHistoryAsync();
         }
-        else if (_lastSnapshot is not null && _selectedNavigationIndex is 2 && _isWindowVisible)
+        else if (_lastSnapshot is not null && IsAnalyticsRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
         {
             _ = RefreshAnalyticsAsync();
         }
@@ -1049,7 +1061,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
         ApplySnapshotCore(snapshot, telemetry, healthProfile, health);
 
-        if (_historyStore is not null && (_selectedNavigationIndex is 0 or 1) && snapshot.Timestamp - _lastHistoryRefresh >= TimeSpan.FromSeconds(10))
+        if (_historyStore is not null && IsHistoryRefreshTarget(_selectedNavigationIndex) && snapshot.Timestamp - _lastHistoryRefresh >= TimeSpan.FromSeconds(10))
         {
             _ = RefreshHistoryAsync();
         }
