@@ -444,9 +444,13 @@
     <sys:String x:Key="CmdPowerLostLabel">Command on Power Outage</sys:String>
     <sys:String x:Key="CmdPowerRestoredLabel">Command on Power Restored</sys:String>
     <sys:String x:Key="CmdBatteryLowLabel">Command on Low Battery</sys:String>
+    <sys:String x:Key="SettingsCommandOnHighLoad">Command on high load</sys:String>
+    <sys:String x:Key="SettingsCommandOnVoltageAbnormal">Command on abnormal voltage</sys:String>
 
-    <sys:String x:Key="DailyEnergyReportTitle">Daily Energy &amp; Cost Report (Last 7 Days)</sys:String>
-    <sys:String x:Key="DailyEnergyReportSubtitle">Daily energy consumption, estimated costs, and outage counts</sys:String>
+    <sys:String x:Key="DailyEnergyReportTitle">Energy &amp; Cost Report</sys:String>
+    <sys:String x:Key="DailyEnergyReportSubtitle">Energy consumption, estimated costs, and outage counts</sys:String>
+    <sys:String x:Key="EnergyGranularityDay">Daily</sys:String>
+    <sys:String x:Key="EnergyGranularityMonth">Monthly</sys:String>
     <sys:String x:Key="ColumnDate">Date</sys:String>
     <sys:String x:Key="ColumnEnergyKwh">Energy (kWh)</sys:String>
     <sys:String x:Key="ColumnEstimatedCost">Est. Cost</sys:String>

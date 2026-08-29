@@ -93,7 +93,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private IReadOnlyList<RuntimeEstimateTableItem> _standardLoadEstimates = [];
     private PowerTroubleSummary? _troubleSummary;
     private string _troubleSummaryText = "-";
-    private DateTimeOffset _lastCustomAlertTime = DateTimeOffset.MinValue;
+    private EnergyReportPeriod _energyReportGranularity = EnergyReportPeriod.Day;
 
     private IReadOnlyList<AnalyticsMetricOption> _analyticsMetricOptions = [];
     private AnalyticsMetricOption? _selectedAnalyticsMetric;
@@ -379,6 +379,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         set { _configuration.ExternalCommand.CommandOnBatteryLow = value; OnPropertyChanged(); }
     }
 
+    public string CommandOnHighLoad
+    {
+        get => _configuration.ExternalCommand.CommandOnHighLoad;
+        set { _configuration.ExternalCommand.CommandOnHighLoad = value; OnPropertyChanged(); }
+    }
+
+    public string CommandOnVoltageAbnormal
+    {
+        get => _configuration.ExternalCommand.CommandOnVoltageAbnormal;
+        set { _configuration.ExternalCommand.CommandOnVoltageAbnormal = value; OnPropertyChanged(); }
+    }
+
     public double LoadSimulationTargetWatts
     {
         get => _loadSimulationTargetWatts;
@@ -394,6 +406,48 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public string SimulatedRuntimeText { get => _simulatedRuntimeText; private set => SetField(ref _simulatedRuntimeText, value); }
     public IReadOnlyList<RuntimeEstimateTableItem> StandardLoadEstimates { get => _standardLoadEstimates; private set => SetField(ref _standardLoadEstimates, value); }
     public ObservableCollection<DailyEnergyReportItem> DailyEnergyReports { get; } = [];
+    public ObservableCollection<EnergyReportItem> EnergyReports { get; } = [];
+
+    public EnergyReportPeriod EnergyReportGranularity
+    {
+        get => _energyReportGranularity;
+        set
+        {
+            if (SetField(ref _energyReportGranularity, value))
+            {
+                OnPropertyChanged(nameof(IsEnergyReportDay));
+                OnPropertyChanged(nameof(IsEnergyReportMonth));
+                if (_lastSnapshot is not null && IsHistoryRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
+                {
+                    _ = RefreshHistoryAsync();
+                }
+            }
+        }
+    }
+
+    public bool IsEnergyReportDay
+    {
+        get => EnergyReportGranularity == EnergyReportPeriod.Day;
+        set
+        {
+            if (value)
+            {
+                EnergyReportGranularity = EnergyReportPeriod.Day;
+            }
+        }
+    }
+
+    public bool IsEnergyReportMonth
+    {
+        get => EnergyReportGranularity == EnergyReportPeriod.Month;
+        set
+        {
+            if (value)
+            {
+                EnergyReportGranularity = EnergyReportPeriod.Month;
+            }
+        }
+    }
     public PowerTroubleSummary? TroubleSummary { get => _troubleSummary; private set => SetField(ref _troubleSummary, value); }
     public string TroubleSummaryText { get => _troubleSummaryText; private set => SetField(ref _troubleSummaryText, value); }
 
@@ -932,6 +986,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                     UpsEventType.PowerLost => _configuration.ExternalCommand.CommandOnPowerLost,
                     UpsEventType.PowerRestored => _configuration.ExternalCommand.CommandOnPowerRestored,
                     UpsEventType.BatteryLow or UpsEventType.BatteryCritical => _configuration.ExternalCommand.CommandOnBatteryLow,
+                    UpsEventType.HighLoadWarning => _configuration.ExternalCommand.CommandOnHighLoad,
+                    UpsEventType.VoltageAbnormal => _configuration.ExternalCommand.CommandOnVoltageAbnormal,
                     _ => string.Empty,
                 };
 
@@ -1033,7 +1089,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
         TooltipUpdated?.Invoke($"{Product}\n{StateText} - {BatteryText} ({RuntimeText})");
         DynamicTrayIconUpdated?.Invoke(state, telemetry.BatteryChargePercent.Value, snapshot.AcPresent ?? false);
-        CheckCustomAlerts(snapshot, telemetry);
         RecalculateSimulation();
 
         if (_historyStore is not null && snapshot.Device is { } historyDevice)
@@ -1378,34 +1433,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         ApplySnapshot(_lastSnapshot);
     }
 
-    private void CheckCustomAlerts(UpsSnapshot snapshot, UpsTelemetry telemetry)
-    {
-        if (!snapshot.IsConnected) return;
-
-        var now = DateTimeOffset.Now;
-        if (now - _lastCustomAlertTime < TimeSpan.FromSeconds(30)) return;
-
-        if (telemetry.LoadPercent.IsValid && telemetry.LoadPercent.Value >= _configuration.Alerts.HighLoadWarningPercent)
-        {
-            _lastCustomAlertTime = now;
-            if (EnableSoundAlerts)
-            {
-                try { System.Media.SystemSounds.Exclamation.Play(); } catch { }
-            }
-        }
-        else if (snapshot.InputVoltage is { } v && snapshot.AcPresent is true)
-        {
-            if (v < _configuration.Alerts.LowVoltageWarningThreshold || v > _configuration.Alerts.HighVoltageWarningThreshold)
-            {
-                _lastCustomAlertTime = now;
-                if (EnableSoundAlerts)
-                {
-                    try { System.Media.SystemSounds.Beep.Play(); } catch { }
-                }
-            }
-        }
-    }
-
     private void RecalculateSimulation()
     {
         var batPercent = _lastTelemetry?.BatteryChargePercent.Value ?? 100.0;
@@ -1483,10 +1510,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _configuration.ExternalCommand.CommandOnPowerLost = CommandOnPowerLost;
         _configuration.ExternalCommand.CommandOnPowerRestored = CommandOnPowerRestored;
         _configuration.ExternalCommand.CommandOnBatteryLow = CommandOnBatteryLow;
+        _configuration.ExternalCommand.CommandOnHighLoad = CommandOnHighLoad;
+        _configuration.ExternalCommand.CommandOnVoltageAbnormal = CommandOnVoltageAbnormal;
 
         await _configurationStore.SaveAsync(_configuration);
         _engine.SetPollInterval(PollIntervalMs);
         _engine.SetRuntimeLowThreshold(TimeSpan.FromSeconds(RuntimeLowSeconds));
+        _engine.SetAlertThresholds(_configuration.Alerts.ToAlertThresholds());
         SettingsStatus = LocalizationManager.Format("SettingsSavedFormat", DateTimeOffset.Now.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
         if (_lastSnapshot is { } snapshot)
         {
@@ -1678,6 +1708,36 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                 foreach (var item in dailyReports)
                 {
                     DailyEnergyReports.Add(item);
+                }
+            }
+
+            // 電力量レポート（日次/月次）の取得
+            DateTimeOffset energyFrom;
+            if (EnergyReportGranularity == EnergyReportPeriod.Month)
+            {
+                var firstDayOfThisMonth = new DateTimeOffset(to.Year, to.Month, 1, 0, 0, 0, to.Offset);
+                energyFrom = firstDayOfThisMonth.AddMonths(-11);
+            }
+            else
+            {
+                var today = new DateTimeOffset(to.Year, to.Month, to.Day, 0, 0, 0, to.Offset);
+                energyFrom = today.AddDays(-29);
+            }
+
+            var energyReports = await _historyStore.QueryEnergyReportsAsync(
+                UpsDeviceIdentity.Create(device),
+                energyFrom,
+                to,
+                EnergyReportGranularity,
+                _configuration.Monitoring.ElectricityRatePerKwh,
+                refreshCancellation.Token);
+
+            if (!EnergyReports.SequenceEqual(energyReports))
+            {
+                EnergyReports.Clear();
+                foreach (var item in energyReports)
+                {
+                    EnergyReports.Add(item);
                 }
             }
 

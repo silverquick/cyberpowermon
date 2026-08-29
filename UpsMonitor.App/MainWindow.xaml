@@ -7,6 +7,7 @@
         Background="{DynamicResource WindowBrush}" FontFamily="Segoe UI Variable Text"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
+        <local:EnergyPeriodFormatConverter x:Key="EnergyPeriodFormatConverter" />
         <Style x:Key="CardStyle" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
@@ -584,11 +585,21 @@
                             </Grid.ColumnDefinitions>
                             <Border Grid.Column="0" Style="{StaticResource CardStyle}">
                                 <StackPanel>
-                                    <TextBlock Text="{DynamicResource DailyEnergyReportTitle}" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="{DynamicResource DailyEnergyReportSubtitle}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,3,0,10" />
-                                    <DataGrid ItemsSource="{Binding DailyEnergyReports}" Style="{StaticResource TelemetryGridStyle}" MaxHeight="220" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column">
+                                    <Grid Margin="0,0,0,3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{DynamicResource DailyEnergyReportTitle}" Style="{StaticResource SectionTitleStyle}" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <RadioButton Content="{DynamicResource EnergyGranularityDay}" IsChecked="{Binding IsEnergyReportDay, Mode=TwoWay}" Margin="0,0,12,0" GroupName="EnergyGranularityGroup" />
+                                            <RadioButton Content="{DynamicResource EnergyGranularityMonth}" IsChecked="{Binding IsEnergyReportMonth, Mode=TwoWay}" GroupName="EnergyGranularityGroup" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <TextBlock Text="{DynamicResource DailyEnergyReportSubtitle}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,0,0,10" />
+                                    <DataGrid ItemsSource="{Binding EnergyReports}" Style="{StaticResource TelemetryGridStyle}" MaxHeight="220" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column">
                                         <DataGrid.Columns>
-                                            <DataGridTextColumn Header="{DynamicResource ColumnDate}" Binding="{Binding Date}" Width="100" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnDate}" Binding="{Binding Converter={StaticResource EnergyPeriodFormatConverter}}" Width="100" />
                                             <DataGridTextColumn Header="{DynamicResource ColumnEnergyKwh}" Binding="{Binding EnergyKwh, StringFormat={}{0:F2} kWh}" Width="95" />
                                             <DataGridTextColumn Header="{DynamicResource ColumnEstimatedCost}" Binding="{Binding EstimatedCost, StringFormat={}約 {0:N0} 円}" Width="100" />
                                             <DataGridTextColumn Header="{DynamicResource ColumnPeakWatts}" Binding="{Binding PeakWatts, StringFormat={}{0:F0} W}" Width="85" />
@@ -1031,13 +1042,17 @@
                                 <CheckBox Content="{DynamicResource ExternalCommandEnableLabel}" IsChecked="{Binding ExternalCommandEnabled, Mode=TwoWay}" Margin="0,0,0,12" />
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="180" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
                                     <TextBlock Grid.Row="0" Text="{DynamicResource CmdPowerLostLabel}" VerticalAlignment="Center" Margin="0,0,8,10" />
                                     <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding CommandOnPowerLost, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" Margin="0,0,0,10" />
                                     <TextBlock Grid.Row="1" Text="{DynamicResource CmdPowerRestoredLabel}" VerticalAlignment="Center" Margin="0,0,8,10" />
                                     <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding CommandOnPowerRestored, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" Margin="0,0,0,10" />
-                                    <TextBlock Grid.Row="2" Text="{DynamicResource CmdBatteryLowLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding CommandOnBatteryLow, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" />
+                                    <TextBlock Grid.Row="2" Text="{DynamicResource CmdBatteryLowLabel}" VerticalAlignment="Center" Margin="0,0,8,10" />
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding CommandOnBatteryLow, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" Margin="0,0,0,10" />
+                                    <TextBlock Grid.Row="3" Text="{DynamicResource SettingsCommandOnHighLoad}" VerticalAlignment="Center" Margin="0,0,8,10" />
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding CommandOnHighLoad, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" Margin="0,0,0,10" />
+                                    <TextBlock Grid.Row="4" Text="{DynamicResource SettingsCommandOnVoltageAbnormal}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding CommandOnVoltageAbnormal, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" />
                                 </Grid>
                             </StackPanel>
                         </Border>

@@ -88,7 +88,8 @@ public partial class App : Application
             eventSink,
             configuration.Monitoring.PollIntervalMs,
             TimeSpan.FromSeconds(configuration.Monitoring.RuntimeLowSeconds),
-            _historyStore);
+            _historyStore,
+            alertThresholds: configuration.Alerts.ToAlertThresholds());
 
         _viewModel = new MainViewModel(engine, configurationStore, configuration, paths, _historyStore);
         if (configurationError is not null)
