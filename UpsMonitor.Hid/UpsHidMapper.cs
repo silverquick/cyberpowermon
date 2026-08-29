@@ -15,17 +15,44 @@ internal static class UpsHidMapper
         HidDescriptor descriptor,
         IReadOnlyList<HidDataValue> values)
     {
-        var valueByCapability = values
-            .GroupBy(value => value.Capability)
-            .ToDictionary(group => group.Key, group => group.Last());
-        var telemetry = descriptor.Capabilities
-            .Select(capability => ToTelemetry(capability, valueByCapability.GetValueOrDefault(capability)))
-            .OrderBy(item => item.UsagePage)
-            .ThenBy(item => item.CollectionPath, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.Usage)
-            .ThenBy(item => item.ReportType, StringComparer.Ordinal)
-            .ThenBy(item => item.ReportId)
-            .ToArray();
+        var valueByCapability = new Dictionary<HidCapability, HidDataValue>(values.Count);
+        var valuesByPageUsage = new Dictionary<(ushort Page, ushort Usage), List<HidDataValue>>();
+
+        for (var i = 0; i < values.Count; i++)
+        {
+            var value = values[i];
+            valueByCapability[value.Capability] = value;
+
+            var key = (value.Capability.UsagePage, value.Capability.Usage);
+            if (!valuesByPageUsage.TryGetValue(key, out var list))
+            {
+                list = [];
+                valuesByPageUsage[key] = list;
+            }
+            list.Add(value);
+        }
+
+        var capabilities = descriptor.Capabilities;
+        var telemetry = new UpsTelemetryItem[capabilities.Count];
+        for (var i = 0; i < capabilities.Count; i++)
+        {
+            var capability = capabilities[i];
+            valueByCapability.TryGetValue(capability, out var value);
+            telemetry[i] = ToTelemetry(capability, value);
+        }
+
+        Array.Sort(telemetry, static (a, b) =>
+        {
+            var cmp = a.UsagePage.CompareTo(b.UsagePage);
+            if (cmp != 0) return cmp;
+            cmp = string.Compare(a.CollectionPath, b.CollectionPath, StringComparison.OrdinalIgnoreCase);
+            if (cmp != 0) return cmp;
+            cmp = a.Usage.CompareTo(b.Usage);
+            if (cmp != 0) return cmp;
+            cmp = string.Compare(a.ReportType, b.ReportType, StringComparison.Ordinal);
+            if (cmp != 0) return cmp;
+            return a.ReportId.CompareTo(b.ReportId);
+        });
 
         var relativeCharge = Get(BatterySystemPage, 0x64);
         var absoluteCharge = Get(BatterySystemPage, 0x65);
@@ -101,20 +128,40 @@ internal static class UpsHidMapper
 
         HidDataValue? Get(ushort page, ushort usage, string? collectionContains = null)
         {
-            var candidates = values.Where(value =>
-                value.Capability.UsagePage == page
-                && value.Capability.Usage == usage);
-
-            if (!string.IsNullOrWhiteSpace(collectionContains))
+            if (!valuesByPageUsage.TryGetValue((page, usage), out var candidates) || candidates.Count == 0)
             {
-                candidates = candidates.Where(value =>
-                    value.Capability.CollectionPath.Contains(collectionContains, StringComparison.OrdinalIgnoreCase));
+                return null;
             }
 
-            return candidates
-                .OrderBy(value => value.Capability.ReportKind == HidReportKind.Input ? 0 : 1)
-                .ThenBy(value => value.Capability.ReportId)
-                .FirstOrDefault();
+            HidDataValue? best = null;
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var candidate = candidates[i];
+                if (!string.IsNullOrWhiteSpace(collectionContains)
+                    && !candidate.Capability.CollectionPath.Contains(collectionContains, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (best is null)
+                {
+                    best = candidate;
+                    continue;
+                }
+
+                var bestIsInput = best.Capability.ReportKind == HidReportKind.Input;
+                var candIsInput = candidate.Capability.ReportKind == HidReportKind.Input;
+                if (candIsInput && !bestIsInput)
+                {
+                    best = candidate;
+                }
+                else if (candIsInput == bestIsInput && candidate.Capability.ReportId < best.Capability.ReportId)
+                {
+                    best = candidate;
+                }
+            }
+
+            return best;
         }
 
         bool? GetBoolean(ushort page, ushort usage) =>

@@ -26,6 +26,10 @@ var tests = new (string Name, Action Run)[]
     ("Runtime estimator load calculation", RuntimeEstimatorCalculation),
     ("Configuration theme, alerts, webhook, and command settings", ConfigurationNewFeatures),
     ("Daily energy reports and trouble summary queries", DailyEnergyAndTroubleSummaryQueries),
+    ("Event detector zero-allocation when quiet", EventDetectorZeroAllocationWhenQuiet),
+    ("Command runner execution, large output, and escaping", CommandRunnerExecutionAndEscaping),
+    ("Webhook notifier validation", WebhookNotifierValidation),
+    ("Polling engine lifecycle and interval", PollingEngineLifecycleAndInterval),
 };
 
 var failures = new List<string>();
@@ -706,6 +710,88 @@ static void DailyEnergyAndTroubleSummaryQueries()
     }
 }
 
+static void EventDetectorZeroAllocationWhenQuiet()
+{
+    var detector = new UpsEventDetector(TimeSpan.FromMinutes(3));
+    var snap1 = Snapshot(ac: true);
+    var first = detector.Observe(snap1);
+    HasSingle(first, UpsEventType.UpsReconnected);
+
+    // Subsequent identical snapshots must produce zero events and return empty array
+    var second = detector.Observe(snap1);
+    Equal(0, second.Count);
+
+    var third = detector.Observe(Snapshot(ac: true));
+    Equal(0, third.Count);
+}
+
+static void CommandRunnerExecutionAndEscaping()
+{
+    var upsEvent = new UpsEvent(
+        DateTimeOffset.UtcNow,
+        UpsEventType.PowerLost,
+        "AC \"Power\" Lost! \r\nCheck line.",
+        UpsPowerState.Online,
+        UpsPowerState.OnBattery);
+    var snapshot = Snapshot(ac: false, discharging: true, battery: 85, runtime: TimeSpan.FromMinutes(30), activePower: 200);
+
+    // Test successful execution with parameter substitution
+    var cmd = "echo EVENT={EVENT} MSG={MESSAGE} BATTERY={BATTERY}";
+    var result = CommandRunner.RunCommandAsync(cmd, upsEvent, snapshot).GetAwaiter().GetResult();
+    Equal(true, result);
+
+    // Test large output (prevent pipe deadlocks)
+    var largeOutputCmd = "for /L %i in (1,1,200) do @echo Line %i of test output that is long enough to fill OS buffers";
+    var largeResult = CommandRunner.RunCommandAsync(largeOutputCmd, upsEvent, snapshot).GetAwaiter().GetResult();
+    Equal(true, largeResult);
+
+    // Test cancellation / timeout handling
+    using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+    var hangCmd = "ping 127.0.0.1 -n 10 > nul";
+    var hangResult = CommandRunner.RunCommandAsync(hangCmd, upsEvent, snapshot, cts.Token).GetAwaiter().GetResult();
+    Equal(false, hangResult);
+}
+
+static void WebhookNotifierValidation()
+{
+    // Invalid URLs
+    Equal(false, WebhookNotifier.SendNotificationAsync("", new UpsEvent(DateTimeOffset.UtcNow, UpsEventType.PowerLost, "test", UpsPowerState.Online, UpsPowerState.OnBattery), Snapshot()).GetAwaiter().GetResult());
+    Equal(false, WebhookNotifier.SendNotificationAsync("not_a_valid_url", new UpsEvent(DateTimeOffset.UtcNow, UpsEventType.PowerLost, "test", UpsPowerState.Online, UpsPowerState.OnBattery), Snapshot()).GetAwaiter().GetResult());
+    Equal(false, WebhookNotifier.SendTestNotificationAsync("").GetAwaiter().GetResult());
+}
+
+static void PollingEngineLifecycleAndInterval()
+{
+    var mockProvider = new MockUpsProvider();
+    var mockSink = new MockUpsEventSink();
+    var engine = new UpsMonitorEngine(mockProvider, mockSink, 500, TimeSpan.FromMinutes(2));
+
+    // Poll interval validation
+    try
+    {
+        engine.SetPollInterval(100);
+        throw new InvalidOperationException("Should throw on interval < 250");
+    }
+    catch (ArgumentOutOfRangeException)
+    {
+    }
+
+    try
+    {
+        engine.SetPollInterval(70_000);
+        throw new InvalidOperationException("Should throw on interval > 60000");
+    }
+    catch (ArgumentOutOfRangeException)
+    {
+    }
+
+    engine.SetPollInterval(1000);
+    engine.Start();
+    Thread.Sleep(100);
+    engine.StopAsync().GetAwaiter().GetResult();
+    engine.DisposeAsync().AsTask().GetAwaiter().GetResult();
+}
+
 static UpsSnapshot Snapshot(
     bool connected = true,
     bool? ac = null,
@@ -811,3 +897,18 @@ static void Near(double expected, double? actual, double tolerance = 0.001)
         throw new InvalidOperationException($"Expected approximately {expected}, got {actual?.ToString() ?? "null"}.");
     }
 }
+
+sealed class MockUpsProvider : IUpsProvider
+{
+    public UpsDeviceInfo? Device { get; private set; } = new UpsDeviceInfo("Path", 0x1234, 0x5678, "Mock", "Model", "SN123", 0x84, 0x04, 64, 64);
+    public Task<bool> ConnectAsync(CancellationToken cancellationToken) => Task.FromResult(true);
+    public Task<UpsSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken) => Task.FromResult(new UpsSnapshot { IsConnected = true, Timestamp = DateTimeOffset.Now });
+    public void Disconnect() => Device = null;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+sealed class MockUpsEventSink : IUpsEventSink
+{
+    public Task WriteAsync(UpsEvent upsEvent, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+

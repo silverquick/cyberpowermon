@@ -36,12 +36,13 @@ public sealed class WindowsHidUpsProvider : IUpsProvider
         return false;
     }
 
-    public async Task<UpsSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken)
+    public Task<UpsSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var session = _session ?? throw new InvalidOperationException("No UPS HID device is connected.");
         var device = Device ?? throw new InvalidOperationException("UPS device metadata is unavailable.");
-        var values = await Task.Run(session.ReadValues, cancellationToken).ConfigureAwait(false);
-        return UpsHidMapper.Map(device, session.Descriptor, values);
+        var values = session.ReadValues();
+        return Task.FromResult(UpsHidMapper.Map(device, session.Descriptor, values));
     }
 
     public void Disconnect()

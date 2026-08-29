@@ -12,6 +12,9 @@ public sealed class WebhookNotifier
         Timeout = TimeSpan.FromSeconds(10),
     };
 
+    private const int MaxRetries = 2;
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(8);
+
     public static async Task<bool> SendNotificationAsync(
         string webhookUrl,
         UpsEvent upsEvent,
@@ -23,17 +26,70 @@ public sealed class WebhookNotifier
             return false;
         }
 
+        string payload;
         try
         {
-            var payload = BuildPayload(webhookUrl, upsEvent, snapshot);
-            using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-            using var response = await HttpClient.PostAsync(webhookUrl, content, cancellationToken).ConfigureAwait(false);
-            return response.IsSuccessStatusCode;
+            payload = BuildPayload(webhookUrl, upsEvent, snapshot);
         }
         catch
         {
             return false;
         }
+
+        for (var attempt = 0; attempt <= MaxRetries; attempt++)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+
+            try
+            {
+                using var attemptCts = new CancellationTokenSource(RequestTimeout);
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, attemptCts.Token);
+                using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+                using var response = await HttpClient.PostAsync(webhookUrl, content, linkedCts.Token).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+
+                // If non-transient client error (4xx other than 429), don't retry
+                var statusCode = (int)response.StatusCode;
+                if (statusCode is >= 400 and < 500 && statusCode != 429)
+                {
+                    return false;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception)
+            {
+                // Transient exception (network down, DNS error, timeout) - retry if attempts remain
+                if (attempt == MaxRetries)
+                {
+                    return false;
+                }
+            }
+
+            if (attempt < MaxRetries)
+            {
+                var delayMs = (attempt + 1) * 1000;
+                try
+                {
+                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return false;
     }
 
     public static async Task<bool> SendTestNotificationAsync(
