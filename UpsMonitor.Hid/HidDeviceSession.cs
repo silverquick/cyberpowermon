@@ -201,16 +201,34 @@ internal sealed class HidDeviceSession : IDisposable
 
         try
         {
+            var reportLength = (int)_descriptor.InputReportByteLength;
+            var readBuffer = new byte[reportLength];
             while (!_readCancellation.IsCancellationRequested)
             {
-                var report = new byte[_descriptor.InputReportByteLength];
-                var bytesRead = await _inputStream.ReadAsync(report, _readCancellation.Token).ConfigureAwait(false);
+                var bytesRead = await _inputStream.ReadAsync(readBuffer.AsMemory(0, reportLength), _readCancellation.Token).ConfigureAwait(false);
                 if (bytesRead == 0)
                 {
                     throw new IOException("The HID device closed the input stream.");
                 }
 
-                _latestInputReports[report[0]] = report;
+                var reportId = readBuffer[0];
+                _latestInputReports.AddOrUpdate(
+                    reportId,
+                    id =>
+                    {
+                        var copy = new byte[reportLength];
+                        Array.Copy(readBuffer, copy, reportLength);
+                        return copy;
+                    },
+                    (id, existing) =>
+                    {
+                        if (existing.Length != reportLength)
+                        {
+                            existing = new byte[reportLength];
+                        }
+                        Array.Copy(readBuffer, 0, existing, 0, reportLength);
+                        return existing;
+                    });
             }
         }
         catch (OperationCanceledException) when (_readCancellation.IsCancellationRequested)

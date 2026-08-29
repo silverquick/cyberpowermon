@@ -61,7 +61,7 @@ public sealed class UpsEventDetector
 
     public IReadOnlyList<UpsEvent> Observe(UpsSnapshot current)
     {
-        var events = new List<UpsEvent>();
+        List<UpsEvent>? events = null;
         var previous = _previous;
         var previousState = previous is null
             ? UpsPowerState.Unknown
@@ -122,9 +122,12 @@ public sealed class UpsEventDetector
 
         _runtimeWasLow = runtimeIsLow;
         _previous = current;
-        return events;
+        return (IReadOnlyList<UpsEvent>?)events ?? Array.Empty<UpsEvent>();
 
-        void Add(UpsEventType type, string message) =>
+        void Add(UpsEventType type, string message)
+        {
+            events ??= new List<UpsEvent>();
             events.Add(new UpsEvent(current.Timestamp, type, message, previousState, currentState));
+        }
     }
 }

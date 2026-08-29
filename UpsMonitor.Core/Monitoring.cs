@@ -23,8 +23,13 @@ public interface IUpsSnapshotSink
 
 public sealed class CompositeUpsEventSink(params IUpsEventSink[] sinks) : IUpsEventSink
 {
-    public Task WriteAsync(UpsEvent upsEvent, CancellationToken cancellationToken) =>
-        Task.WhenAll(sinks.Select(sink => sink.WriteAsync(upsEvent, cancellationToken)));
+    public async Task WriteAsync(UpsEvent upsEvent, CancellationToken cancellationToken)
+    {
+        for (var i = 0; i < sinks.Length; i++)
+        {
+            await sinks[i].WriteAsync(upsEvent, cancellationToken).ConfigureAwait(false);
+        }
+    }
 }
 
 public sealed class UpsMonitorEngine : IAsyncDisposable
@@ -180,8 +185,15 @@ public sealed class UpsMonitorEngine : IAsyncDisposable
         }
 
         SnapshotUpdated?.Invoke(snapshot);
-        foreach (var upsEvent in _eventDetector.Observe(snapshot))
+        var events = _eventDetector.Observe(snapshot);
+        if (events.Count == 0)
         {
+            return;
+        }
+
+        for (var i = 0; i < events.Count; i++)
+        {
+            var upsEvent = events[i];
             EventDetected?.Invoke(upsEvent);
             try
             {
@@ -196,15 +208,9 @@ public sealed class UpsMonitorEngine : IAsyncDisposable
 
     private async Task WaitForNextPollAsync(CancellationToken cancellationToken)
     {
-        using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var delay = Task.Delay(_pollIntervalMs, waitCancellation.Token);
-        var wake = _wakeSignal.WaitAsync(waitCancellation.Token);
-        var completed = await Task.WhenAny(delay, wake).ConfigureAwait(false);
-        await waitCancellation.CancelAsync().ConfigureAwait(false);
-
         try
         {
-            await completed.ConfigureAwait(false);
+            await _wakeSignal.WaitAsync(_pollIntervalMs, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

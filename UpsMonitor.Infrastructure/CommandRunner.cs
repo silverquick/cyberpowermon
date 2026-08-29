@@ -22,6 +22,11 @@ public sealed class CommandRunner
             var runtimeStr = snapshot.RuntimeRemaining.HasValue ? $"{snapshot.RuntimeRemaining.Value.TotalMinutes:F0}" : "0";
             var powerStr = snapshot.ActivePower.HasValue ? $"{snapshot.ActivePower.Value:F0}" : "0";
 
+            var safeMessage = (upsEvent.Message ?? string.Empty)
+                .Replace("\"", "\\\"")
+                .Replace("\r", " ")
+                .Replace("\n", " ");
+
             var formatted = commandLine
                 .Replace("{EVENT}", upsEvent.Type.ToString(), StringComparison.OrdinalIgnoreCase)
                 .Replace("{SEVERITY}", upsEvent.Severity.ToString(), StringComparison.OrdinalIgnoreCase)
@@ -29,7 +34,7 @@ public sealed class CommandRunner
                 .Replace("{BATTERY}", batteryStr, StringComparison.OrdinalIgnoreCase)
                 .Replace("{RUNTIME}", runtimeStr, StringComparison.OrdinalIgnoreCase)
                 .Replace("{POWER}", powerStr, StringComparison.OrdinalIgnoreCase)
-                .Replace("{MESSAGE}", $"\"{upsEvent.Message}\"", StringComparison.OrdinalIgnoreCase);
+                .Replace("{MESSAGE}", $"\"{safeMessage}\"", StringComparison.OrdinalIgnoreCase);
 
             var startInfo = new ProcessStartInfo
             {
@@ -51,12 +56,45 @@ public sealed class CommandRunner
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
-            await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-            return process.ExitCode == 0;
+            try
+            {
+                // Asynchronously drain stdout and stderr to prevent OS pipe buffer exhaustion deadlocks
+                var stdoutTask = process.StandardOutput.ReadToEndAsync(linkedCts.Token);
+                var stderrTask = process.StandardError.ReadToEndAsync(linkedCts.Token);
+
+                await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
+                await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+
+                return process.ExitCode == 0;
+            }
+            catch (OperationCanceledException)
+            {
+                KillProcessTree(process);
+                return false;
+            }
+            catch
+            {
+                KillProcessTree(process);
+                return false;
+            }
         }
         catch
         {
             return false;
+        }
+    }
+
+    private static void KillProcessTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
         }
     }
 }

@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace UpsMonitor.Hid;
 
 internal static class HidReportParser
@@ -10,12 +12,17 @@ internal static class HidReportParser
     {
         var result = new List<HidDataValue>();
         var reportId = report.Length > 0 ? report[0] : (byte)0;
-        var capabilities = descriptor.Capabilities
-            .Where(item => item.ReportKind == reportKind && item.ReportId == reportId)
-            .ToArray();
+        var capabilities = descriptor.Capabilities;
 
-        foreach (var capability in capabilities.Where(item => !item.IsButton))
+        // Process Value capabilities
+        for (var i = 0; i < capabilities.Count; i++)
         {
+            var capability = capabilities[i];
+            if (capability.ReportKind != reportKind || capability.ReportId != reportId || capability.IsButton)
+            {
+                continue;
+            }
+
             var status = HidNative.HidP_GetUsageValue(
                 reportKind,
                 capability.UsagePage,
@@ -38,39 +45,72 @@ internal static class HidReportParser
                 ApplyDisplayScale(signedValue, capability.Unit, capability.UnitExponent)));
         }
 
-        foreach (var group in capabilities
-            .Where(item => item.IsButton)
-            .GroupBy(item => (item.UsagePage, item.LinkCollection)))
+        // Process Button capabilities
+        List<HidCapability>? buttonCaps = null;
+        for (var i = 0; i < capabilities.Count; i++)
         {
-            var maximumLength = HidNative.HidP_MaxUsageListLength(reportKind, group.Key.UsagePage, preparsedData);
-            if (maximumLength == 0)
+            var cap = capabilities[i];
+            if (cap.ReportKind == reportKind && cap.ReportId == reportId && cap.IsButton)
             {
-                maximumLength = (uint)group.Count();
+                buttonCaps ??= [];
+                buttonCaps.Add(cap);
             }
+        }
 
-            maximumLength = Math.Min(maximumLength, 4096);
-            var activeUsages = new ushort[maximumLength];
-            var activeCount = maximumLength;
-            var status = HidNative.HidP_GetUsages(
-                reportKind,
-                group.Key.UsagePage,
-                group.Key.LinkCollection,
-                activeUsages,
-                ref activeCount,
-                preparsedData,
-                report,
-                (uint)report.Length);
-
-            if (status != HidNative.HidpStatusSuccess)
+        if (buttonCaps is not null)
+        {
+            var groups = buttonCaps.GroupBy(item => (item.UsagePage, item.LinkCollection));
+            foreach (var group in groups)
             {
-                continue;
-            }
+                var usagePage = group.Key.UsagePage;
+                var linkCollection = group.Key.LinkCollection;
+                var maximumLength = HidNative.HidP_MaxUsageListLength(reportKind, usagePage, preparsedData);
+                if (maximumLength == 0)
+                {
+                    maximumLength = (uint)group.Count();
+                }
 
-            var activeSet = activeUsages.Take(checked((int)activeCount)).ToHashSet();
-            foreach (var capability in group)
-            {
-                var raw = activeSet.Contains(capability.Usage) ? 1 : 0;
-                result.Add(new HidDataValue(capability, raw, raw));
+                maximumLength = Math.Min(maximumLength, 4096);
+                var rented = ArrayPool<ushort>.Shared.Rent((int)maximumLength);
+                try
+                {
+                    var activeCount = maximumLength;
+                    var status = HidNative.HidP_GetUsages(
+                        reportKind,
+                        usagePage,
+                        linkCollection,
+                        rented,
+                        ref activeCount,
+                        preparsedData,
+                        report,
+                        (uint)report.Length);
+
+                    if (status != HidNative.HidpStatusSuccess)
+                    {
+                        continue;
+                    }
+
+                    var activeSpan = rented.AsSpan(0, (int)activeCount);
+                    foreach (var capability in group)
+                    {
+                        var isActive = false;
+                        for (var a = 0; a < activeSpan.Length; a++)
+                        {
+                            if (activeSpan[a] == capability.Usage)
+                            {
+                                isActive = true;
+                                break;
+                            }
+                        }
+
+                        var raw = isActive ? 1 : 0;
+                        result.Add(new HidDataValue(capability, raw, raw));
+                    }
+                }
+                finally
+                {
+                    ArrayPool<ushort>.Shared.Return(rented);
+                }
             }
         }
 
