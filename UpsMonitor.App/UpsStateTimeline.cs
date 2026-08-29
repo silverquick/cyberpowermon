@@ -94,17 +94,41 @@ public sealed class UpsStateTimeline : FrameworkElement
         context.DrawText(text, new(rightAligned ? x - text.Width : x, y));
     }
 
+    private static readonly Brush OnlineBrush = CreateFrozenBrush(Color.FromRgb(34, 197, 94));
+    private static readonly Brush OnBatteryBrush = CreateFrozenBrush(Color.FromRgb(245, 158, 11));
+    private static readonly Brush LowBatteryBrush = CreateFrozenBrush(Color.FromRgb(249, 115, 22));
+    private static readonly Brush CriticalBrush = CreateFrozenBrush(Color.FromRgb(239, 68, 68));
+    private static readonly Brush DefaultStateBrush = CreateFrozenBrush(Color.FromRgb(100, 116, 139));
+    private static readonly Dictionary<string, Brush> BrushCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private static Brush CreateFrozenBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+
     private static Brush StateBrush(UpsPowerState state) => state switch
     {
-        UpsPowerState.Online => new SolidColorBrush(Color.FromRgb(34, 197, 94)),
-        UpsPowerState.OnBattery => new SolidColorBrush(Color.FromRgb(245, 158, 11)),
-        UpsPowerState.LowBattery => new SolidColorBrush(Color.FromRgb(249, 115, 22)),
-        UpsPowerState.Critical => new SolidColorBrush(Color.FromRgb(239, 68, 68)),
-        _ => new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+        UpsPowerState.Online => OnlineBrush,
+        UpsPowerState.OnBattery => OnBatteryBrush,
+        UpsPowerState.LowBattery => LowBatteryBrush,
+        UpsPowerState.Critical => CriticalBrush,
+        _ => DefaultStateBrush,
     };
 
-    private static Brush ParseBrush(string color) =>
-        new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+    private static Brush ParseBrush(string color)
+    {
+        if (BrushCache.TryGetValue(color, out var brush))
+        {
+            return brush;
+        }
+
+        brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+        brush.Freeze();
+        BrushCache[color] = brush;
+        return brush;
+    }
 
     private static double TimeToX(DateTimeOffset value, DateTimeOffset from, DateTimeOffset to, Rect bar) =>
         bar.Left + (bar.Width * ((value - from).TotalMilliseconds / (to - from).TotalMilliseconds));

@@ -13,7 +13,7 @@
             Padding="14,10"
             Margin="6">
         <Border.Effect>
-            <DropShadowEffect BlurRadius="14" Opacity="0.35" ShadowDepth="3" Direction="270" Color="Black" />
+            <DropShadowEffect BlurRadius="14" Opacity="0.35" ShadowDepth="3" Direction="270" Color="Black" RenderingBias="Performance" />
         </Border.Effect>
         <Grid>
             <Grid.RowDefinitions>

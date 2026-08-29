@@ -42,6 +42,10 @@ internal sealed class TrayIconManager : IDisposable
     private bool _isAdded;
     private bool _disposed;
     private ContextMenu? _contextMenu;
+    private string _lastTooltip = string.Empty;
+    private UpsPowerState? _lastPowerState;
+    private double? _lastBatteryPercent;
+    private bool? _lastAcPresent;
 
     public TrayIconManager(Window mainWindow, Func<bool> notificationsEnabled)
     {
@@ -77,7 +81,8 @@ internal sealed class TrayIconManager : IDisposable
         CreateContextMenu();
 
         var nid = CreateNotifyIconData(NifMessage | NifIcon | NifTip);
-        nid.szTip = "PowerGuard / UPS Monitor";
+        _lastTooltip = "PowerGuard / UPS Monitor";
+        nid.szTip = _lastTooltip;
 
         _isAdded = Shell_NotifyIcon(NimAdd, ref nid);
     }
@@ -89,14 +94,30 @@ internal sealed class TrayIconManager : IDisposable
             return;
         }
 
+        var normalizedTooltip = tooltip.Length > 127 ? tooltip[..127] : tooltip;
+        if (string.Equals(_lastTooltip, normalizedTooltip, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastTooltip = normalizedTooltip;
         var nid = CreateNotifyIconData(NifTip);
-        nid.szTip = tooltip.Length > 127 ? tooltip[..127] : tooltip;
+        nid.szTip = normalizedTooltip;
         Shell_NotifyIcon(NimModify, ref nid);
     }
 
     public void UpdateDynamicIcon(UpsPowerState state, double? batteryPercent, bool acPresent)
     {
         if (!_isAdded || _disposed)
+        {
+            return;
+        }
+
+        // 値が変わっていない場合は不要な再生成・IPC通知をスキップ
+        if (_lastPowerState == state
+            && _lastAcPresent == acPresent
+            && ((_lastBatteryPercent == null && batteryPercent == null)
+                || (_lastBatteryPercent.HasValue && batteryPercent.HasValue && Math.Abs(_lastBatteryPercent.Value - batteryPercent.Value) < 0.5)))
         {
             return;
         }
@@ -109,6 +130,10 @@ internal sealed class TrayIconManager : IDisposable
             var nid = CreateNotifyIconData(NifIcon);
             nid.hIcon = _hIcon;
             Shell_NotifyIcon(NimModify, ref nid);
+
+            _lastPowerState = state;
+            _lastBatteryPercent = batteryPercent;
+            _lastAcPresent = acPresent;
 
             if (oldDynamicIcon != IntPtr.Zero)
             {
@@ -180,7 +205,8 @@ internal sealed class TrayIconManager : IDisposable
         }
 
         // バッテリー外枠描画 (16x16)
-        using var pen = new Pen(Color.FromArgb(220, 230, 242), 1f);
+        using var borderBrush = new SolidBrush(Color.FromArgb(220, 230, 242));
+        using var pen = new Pen(borderBrush, 1f);
         using var accentBrush = new SolidBrush(accentColor);
         using var bgBrush = new SolidBrush(Color.FromArgb(180, 20, 30, 45));
 
@@ -189,7 +215,7 @@ internal sealed class TrayIconManager : IDisposable
         // 外枠
         g.DrawRectangle(pen, 1, 3, 11, 10);
         // 電極突起
-        g.FillRectangle(new SolidBrush(Color.FromArgb(220, 230, 242)), 12, 6, 2, 4);
+        g.FillRectangle(borderBrush, 12, 6, 2, 4);
 
         // バッテリー残量バー (幅最大 9px)
         var fillWidth = (int)Math.Round((pct / 100.0) * 9.0);

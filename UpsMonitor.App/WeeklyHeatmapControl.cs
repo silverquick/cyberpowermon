@@ -157,18 +157,13 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
             dc.DrawText(text, new Point(headerX - text.Width / 2.0, TopMargin - 20));
         }
 
-        // Map grid points by (Row, Col)
-        var gridMap = new Dictionary<(int Row, int Col), HourlyPatternPoint>();
-        for (var row = 0; row < 7; row++)
+        // Map grid points by (DayOfWeek, HourOfDay) for O(1) lookup
+        var gridByDowAndHour = new HourlyPatternPoint?[7, 24];
+        foreach (var p in data.Grid)
         {
-            var dow = DayOrder[row];
-            for (var col = 0; col < 24; col++)
+            if (p.DayOfWeek >= 0 && p.DayOfWeek < 7 && p.HourOfDay >= 0 && p.HourOfDay < 24)
             {
-                var point = data.Grid.FirstOrDefault(p => p.DayOfWeek == dow && p.HourOfDay == col);
-                if (point != null)
-                {
-                    gridMap[(row, col)] = point;
-                }
+                gridByDowAndHour[p.DayOfWeek, p.HourOfDay] = p;
             }
         }
 
@@ -188,7 +183,7 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
                 var cellX = LeftMargin + col * cellWidth;
                 var cellRect = new Rect(cellX + CellGap / 2.0, rowY + CellGap / 2.0, Math.Max(2, cellWidth - CellGap), Math.Max(2, cellHeight - CellGap));
 
-                gridMap.TryGetValue((row, col), out var pt);
+                var pt = gridByDowAndHour[dow, col];
                 var hasData = pt != null && pt.SampleCount > 0;
 
                 Brush fillBrush;
@@ -203,9 +198,7 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
                 }
 
                 var isHovered = _hoveredCell.HasValue && _hoveredCell.Value.Row == row && _hoveredCell.Value.Col == col;
-                var pen = isHovered
-                    ? new Pen(Brushes.White, 2.0)
-                    : null;
+                var pen = isHovered ? HoverPen : null;
 
                 dc.DrawRoundedRectangle(fillBrush, pen, cellRect, CellCornerRadius, CellCornerRadius);
 
@@ -224,10 +217,36 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
         RenderLegend(dc, data, LeftMargin, ActualHeight - BottomMargin + 14, availableWidth, 10);
 
         // Draw Tooltip if hovered
-        if (_hoveredCell.HasValue && gridMap.TryGetValue(_hoveredCell.Value, out var hoverPt) && hoverPt.SampleCount > 0)
+        if (_hoveredCell.HasValue)
         {
-            RenderTooltip(dc, hoverPt, data, _mousePosition);
+            var hoverDow = DayOrder[_hoveredCell.Value.Row];
+            var hoverPt = gridByDowAndHour[hoverDow, _hoveredCell.Value.Col];
+            if (hoverPt != null && hoverPt.SampleCount > 0)
+            {
+                RenderTooltip(dc, hoverPt, data, _mousePosition);
+            }
         }
+    }
+
+    private static readonly Pen HoverPen = CreateFrozenPen(Brushes.White, 2.0);
+    private static readonly Brush TooltipBgBrush = CreateFrozenBrush(Color.FromArgb(0xF0, 0x0F, 0x17, 0x2A));
+    private static readonly Pen TooltipBorderPen = CreateFrozenPen(CreateFrozenBrush(Color.FromRgb(0x33, 0x41, 0x55)), 1.0);
+    private static readonly Brush TooltipBlueBrush = CreateFrozenBrush(Color.FromRgb(0x38, 0xBD, 0xF8));
+    private static readonly Brush TooltipMutedBrush = CreateFrozenBrush(Color.FromRgb(0x94, 0xA3, 0xB8));
+    private static readonly Brush TooltipDarkMutedBrush = CreateFrozenBrush(Color.FromRgb(0x64, 0x74, 0x8B));
+
+    private static Brush CreateFrozenBrush(Color color)
+    {
+        var b = new SolidColorBrush(color);
+        b.Freeze();
+        return b;
+    }
+
+    private static Pen CreateFrozenPen(Brush brush, double thickness)
+    {
+        var p = new Pen(brush, thickness);
+        p.Freeze();
+        return p;
     }
 
     private void RenderLegend(DrawingContext dc, WeeklyPatternResult data, double x, double y, double width, double height)
@@ -244,6 +263,7 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
         gradient.GradientStops.Add(new GradientStop(GetHeatmapColor(0.33, data.Metric), 0.33));
         gradient.GradientStops.Add(new GradientStop(GetHeatmapColor(0.66, data.Metric), 0.66));
         gradient.GradientStops.Add(new GradientStop(GetHeatmapColor(1.0, data.Metric), 1.0));
+        gradient.Freeze();
 
         var barRect = new Rect(legendX, y, legendWidth, height);
         dc.DrawRoundedRectangle(gradient, null, barRect, 3, 3);
@@ -272,10 +292,10 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
 
         var t1 = FormatText(line1, 12, Brushes.White, TextAlignment.Left);
         t1.SetFontWeight(FontWeights.Bold);
-        var t2 = FormatText(line2, 11, new SolidColorBrush(Color.FromRgb(0x38, 0xBD, 0xF8)), TextAlignment.Left);
+        var t2 = FormatText(line2, 11, TooltipBlueBrush, TextAlignment.Left);
         t2.SetFontWeight(FontWeights.SemiBold);
-        var t3 = FormatText(line3, 10, new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), TextAlignment.Left);
-        var t4 = FormatText(line4, 9, new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B)), TextAlignment.Left);
+        var t3 = FormatText(line3, 10, TooltipMutedBrush, TextAlignment.Left);
+        var t4 = FormatText(line4, 9, TooltipDarkMutedBrush, TextAlignment.Left);
 
         var cardWidth = Math.Max(180, Math.Max(t1.Width, Math.Max(t2.Width, t3.Width)) + 24);
         var cardHeight = t1.Height + t2.Height + t3.Height + t4.Height + 22;
@@ -292,9 +312,7 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
         }
 
         var cardRect = new Rect(tipX, tipY, cardWidth, cardHeight);
-        var bgBrush = new SolidColorBrush(Color.FromArgb(0xF0, 0x0F, 0x17, 0x2A));
-        var borderPen = new Pen(new SolidColorBrush(Color.FromRgb(0x33, 0x41, 0x55)), 1.0);
-        dc.DrawRoundedRectangle(bgBrush, borderPen, cardRect, 6, 6);
+        dc.DrawRoundedRectangle(TooltipBgBrush, TooltipBorderPen, cardRect, 6, 6);
 
         var curY = tipY + 8;
         dc.DrawText(t1, new Point(tipX + 12, curY));
@@ -306,8 +324,12 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
         dc.DrawText(t4, new Point(tipX + 12, curY));
     }
 
-    private static Brush GetHeatmapBrush(double t, TelemetryMetric metric) =>
-        new SolidColorBrush(GetHeatmapColor(t, metric));
+    private static Brush GetHeatmapBrush(double t, TelemetryMetric metric)
+    {
+        var brush = new SolidColorBrush(GetHeatmapColor(t, metric));
+        brush.Freeze();
+        return brush;
+    }
 
     private static Color GetHeatmapColor(double t, TelemetryMetric metric)
     {
