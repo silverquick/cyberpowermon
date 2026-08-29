@@ -97,6 +97,72 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private DateTimeOffset _lastAnalyticsRefresh = DateTimeOffset.MinValue;
     private CancellationTokenSource? _analyticsRefreshCancellation;
 
+    private string _manufacturer = "N/A";
+    private string _product = "No UPS detected";
+    private string _serialNumber = "N/A";
+    private string _vidPid = "N/A";
+    private string _usage = "N/A";
+    private string _devicePath = "N/A";
+    private string _inputReportLength = "N/A";
+    private string _featureReportLength = "N/A";
+    private string _powerText = "N/A";
+    private string _batteryText = "N/A";
+    private string _batteryHealthText = "N/A";
+    private string _batteryHealthDetailText = string.Empty;
+    private string _batteryHealthConfidenceText = "N/A";
+    private string _batteryHealthMethodText = "N/A";
+    private string _batteryHealthAccent = "#64748B";
+    private string _batteryReplacementText = "N/A";
+    private string _batteryReplacementDetailText = string.Empty;
+    private string _batteryReplacementAccent = "#64748B";
+    private string _batteryHealthBaselineText = string.Empty;
+    private string _batteryHealthDataQualityText = string.Empty;
+    private string _batteryRelativeTrendText = "N/A";
+    private string _batteryHealthAnchorText = "N/A";
+    private IReadOnlyList<string> _batteryHealthReasons = [];
+    private double _batteryProgress;
+    private string _runtimeText = "N/A";
+    private string _overloadText = "N/A";
+    private string _chargingText = "N/A";
+    private string _dischargingText = "N/A";
+    private string _lowBatteryText = "N/A";
+    private string _criticalText = "N/A";
+    private string _acPresentText = "N/A";
+    private string _voltageText = "N/A";
+    private string _currentText = "N/A";
+    private string _frequencyText = "N/A";
+    private string _temperatureText = "N/A";
+    private string _remainingTimeLimitText = "N/A";
+    private string _designCapacityText = "N/A";
+    private string _fullChargeCapacityText = "N/A";
+    private string _batteryVoltageText = "N/A";
+    private string _nominalBatteryVoltageText = "N/A";
+    private string _cycleCountText = "N/A";
+    private string _needReplacementText = "N/A";
+    private string _inputVoltageText = "N/A";
+    private string _outputVoltageText = "N/A";
+    private string _percentLoadText = "N/A";
+    private string _activePowerText = "N/A";
+    private string _apparentPowerText = "N/A";
+    private string _fullyChargedText = "N/A";
+    private string _rechargeableText = "N/A";
+    private string _remainingTimeExpiredText = "N/A";
+    private string _boostText = "N/A";
+    private string _audibleAlarmText = "N/A";
+    private string _selfTestText = "N/A";
+    private string _transferRangeText = "N/A";
+    private string _ratedPowerText = "N/A";
+    private string _batteryChemistryText = "N/A";
+    private string _oemInformationText = "N/A";
+    private string _inputVoltageSummaryText = "N/A";
+    private string _inputOutputText = "N/A";
+    private string _reportBytesText = "N/A";
+    private string _powerMarginText = "N/A";
+    private string _voltageMarginText = "N/A";
+    private string _avrBoostText = "N/A";
+    private string _avrBoostAccent = "#94A3B8";
+    private string _cellVoltageText = "N/A";
+
     public MainViewModel(
         UpsMonitorEngine engine,
         JsonConfigurationStore configurationStore,
@@ -505,11 +571,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
     }
 
-    public string PowerMarginText { get; private set; } = "N/A";
-    public string VoltageMarginText { get; private set; } = "N/A";
-    public string AvrBoostText { get; private set; } = "N/A";
-    public string AvrBoostAccent { get; private set; } = "#94A3B8";
-    public string CellVoltageText { get; private set; } = "N/A";
+    public string PowerMarginText { get => _powerMarginText; private set => SetField(ref _powerMarginText, value); }
+    public string VoltageMarginText { get => _voltageMarginText; private set => SetField(ref _voltageMarginText, value); }
+    public string AvrBoostText { get => _avrBoostText; private set => SetField(ref _avrBoostText, value); }
+    public string AvrBoostAccent { get => _avrBoostAccent; private set => SetField(ref _avrBoostAccent, value); }
+    public string CellVoltageText { get => _cellVoltageText; private set => SetField(ref _cellVoltageText, value); }
 
     public bool HasFrequencySensor => _lastSnapshot?.Frequency != null || (_lastSnapshot?.Telemetry.Any(t => t.UsagePage == 0x84 && t.Usage == 0x32) ?? false);
     public bool HasTemperatureSensor => _lastSnapshot?.Temperature != null || (_lastSnapshot?.Telemetry.Any(t => t.UsagePage == 0x84 && t.Usage == 0x36) ?? false);
@@ -713,66 +779,66 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public string TelemetryCountText { get => _telemetryCountText; private set => SetField(ref _telemetryCountText, value); }
     public IReadOnlyList<UpsTelemetryViewModel> TelemetryItems { get => _telemetryItems; private set => SetField(ref _telemetryItems, value); }
 
-    public string Manufacturer { get; private set; } = "N/A";
-    public string Product { get; private set; } = "No UPS detected";
-    public string SerialNumber { get; private set; } = "N/A";
-    public string VidPid { get; private set; } = "N/A";
-    public string Usage { get; private set; } = "N/A";
-    public string DevicePath { get; private set; } = "N/A";
-    public string InputReportLength { get; private set; } = "N/A";
-    public string FeatureReportLength { get; private set; } = "N/A";
-    public string PowerText { get; private set; } = "N/A";
-    public string BatteryText { get; private set; } = "N/A";
-    public string BatteryHealthText { get; private set; } = "N/A";
-    public string BatteryHealthDetailText { get; private set; } = string.Empty;
-    public string BatteryHealthConfidenceText { get; private set; } = "N/A";
-    public string BatteryHealthMethodText { get; private set; } = "N/A";
-    public string BatteryHealthAccent { get; private set; } = "#64748B";
-    public string BatteryReplacementText { get; private set; } = "N/A";
-    public string BatteryReplacementDetailText { get; private set; } = string.Empty;
-    public string BatteryReplacementAccent { get; private set; } = "#64748B";
-    public string BatteryHealthBaselineText { get; private set; } = string.Empty;
-    public string BatteryHealthDataQualityText { get; private set; } = string.Empty;
-    public string BatteryRelativeTrendText { get; private set; } = "N/A";
-    public string BatteryHealthAnchorText { get; private set; } = "N/A";
-    public IReadOnlyList<string> BatteryHealthReasons { get; private set; } = [];
-    public double BatteryProgress { get; private set; }
-    public string RuntimeText { get; private set; } = "N/A";
-    public string OverloadText { get; private set; } = "N/A";
-    public string ChargingText { get; private set; } = "N/A";
-    public string DischargingText { get; private set; } = "N/A";
-    public string LowBatteryText { get; private set; } = "N/A";
-    public string CriticalText { get; private set; } = "N/A";
-    public string AcPresentText { get; private set; } = "N/A";
-    public string VoltageText { get; private set; } = "N/A";
-    public string CurrentText { get; private set; } = "N/A";
-    public string FrequencyText { get; private set; } = "N/A";
-    public string TemperatureText { get; private set; } = "N/A";
-    public string RemainingTimeLimitText { get; private set; } = "N/A";
-    public string DesignCapacityText { get; private set; } = "N/A";
-    public string FullChargeCapacityText { get; private set; } = "N/A";
-    public string BatteryVoltageText { get; private set; } = "N/A";
-    public string NominalBatteryVoltageText { get; private set; } = "N/A";
-    public string CycleCountText { get; private set; } = "N/A";
-    public string NeedReplacementText { get; private set; } = "N/A";
-    public string InputVoltageText { get; private set; } = "N/A";
-    public string OutputVoltageText { get; private set; } = "N/A";
-    public string PercentLoadText { get; private set; } = "N/A";
-    public string ActivePowerText { get; private set; } = "N/A";
-    public string ApparentPowerText { get; private set; } = "N/A";
-    public string FullyChargedText { get; private set; } = "N/A";
-    public string RechargeableText { get; private set; } = "N/A";
-    public string RemainingTimeExpiredText { get; private set; } = "N/A";
-    public string BoostText { get; private set; } = "N/A";
-    public string AudibleAlarmText { get; private set; } = "N/A";
-    public string SelfTestText { get; private set; } = "N/A";
-    public string TransferRangeText { get; private set; } = "N/A";
-    public string RatedPowerText { get; private set; } = "N/A";
-    public string BatteryChemistryText { get; private set; } = "N/A";
-    public string OemInformationText { get; private set; } = "N/A";
-    public string InputVoltageSummaryText { get; private set; } = "N/A";
-    public string InputOutputText { get; private set; } = "N/A";
-    public string ReportBytesText { get; private set; } = "N/A";
+    public string Manufacturer { get => _manufacturer; private set => SetField(ref _manufacturer, value); }
+    public string Product { get => _product; private set => SetField(ref _product, value); }
+    public string SerialNumber { get => _serialNumber; private set => SetField(ref _serialNumber, value); }
+    public string VidPid { get => _vidPid; private set => SetField(ref _vidPid, value); }
+    public string Usage { get => _usage; private set => SetField(ref _usage, value); }
+    public string DevicePath { get => _devicePath; private set => SetField(ref _devicePath, value); }
+    public string InputReportLength { get => _inputReportLength; private set => SetField(ref _inputReportLength, value); }
+    public string FeatureReportLength { get => _featureReportLength; private set => SetField(ref _featureReportLength, value); }
+    public string PowerText { get => _powerText; private set => SetField(ref _powerText, value); }
+    public string BatteryText { get => _batteryText; private set => SetField(ref _batteryText, value); }
+    public string BatteryHealthText { get => _batteryHealthText; private set => SetField(ref _batteryHealthText, value); }
+    public string BatteryHealthDetailText { get => _batteryHealthDetailText; private set => SetField(ref _batteryHealthDetailText, value); }
+    public string BatteryHealthConfidenceText { get => _batteryHealthConfidenceText; private set => SetField(ref _batteryHealthConfidenceText, value); }
+    public string BatteryHealthMethodText { get => _batteryHealthMethodText; private set => SetField(ref _batteryHealthMethodText, value); }
+    public string BatteryHealthAccent { get => _batteryHealthAccent; private set => SetField(ref _batteryHealthAccent, value); }
+    public string BatteryReplacementText { get => _batteryReplacementText; private set => SetField(ref _batteryReplacementText, value); }
+    public string BatteryReplacementDetailText { get => _batteryReplacementDetailText; private set => SetField(ref _batteryReplacementDetailText, value); }
+    public string BatteryReplacementAccent { get => _batteryReplacementAccent; private set => SetField(ref _batteryReplacementAccent, value); }
+    public string BatteryHealthBaselineText { get => _batteryHealthBaselineText; private set => SetField(ref _batteryHealthBaselineText, value); }
+    public string BatteryHealthDataQualityText { get => _batteryHealthDataQualityText; private set => SetField(ref _batteryHealthDataQualityText, value); }
+    public string BatteryRelativeTrendText { get => _batteryRelativeTrendText; private set => SetField(ref _batteryRelativeTrendText, value); }
+    public string BatteryHealthAnchorText { get => _batteryHealthAnchorText; private set => SetField(ref _batteryHealthAnchorText, value); }
+    public IReadOnlyList<string> BatteryHealthReasons { get => _batteryHealthReasons; private set => SetField(ref _batteryHealthReasons, value); }
+    public double BatteryProgress { get => _batteryProgress; private set => SetField(ref _batteryProgress, value); }
+    public string RuntimeText { get => _runtimeText; private set => SetField(ref _runtimeText, value); }
+    public string OverloadText { get => _overloadText; private set => SetField(ref _overloadText, value); }
+    public string ChargingText { get => _chargingText; private set => SetField(ref _chargingText, value); }
+    public string DischargingText { get => _dischargingText; private set => SetField(ref _dischargingText, value); }
+    public string LowBatteryText { get => _lowBatteryText; private set => SetField(ref _lowBatteryText, value); }
+    public string CriticalText { get => _criticalText; private set => SetField(ref _criticalText, value); }
+    public string AcPresentText { get => _acPresentText; private set => SetField(ref _acPresentText, value); }
+    public string VoltageText { get => _voltageText; private set => SetField(ref _voltageText, value); }
+    public string CurrentText { get => _currentText; private set => SetField(ref _currentText, value); }
+    public string FrequencyText { get => _frequencyText; private set => SetField(ref _frequencyText, value); }
+    public string TemperatureText { get => _temperatureText; private set => SetField(ref _temperatureText, value); }
+    public string RemainingTimeLimitText { get => _remainingTimeLimitText; private set => SetField(ref _remainingTimeLimitText, value); }
+    public string DesignCapacityText { get => _designCapacityText; private set => SetField(ref _designCapacityText, value); }
+    public string FullChargeCapacityText { get => _fullChargeCapacityText; private set => SetField(ref _fullChargeCapacityText, value); }
+    public string BatteryVoltageText { get => _batteryVoltageText; private set => SetField(ref _batteryVoltageText, value); }
+    public string NominalBatteryVoltageText { get => _nominalBatteryVoltageText; private set => SetField(ref _nominalBatteryVoltageText, value); }
+    public string CycleCountText { get => _cycleCountText; private set => SetField(ref _cycleCountText, value); }
+    public string NeedReplacementText { get => _needReplacementText; private set => SetField(ref _needReplacementText, value); }
+    public string InputVoltageText { get => _inputVoltageText; private set => SetField(ref _inputVoltageText, value); }
+    public string OutputVoltageText { get => _outputVoltageText; private set => SetField(ref _outputVoltageText, value); }
+    public string PercentLoadText { get => _percentLoadText; private set => SetField(ref _percentLoadText, value); }
+    public string ActivePowerText { get => _activePowerText; private set => SetField(ref _activePowerText, value); }
+    public string ApparentPowerText { get => _apparentPowerText; private set => SetField(ref _apparentPowerText, value); }
+    public string FullyChargedText { get => _fullyChargedText; private set => SetField(ref _fullyChargedText, value); }
+    public string RechargeableText { get => _rechargeableText; private set => SetField(ref _rechargeableText, value); }
+    public string RemainingTimeExpiredText { get => _remainingTimeExpiredText; private set => SetField(ref _remainingTimeExpiredText, value); }
+    public string BoostText { get => _boostText; private set => SetField(ref _boostText, value); }
+    public string AudibleAlarmText { get => _audibleAlarmText; private set => SetField(ref _audibleAlarmText, value); }
+    public string SelfTestText { get => _selfTestText; private set => SetField(ref _selfTestText, value); }
+    public string TransferRangeText { get => _transferRangeText; private set => SetField(ref _transferRangeText, value); }
+    public string RatedPowerText { get => _ratedPowerText; private set => SetField(ref _ratedPowerText, value); }
+    public string BatteryChemistryText { get => _batteryChemistryText; private set => SetField(ref _batteryChemistryText, value); }
+    public string OemInformationText { get => _oemInformationText; private set => SetField(ref _oemInformationText, value); }
+    public string InputVoltageSummaryText { get => _inputVoltageSummaryText; private set => SetField(ref _inputVoltageSummaryText, value); }
+    public string InputOutputText { get => _inputOutputText; private set => SetField(ref _inputOutputText, value); }
+    public string ReportBytesText { get => _reportBytesText; private set => SetField(ref _reportBytesText, value); }
 
     public void Start() => _engine.Start();
 
@@ -1169,8 +1235,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         InputVoltageSummaryText = LocalizationManager.Format("InputSummaryFormat", InputVoltageText);
         InputOutputText = $"{InputVoltageText} / {OutputVoltageText}";
         ReportBytesText = LocalizationManager.Format("ReportBytesFormat", InputReportLength, FeatureReportLength);
-
-        RaiseSnapshotProperties();
     }
 
     private void UpdateTelemetryItems(IReadOnlyList<UpsTelemetryItem> items)
@@ -1358,7 +1422,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             ratedWatts,
             currentRuntime,
             currentLoad);
-        OnPropertyChanged(nameof(StandardLoadEstimates));
     }
 
     private async Task SaveSettingsAsync()
@@ -1596,10 +1659,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                 7,
                 _configuration.Monitoring.ElectricityRatePerKwh,
                 refreshCancellation.Token);
-            DailyEnergyReports.Clear();
-            foreach (var item in dailyReports)
+
+            if (!DailyEnergyReports.SequenceEqual(dailyReports))
             {
-                DailyEnergyReports.Add(item);
+                DailyEnergyReports.Clear();
+                foreach (var item in dailyReports)
+                {
+                    DailyEnergyReports.Add(item);
+                }
             }
 
             // 停電・電圧サマリーの取得
@@ -2361,6 +2428,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
+        {
+            return false;
+        }
+
+        field = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
+
+    private bool SetField(ref IReadOnlyList<string> field, IReadOnlyList<string> value, [CallerMemberName] string? propertyName = null)
+    {
+        if (field.SequenceEqual(value))
         {
             return false;
         }

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using UpsMonitor.Core;
 
 namespace UpsMonitor.App;
 
@@ -110,14 +111,8 @@ public sealed class TimeSeriesChart : FrameworkElement
         var textBrush = ResourceBrush("TextBrush", Brushes.White);
         var mutedBrush = ResourceBrush("MutedTextBrush", Brushes.Gray);
         var borderBrush = ResourceBrush("BorderBrush", Brushes.DimGray);
-        if (!Compact)
-        {
-            drawingContext.DrawRectangle(ResourceBrush("SecondaryPanelBrush", Brushes.Transparent), null, plot);
-        }
-
         var data = Data;
-        var points = data?.Series.SelectMany(series => series.Points).ToArray() ?? [];
-        if (data is null || data.To <= data.From || points.Length == 0)
+        if (data is null || data.To <= data.From || data.Series.Count == 0)
         {
             if (!Compact)
             {
@@ -128,15 +123,44 @@ public sealed class TimeSeriesChart : FrameworkElement
             return;
         }
 
-        var referenceValues = Compact
-            ? Enumerable.Empty<double>()
-            : data.ReferenceLines.Select(line => line.Value);
-        var minimum = double.IsNaN(FixedMinimum)
-            ? points.Select(point => point.Minimum).Concat(referenceValues).Min()
-            : FixedMinimum;
-        var maximum = double.IsNaN(FixedMaximum)
-            ? points.Select(point => point.Maximum).Concat(referenceValues).Max()
-            : FixedMaximum;
+        // Calculate min/max without LINQ allocation
+        var hasPoints = false;
+        var dataMin = double.MaxValue;
+        var dataMax = double.MinValue;
+
+        foreach (var s in data.Series)
+        {
+            foreach (var pt in s.Points)
+            {
+                hasPoints = true;
+                if (pt.Minimum < dataMin) dataMin = pt.Minimum;
+                if (pt.Maximum > dataMax) dataMax = pt.Maximum;
+            }
+        }
+
+        if (!hasPoints)
+        {
+            if (!Compact)
+            {
+                DrawText(drawingContext, EmptyText, plot.Left + 12, plot.Top + 12, 12, mutedBrush);
+                DrawAxes(drawingContext, plot, borderBrush);
+            }
+
+            return;
+        }
+
+        if (!Compact)
+        {
+            foreach (var line in data.ReferenceLines)
+            {
+                if (line.Value < dataMin) dataMin = line.Value;
+                if (line.Value > dataMax) dataMax = line.Value;
+            }
+        }
+
+        var minimum = double.IsNaN(FixedMinimum) ? dataMin : FixedMinimum;
+        var maximum = double.IsNaN(FixedMaximum) ? dataMax : FixedMaximum;
+
         if (double.IsNaN(FixedMinimum) || double.IsNaN(FixedMaximum))
         {
             ExpandRange(ref minimum, ref maximum);
@@ -161,7 +185,7 @@ public sealed class TimeSeriesChart : FrameworkElement
             foreach (var reference in data.ReferenceLines)
             {
                 var y = ValueToY(reference.Value, minimum, maximum, plot);
-                var pen = new Pen(ParseBrush(reference.Color), 1) { DashStyle = DashStyles.Dash };
+                var pen = GetReferencePen(reference.Color);
                 drawingContext.DrawLine(pen, new(plot.Left, y), new(plot.Right, y));
             }
 
@@ -173,7 +197,7 @@ public sealed class TimeSeriesChart : FrameworkElement
                 }
 
                 var x = TimeToX(marker.Timestamp, data.From, data.To, plot);
-                var pen = new Pen(ParseBrush(marker.Color), 1) { DashStyle = DashStyles.Dot };
+                var pen = GetEventMarkerPen(marker.Color);
                 drawingContext.DrawLine(pen, new(x, plot.Top), new(x, plot.Bottom));
                 drawingContext.DrawGeometry(
                     ParseBrush(marker.Color),
@@ -194,11 +218,7 @@ public sealed class TimeSeriesChart : FrameworkElement
 
         if (!Compact && _cursorX is { } cursorX && cursorX >= plot.Left && cursorX <= plot.Right)
         {
-            var cursorPen = new Pen(new SolidColorBrush(Color.FromArgb(160, 148, 163, 184)), 1)
-            {
-                DashStyle = DashStyles.Dash,
-            };
-            drawingContext.DrawLine(cursorPen, new(cursorX, plot.Top), new(cursorX, plot.Bottom));
+            drawingContext.DrawLine(CursorPen, new(cursorX, plot.Top), new(cursorX, plot.Bottom));
             DrawHoverTooltip(drawingContext, data, cursorX, plot, textBrush, mutedBrush, borderBrush);
         }
     }
@@ -336,7 +356,7 @@ public sealed class TimeSeriesChart : FrameworkElement
         var lines = new List<(Brush Color, string Text)>();
         foreach (var series in data.Series)
         {
-            var point = series.Points.MinBy(item => Math.Abs((item.Timestamp - timestamp).Ticks));
+            var point = FindClosestPoint(series.Points, timestamp);
             if (point is not null)
             {
                 var valueStr = $"{point.Average:0.##}{(string.IsNullOrEmpty(Unit) ? string.Empty : $" {Unit}")}";
@@ -365,7 +385,7 @@ public sealed class TimeSeriesChart : FrameworkElement
         var boxY = Math.Clamp(plot.Top + 10, plot.Top + 4, plot.Bottom - boxHeight - 4);
 
         var tooltipRect = new Rect(boxX, boxY, boxWidth, boxHeight);
-        var bgBrush = ResourceBrush("PanelBrush", new SolidColorBrush(Color.FromArgb(240, 24, 28, 36)));
+        var bgBrush = ResourceBrush("PanelBrush", DefaultTooltipBg);
         var bgPen = new Pen(borderBrush, 1);
 
         drawingContext.DrawRoundedRectangle(bgBrush, bgPen, tooltipRect, 6, 6);
@@ -380,6 +400,66 @@ public sealed class TimeSeriesChart : FrameworkElement
             drawingContext.DrawText(item.Text, new(boxX + 22, currentY));
             currentY += lineHeight;
         }
+    }
+
+    private static TelemetryHistoryPoint? FindClosestPoint(IReadOnlyList<TelemetryHistoryPoint> points, DateTimeOffset target)
+    {
+        if (points.Count == 0) return null;
+        if (points.Count == 1) return points[0];
+
+        int low = 0, high = points.Count - 1;
+        while (low <= high)
+        {
+            int mid = low + (high - low) / 2;
+            if (points[mid].Timestamp == target) return points[mid];
+            if (points[mid].Timestamp < target) low = mid + 1;
+            else high = mid - 1;
+        }
+
+        if (low >= points.Count) return points[points.Count - 1];
+        if (high < 0) return points[0];
+
+        var diffLow = Math.Abs((points[low].Timestamp - target).Ticks);
+        var diffHigh = Math.Abs((points[high].Timestamp - target).Ticks);
+        return diffLow < diffHigh ? points[low] : points[high];
+    }
+
+    private static readonly Pen CursorPen = CreateFrozenPen(new SolidColorBrush(Color.FromArgb(160, 148, 163, 184)), 1, DashStyles.Dash);
+    private static readonly Brush DefaultTooltipBg = CreateFrozenBrush(Color.FromArgb(240, 24, 28, 36));
+    private static readonly Dictionary<string, Brush> BrushCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, Pen> RefPenCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, Pen> EventPenCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private static Brush CreateFrozenBrush(Color color)
+    {
+        var b = new SolidColorBrush(color);
+        b.Freeze();
+        return b;
+    }
+
+    private static Pen CreateFrozenPen(Brush brush, double thickness, DashStyle? dash = null)
+    {
+        if (!brush.IsFrozen) brush.Freeze();
+        var p = new Pen(brush, thickness);
+        if (dash != null) p.DashStyle = dash;
+        p.Freeze();
+        return p;
+    }
+
+    private static Pen GetReferencePen(string color)
+    {
+        if (RefPenCache.TryGetValue(color, out var pen)) return pen;
+        pen = CreateFrozenPen(ParseBrush(color), 1, DashStyles.Dash);
+        RefPenCache[color] = pen;
+        return pen;
+    }
+
+    private static Pen GetEventMarkerPen(string color)
+    {
+        if (EventPenCache.TryGetValue(color, out var pen)) return pen;
+        pen = CreateFrozenPen(ParseBrush(color), 1, DashStyles.Dot);
+        EventPenCache[color] = pen;
+        return pen;
     }
 
     private static void DrawAxes(DrawingContext drawingContext, Rect plot, Brush borderBrush)
@@ -455,8 +535,18 @@ public sealed class TimeSeriesChart : FrameworkElement
     private Brush ResourceBrush(string key, Brush fallback) =>
         TryFindResource(key) as Brush ?? fallback;
 
-    private static Brush ParseBrush(string color) =>
-        new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+    private static Brush ParseBrush(string color)
+    {
+        if (BrushCache.TryGetValue(color, out var brush))
+        {
+            return brush;
+        }
+
+        brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+        brush.Freeze();
+        BrushCache[color] = brush;
+        return brush;
+    }
 
     private static Brush WithOpacity(Brush source, double opacity)
     {
