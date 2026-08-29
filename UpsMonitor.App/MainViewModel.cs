@@ -143,6 +143,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public event Action<string>? TooltipUpdated;
 
+    public string AppVersion => typeof(MainViewModel).Assembly.GetName().Version is { } v
+        ? $"{v.Major}.{v.Minor}.{v.Build}"
+        : "0.1.0";
+
+    public string WindowTitle => $"PowerGuard v{AppVersion}";
+
     public ObservableCollection<UpsEventViewModel> Events { get; } = [];
 
     public ICollectionView FilteredEvents { get; }

@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <InformationalVersion>0.1.0</InformationalVersion>
+    <Product>PowerGuard</Product>
+    <Authors>PowerGuard Contributors</Authors>
+    <Company>PowerGuard</Company>
+    <Copyright>Copyright (c) 2026</Copyright>
+  </PropertyGroup>
+</Project>
