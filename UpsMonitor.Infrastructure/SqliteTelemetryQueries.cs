@@ -20,6 +20,33 @@ public sealed partial class SqliteTelemetryStore
             [TelemetryMetric.TemperatureCelsius] = "temperature_c",
         };
 
+    public async Task<WeeklyPatternResult> QueryWeeklyPatternAsync(
+        string deviceId,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        TelemetryMetric metric,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
+        if (to <= from)
+        {
+            throw new ArgumentOutOfRangeException(nameof(to));
+        }
+
+        await FlushAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        return await QueryWeeklyPatternAsync(
+            connection,
+            deviceId,
+            from,
+            to,
+            metric,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<TelemetryHistoryResult> QueryHistoryAsync(
         string deviceId,
         DateTimeOffset from,
@@ -496,4 +523,111 @@ public sealed partial class SqliteTelemetryStore
             AvgPowerFactor = avgPowerFactor,
         };
     }
+
+    public static async Task<WeeklyPatternResult> QueryWeeklyPatternAsync(
+        SqliteConnection connection,
+        string deviceId,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        TelemetryMetric metric,
+        CancellationToken cancellationToken = default)
+    {
+        var fromMs = from.ToUniversalTime().ToUnixTimeMilliseconds();
+        var toMs = to.ToUniversalTime().ToUnixTimeMilliseconds();
+
+        var cellMap = new Dictionary<(int DOW, int HOD), HourlyPatternPoint>();
+        var totalSamples = 0L;
+
+        if (metric == TelemetryMetric.FrequencyHertz || metric == TelemetryMetric.TemperatureCelsius)
+        {
+            // For general single metric query
+            await QuerySingleMetricPatternAsync(connection, deviceId, fromMs, toMs, metric, cellMap, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await QuerySingleMetricPatternAsync(connection, deviceId, fromMs, toMs, metric, cellMap, cancellationToken).ConfigureAwait(false);
+        }
+
+        var grid = new List<HourlyPatternPoint>(168);
+        // DayOfWeek: 1 (Monday) .. 6 (Saturday), 0 (Sunday)
+        int[] dayOrder = [1, 2, 3, 4, 5, 6, 0];
+        foreach (var dow in dayOrder)
+        {
+            for (var hod = 0; hod < 24; hod++)
+            {
+                if (cellMap.TryGetValue((dow, hod), out var point))
+                {
+                    grid.Add(point);
+                    totalSamples += point.SampleCount;
+                }
+                else
+                {
+                    grid.Add(new HourlyPatternPoint(dow, hod, 0.0, 0.0, 0.0, 0));
+                }
+            }
+        }
+
+        var validPoints = grid.Where(p => p.SampleCount > 0).ToList();
+        var overallMin = validPoints.Count > 0 ? validPoints.Min(p => p.Minimum) : 0.0;
+        var overallMax = validPoints.Count > 0 ? validPoints.Max(p => p.Maximum) : 0.0;
+        var overallAvg = validPoints.Count > 0 ? validPoints.Average(p => p.Average) : 0.0;
+        var peakHour = validPoints.Count > 0 ? validPoints.MaxBy(p => p.Average) : null;
+        var lowestHour = validPoints.Count > 0 ? validPoints.MinBy(p => p.Average) : null;
+
+        return new WeeklyPatternResult
+        {
+            Metric = metric,
+            From = from,
+            To = to,
+            OverallMin = overallMin,
+            OverallMax = overallMax,
+            OverallAvg = overallAvg,
+            Grid = grid,
+            PeakHour = peakHour,
+            LowestHour = lowestHour,
+            TotalSamples = totalSamples,
+        };
+    }
+
+    private static async Task QuerySingleMetricPatternAsync(
+        SqliteConnection connection,
+        string deviceId,
+        long fromMs,
+        long toMs,
+        TelemetryMetric metric,
+        IDictionary<(int DOW, int HOD), HourlyPatternPoint> cellMap,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT 
+                CAST(strftime('%w', datetime(bucket_utc_ms / 1000, 'unixepoch', 'localtime')) AS INTEGER) AS dow,
+                CAST(strftime('%H', datetime(bucket_utc_ms / 1000, 'unixepoch', 'localtime')) AS INTEGER) AS hod,
+                MIN(minimum),
+                SUM(value_sum) / SUM(sample_count),
+                MAX(maximum),
+                SUM(sample_count)
+            FROM telemetry_rollups_1m
+            WHERE device_id = $device
+                AND metric = $metric
+                AND bucket_utc_ms >= $from
+                AND bucket_utc_ms <= $to
+            GROUP BY dow, hod;
+            """;
+        AddRangeParameters(command, deviceId, fromMs, toMs);
+        command.Parameters.AddWithValue("$metric", (int)metric);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var dow = reader.GetInt32(0);
+            var hod = reader.GetInt32(1);
+            var min = reader.GetDouble(2);
+            var avg = reader.GetDouble(3);
+            var max = reader.GetDouble(4);
+            var count = reader.GetInt64(5);
+            cellMap[(dow, hod)] = new HourlyPatternPoint(dow, hod, avg, min, max, count);
+        }
+    }
 }
+

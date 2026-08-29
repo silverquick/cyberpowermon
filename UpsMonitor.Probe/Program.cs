@@ -1,8 +1,161 @@
 using System.Text;
+using Microsoft.Data.Sqlite;
 using UpsMonitor.Core;
 using UpsMonitor.Hid;
+using UpsMonitor.Infrastructure;
 
 Console.OutputEncoding = Encoding.UTF8;
+if (args.Contains("--health", StringComparer.OrdinalIgnoreCase))
+{
+    Console.WriteLine("================================================================================");
+    Console.WriteLine("               UPS BATTERY HEALTH & TELEMETRY ANALYSIS REPORT                   ");
+    Console.WriteLine("================================================================================");
+    Console.WriteLine($"Generated at: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}\n");
+
+    var paths = new AppPaths();
+    Console.WriteLine($"Configuration File : {paths.ConfigurationFile}");
+    Console.WriteLine($"Telemetry DB       : {paths.TelemetryDatabaseFile}");
+    Console.WriteLine($"Logs Directory     : {paths.LogsDirectory}\n");
+
+    var configStore = new JsonConfigurationStore(paths);
+    var config = await configStore.LoadAsync();
+    Console.WriteLine("--- 1. CONFIGURATION & BATTERY HEALTH PROFILES ---");
+    Console.WriteLine($"Warning Threshold  : {config.BatteryHealth.WarningThresholdPercent} %");
+    Console.WriteLine($"Critical Threshold : {config.BatteryHealth.CriticalThresholdPercent} %");
+    Console.WriteLine($"Load Tolerance     : {config.BatteryHealth.ComparableLoadTolerancePercent} %");
+    foreach (var profile in config.BatteryHealth.Profiles)
+    {
+        Console.WriteLine($"Profile Device ID    : {profile.DeviceId}");
+        Console.WriteLine($"  Baseline Kind      : {profile.RuntimeBaselineKind}");
+        Console.WriteLine($"  Anchor SOH         : {profile.AnchorHealthPercent?.ToString() ?? "N/A"} % (Source: {profile.AnchorSource ?? "N/A"})");
+        Console.WriteLine($"  Baseline Recorded  : {profile.BaselineRecordedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "N/A"}");
+        Console.WriteLine($"  Vendor Category    : {profile.VendorHealthCategory}");
+        foreach (var b in profile.RuntimeBaselines)
+        {
+            Console.WriteLine($"  -> Baseline Point  : Load={b.LoadPercent}% -> Runtime={b.Runtime.TotalMinutes:F1} min ({b.Runtime.TotalSeconds} s) recorded {b.MeasuredAt:yyyy-MM-dd HH:mm}");
+        }
+    }
+
+    if (File.Exists(paths.TelemetryDatabaseFile))
+    {
+        using var conn = new SqliteConnection($"Data Source={paths.TelemetryDatabaseFile};Mode=ReadOnly");
+        conn.Open();
+
+        Console.WriteLine("\n--- 2. BATTERY HEALTH HISTORY (LATEST 15 EVALUATIONS) ---");
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = @"
+                SELECT 
+                    datetime(timestamp_utc_ms / 1000, 'unixepoch', 'localtime'),
+                    health_percent,
+                    relative_performance_percent,
+                    status,
+                    method,
+                    confidence,
+                    anchor_source,
+                    vendor_category,
+                    replacement_status
+                FROM battery_health_observations 
+                ORDER BY timestamp_utc_ms DESC 
+                LIMIT 15;";
+            using var reader = cmd.ExecuteReader();
+            var hasHealth = false;
+            while (reader.Read())
+            {
+                hasHealth = true;
+                var ts = reader.GetString(0);
+                var health = reader.IsDBNull(1) ? "N/A" : $"{reader.GetDouble(1):F1}%";
+                var rel = reader.IsDBNull(2) ? "N/A" : $"{reader.GetDouble(2):F1}%";
+                var status = (BatteryHealthStatus)reader.GetInt32(3);
+                var method = (BatteryHealthMethod)reader.GetInt32(4);
+                var conf = (BatteryHealthConfidence)reader.GetInt32(5);
+                var anchor = reader.IsDBNull(6) ? "-" : reader.GetString(6);
+                var repl = (BatteryReplacementStatus)reader.GetInt32(8);
+                Console.WriteLine($"[{ts}] SOH: {health,6} | RelPerf: {rel,6} | Status: {status,-10} | Method: {method,-20} | Conf: {conf} | Repl: {repl} | Anchor: {anchor}");
+            }
+            if (!hasHealth)
+            {
+                Console.WriteLine("No health observations recorded in database.");
+            }
+        }
+
+        Console.WriteLine("\n--- 3. RECENT TELEMETRY STATS & DRIFT ---");
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = @"
+                SELECT 
+                    COUNT(*),
+                    MIN(battery_voltage), AVG(battery_voltage), MAX(battery_voltage),
+                    MIN(battery_percent), AVG(battery_percent), MAX(battery_percent),
+                    MIN(runtime_seconds)/60.0, AVG(runtime_seconds)/60.0, MAX(runtime_seconds)/60.0,
+                    MIN(load_percent), AVG(load_percent), MAX(load_percent),
+                    MIN(active_power_watts), AVG(active_power_watts), MAX(active_power_watts)
+                FROM telemetry_samples;";
+            using var reader = cmd.ExecuteReader();
+            if (reader.Read() && reader.GetInt64(0) > 0)
+            {
+                var sampleCount = reader.GetInt64(0);
+                Console.WriteLine($"Total Samples Stored : {sampleCount:N0}");
+                Console.WriteLine($"Battery Voltage (V)  : Min={reader.GetDouble(1):F2} V | Avg={reader.GetDouble(2):F2} V | Max={reader.GetDouble(3):F2} V");
+                Console.WriteLine($"Per-Cell Voltage (V) : Min={reader.GetDouble(1)/12.0:F3} V | Avg={reader.GetDouble(2)/12.0:F3} V | Max={reader.GetDouble(3)/12.0:F3} V");
+                Console.WriteLine($"Battery Charge (%)   : Min={reader.GetDouble(4):F1} % | Avg={reader.GetDouble(5):F1} % | Max={reader.GetDouble(6):F1} %");
+                Console.WriteLine($"Runtime (min)        : Min={reader.GetDouble(7):F1} m | Avg={reader.GetDouble(8):F1} m | Max={reader.GetDouble(9):F1} m");
+                Console.WriteLine($"Load Percent (%)     : Min={reader.GetDouble(10):F1} % | Avg={reader.GetDouble(11):F1} % | Max={reader.GetDouble(12):F1} %");
+                Console.WriteLine($"Active Power (W)     : Min={reader.GetDouble(13):F1} W | Avg={reader.GetDouble(14):F1} W | Max={reader.GetDouble(15):F1} W");
+            }
+        }
+
+        Console.WriteLine("\n--- 4. BATTERY VOLTAGE & DISCHARGE DRIFT ANALYSIS ---");
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = @"
+                SELECT 
+                    MIN(minimum), AVG(value_sum/sample_count), MAX(maximum) 
+                FROM telemetry_rollups_1m 
+                WHERE metric = 2;"; // 2 = BatteryVoltage
+            using var reader = cmd.ExecuteReader();
+            if (reader.Read() && !reader.IsDBNull(0))
+            {
+                var minV = reader.GetDouble(0);
+                var avgV = reader.GetDouble(1);
+                var maxV = reader.GetDouble(2);
+                Console.WriteLine($"Battery Voltage (Total) : Min = {minV:F2} V, Avg = {avgV:F2} V, Max = {maxV:F2} V");
+                Console.WriteLine($"Per-cell (12 cells)     : Min = {minV/12.0:F3} V/cell, Avg = {avgV/12.0:F3} V/cell, Max = {maxV/12.0:F3} V/cell");
+                Console.WriteLine($"Float Charge Stability  : {(maxV - minV < 0.5 ? "Very Stable (Good float charge condition)" : $"Voltage fluctuation observed (Δ = {maxV - minV:F2} V)")}");
+            }
+        }
+
+        Console.WriteLine("\n--- 5. OUTAGE & BATTERY EVENTS HISTORY ---");
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = @"
+                SELECT datetime(timestamp_utc_ms / 1000, 'unixepoch', 'localtime'), event_type, message 
+                FROM ups_events 
+                ORDER BY timestamp_utc_ms DESC 
+                LIMIT 20;";
+            using var reader = cmd.ExecuteReader();
+            var hasEvents = false;
+            while (reader.Read())
+            {
+                hasEvents = true;
+                var eventType = (UpsEventType)reader.GetInt32(1);
+                Console.WriteLine($"[{reader.GetString(0)}] {eventType,-18} : {reader.GetString(2)}");
+            }
+            if (!hasEvents)
+            {
+                Console.WriteLine("No event history recorded in database.");
+            }
+        }
+    }
+    else
+    {
+        Console.WriteLine("\nTelemetry database file not found yet.");
+    }
+
+    Console.WriteLine("\n================================================================================");
+    return;
+}
+
 var showDescriptor = args.Contains("--descriptor", StringComparer.OrdinalIgnoreCase);
 Console.WriteLine("UPS Monitor HID Probe");
 Console.WriteLine("Enumerating HID top-level collections with Usage Page 0x84 / Usage 0x04 (UPS)...");

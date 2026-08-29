@@ -91,3 +91,26 @@ public static class UpsDeviceIdentity
     public static string Create(UpsDeviceInfo device) =>
         $"{device.VendorId:X4}:{device.ProductId:X4}:{(string.IsNullOrWhiteSpace(device.SerialNumber) ? "N/A" : device.SerialNumber)}";
 }
+
+public sealed record HourlyPatternPoint(
+    int DayOfWeek,
+    int HourOfDay,
+    double Average,
+    double Minimum,
+    double Maximum,
+    long SampleCount);
+
+public sealed record WeeklyPatternResult
+{
+    public required TelemetryMetric Metric { get; init; }
+    public required DateTimeOffset From { get; init; }
+    public required DateTimeOffset To { get; init; }
+    public required double OverallMin { get; init; }
+    public required double OverallMax { get; init; }
+    public required double OverallAvg { get; init; }
+    public required IReadOnlyList<HourlyPatternPoint> Grid { get; init; }
+    public HourlyPatternPoint? PeakHour { get; init; }
+    public HourlyPatternPoint? LowestHour { get; init; }
+    public required long TotalSamples { get; init; }
+}
+

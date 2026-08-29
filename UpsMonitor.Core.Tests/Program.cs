@@ -22,6 +22,7 @@ var tests = new (string Name, Action Run)[]
     ("Event severity classification", EventSeverityClassification),
     ("Telemetry and event export to CSV/JSON", TelemetryExportRoundTrip),
     ("Dynamic runtime-low threshold update", DynamicRuntimeLowThreshold),
+    ("Weekly heatmap pattern aggregation", WeeklyPatternAggregation),
 };
 
 var failures = new List<string>();
@@ -529,6 +530,65 @@ static void DynamicRuntimeLowThreshold()
     HasType(events2, UpsEventType.RuntimeLow);
 }
 
+static void WeeklyPatternAggregation()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsPatternTests-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        store.InitializeAsync().GetAwaiter().GetResult();
+
+        var device = new UpsDeviceInfo("test-path", 0x0764, 0x0601, "Vendor", "Product", "TEST_WEEKLY", 0x84, 0x04, 64, 64);
+        var targetTime = new DateTimeOffset(2026, 8, 24, 14, 30, 0, TimeSpan.FromHours(9)); // Monday 14:30
+
+        var snapshot1 = Snapshot(
+            device: device,
+            activePower: 350.0,
+            apparentPower: 400.0,
+            load: 45.0,
+            timestamp: targetTime);
+        var snapshot2 = Snapshot(
+            device: device,
+            activePower: 450.0,
+            apparentPower: 500.0,
+            load: 55.0,
+            timestamp: targetTime.AddMinutes(15));
+
+        store.WriteAsync(snapshot1, CancellationToken.None).GetAwaiter().GetResult();
+        store.WriteAsync(snapshot2, CancellationToken.None).GetAwaiter().GetResult();
+        store.FlushAsync().GetAwaiter().GetResult();
+
+        var result = store.QueryWeeklyPatternAsync(
+            UpsDeviceIdentity.Create(device),
+            targetTime.AddDays(-7),
+            targetTime.AddDays(7),
+            TelemetryMetric.ActivePowerWatts).GetAwaiter().GetResult();
+
+        Equal(168, result.Grid.Count);
+        Equal(TelemetryMetric.ActivePowerWatts, result.Metric);
+        Equal(2L, result.TotalSamples);
+        Near(400.0, result.OverallAvg);
+        Near(350.0, result.OverallMin);
+        Near(450.0, result.OverallMax);
+
+        var mon14 = result.Grid.First(p => p.DayOfWeek == 1 && p.HourOfDay == 14);
+        Equal(2L, mon14.SampleCount);
+        Near(400.0, mon14.Average);
+
+        store.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            try { Directory.Delete(testRoot, recursive: true); } catch { }
+        }
+    }
+}
+
 static UpsSnapshot Snapshot(
     bool connected = true,
     bool? ac = null,
@@ -539,14 +599,19 @@ static UpsSnapshot Snapshot(
     TimeSpan? runtime = null,
     double? battery = null,
     double? load = null,
+    double? activePower = null,
+    double? apparentPower = null,
     bool? fullyCharged = null,
     bool? replacement = null,
     string? selfTest = null,
     double? designCapacity = null,
     double? fullChargeCapacity = null,
-    IReadOnlyList<UpsTelemetryItem>? telemetry = null) => new()
+    IReadOnlyList<UpsTelemetryItem>? telemetry = null,
+    UpsDeviceInfo? device = null,
+    DateTimeOffset? timestamp = null) => new()
     {
-        Timestamp = DateTimeOffset.UtcNow,
+        Device = device,
+        Timestamp = timestamp ?? DateTimeOffset.UtcNow,
         IsConnected = connected,
         AcPresent = ac,
         Discharging = discharging,
@@ -556,6 +621,8 @@ static UpsSnapshot Snapshot(
         RuntimeRemaining = runtime,
         BatteryPercent = battery,
         PercentLoad = load,
+        ActivePower = activePower,
+        ApparentPower = apparentPower,
         FullyCharged = fullyCharged,
         NeedReplacement = replacement,
         SelfTestState = selfTest,
