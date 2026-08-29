@@ -38,15 +38,36 @@ public sealed record UpsEvent(
     };
 }
 
+public sealed record UpsAlertThresholds(
+    double HighLoadPercent = 80.0,
+    double LowVoltage = 92.0,
+    double HighVoltage = 108.0,
+    double LoadHysteresisPercent = 5.0,
+    double VoltageHysteresisVolts = 2.0)
+{
+    public static UpsAlertThresholds Default { get; } = new();
+}
+
 public sealed class UpsEventDetector
 {
     private TimeSpan _runtimeLowThreshold;
+    private UpsAlertThresholds _alertThresholds;
     private UpsSnapshot? _previous;
     private bool _runtimeWasLow;
+    private bool _highLoadActive;
+    private bool _voltageAbnormalActive;
 
-    public UpsEventDetector(TimeSpan runtimeLowThreshold)
+    public UpsEventDetector(TimeSpan runtimeLowThreshold, UpsAlertThresholds? alertThresholds = null)
     {
         SetRuntimeLowThreshold(runtimeLowThreshold);
+        _alertThresholds = alertThresholds ?? UpsAlertThresholds.Default;
+    }
+
+    public UpsAlertThresholds AlertThresholds => _alertThresholds;
+
+    public void SetAlertThresholds(UpsAlertThresholds thresholds)
+    {
+        _alertThresholds = thresholds ?? throw new ArgumentNullException(nameof(thresholds));
     }
 
     public void SetRuntimeLowThreshold(TimeSpan threshold)
@@ -121,6 +142,55 @@ public sealed class UpsEventDetector
         }
 
         _runtimeWasLow = runtimeIsLow;
+
+        if (current.IsConnected)
+        {
+            if (current.PercentLoad is { } load)
+            {
+                if (!_highLoadActive)
+                {
+                    if (load >= _alertThresholds.HighLoadPercent)
+                    {
+                        _highLoadActive = true;
+                        Add(UpsEventType.HighLoadWarning, $"UPS load is high: {load:0.#}% (threshold: {_alertThresholds.HighLoadPercent:0.#}%)");
+                    }
+                }
+                else
+                {
+                    if (load < (_alertThresholds.HighLoadPercent - _alertThresholds.LoadHysteresisPercent))
+                    {
+                        _highLoadActive = false;
+                    }
+                }
+            }
+
+            if (current.AcPresent is not false && current.InputVoltage is { } inputVoltage)
+            {
+                if (!_voltageAbnormalActive)
+                {
+                    if (inputVoltage <= _alertThresholds.LowVoltage || inputVoltage >= _alertThresholds.HighVoltage)
+                    {
+                        _voltageAbnormalActive = true;
+                        Add(UpsEventType.VoltageAbnormal, $"Input voltage is abnormal: {inputVoltage:0.#}V (normal: {_alertThresholds.LowVoltage:0.#}V - {_alertThresholds.HighVoltage:0.#}V)");
+                    }
+                }
+                else
+                {
+                    var normalLow = _alertThresholds.LowVoltage + _alertThresholds.VoltageHysteresisVolts;
+                    var normalHigh = _alertThresholds.HighVoltage - _alertThresholds.VoltageHysteresisVolts;
+                    if (inputVoltage > normalLow && inputVoltage < normalHigh)
+                    {
+                        _voltageAbnormalActive = false;
+                    }
+                }
+            }
+        }
+        else
+        {
+            _highLoadActive = false;
+            _voltageAbnormalActive = false;
+        }
+
         _previous = current;
         return (IReadOnlyList<UpsEvent>?)events ?? Array.Empty<UpsEvent>();
 

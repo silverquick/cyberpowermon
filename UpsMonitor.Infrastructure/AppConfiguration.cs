@@ -31,6 +31,17 @@ public sealed class AlertsConfiguration
     public double LowVoltageWarningThreshold { get; set; } = 92.0;
 
     public double HighVoltageWarningThreshold { get; set; } = 108.0;
+
+    public double LoadHysteresisPercent { get; set; } = 5.0;
+
+    public double VoltageHysteresisVolts { get; set; } = 2.0;
+
+    public UpsAlertThresholds ToAlertThresholds() => new(
+        HighLoadPercent: HighLoadWarningPercent,
+        LowVoltage: LowVoltageWarningThreshold,
+        HighVoltage: HighVoltageWarningThreshold,
+        LoadHysteresisPercent: LoadHysteresisPercent,
+        VoltageHysteresisVolts: VoltageHysteresisVolts);
 }
 
 public sealed class WebhookConfiguration
@@ -57,6 +68,10 @@ public sealed class ExternalCommandConfiguration
     public string CommandOnPowerRestored { get; set; } = string.Empty;
 
     public string CommandOnBatteryLow { get; set; } = string.Empty;
+
+    public string CommandOnHighLoad { get; set; } = string.Empty;
+
+    public string CommandOnVoltageAbnormal { get; set; } = string.Empty;
 }
 
 public sealed class HistoryConfiguration

@@ -1,0 +1,24 @@
+# タスクリスト: カスタムアラートのイベント化基盤（Core / Infrastructure）
+
+- [x] 1. 設計とドキュメント作成 (`task.md`, `implementation_plan.md`) <!-- id: 0 -->
+- [x] 2. `UpsMonitor.Core/UpsEvents.cs` の実装 <!-- id: 1 -->
+  - [x] `UpsAlertThresholds` レコード（高負荷、低電圧、高電圧、負荷ヒステリシス、電圧ヒステリシス）を追加
+  - [x] `UpsEventDetector` に `UpsAlertThresholds` の保持と `SetAlertThresholds` メソッドを追加
+  - [x] `UpsEventDetector.Observe` に高負荷警告 (`HighLoadWarning`) および電圧異常 (`VoltageAbnormal`) のエッジトリガー＋ヒステリシス検知ロジックを追加
+  - [x] 切断時の非発火制御および初回観測時の異常即時通知設計の実装
+- [x] 3. `UpsMonitor.Core/Monitoring.cs` の実装 <!-- id: 2 -->
+  - [x] `UpsMonitorEngine` コンストラクタに `UpsAlertThresholds` 引数を追加（オプション）
+  - [x] `UpsMonitorEngine.SetAlertThresholds` メソッドを追加
+- [x] 4. `UpsMonitor.Infrastructure/AppConfiguration.cs` の実装 <!-- id: 3 -->
+  - [x] `ExternalCommandConfiguration` に `CommandOnHighLoad` と `CommandOnVoltageAbnormal` を追加（既定値は空文字）
+  - [x] `AlertsConfiguration` にヒステリシス設定（`LoadHysteresisPercent`, `VoltageHysteresisVolts`）と `ToAlertThresholds()` を追加
+- [x] 5. 単体テストの追加と動作検証 (`UpsMonitor.Core.Tests/Program.cs`) <!-- id: 4 -->
+  - [x] 閾値突入の 1 回通知、異常継続中の無通知、ヒステリシス内の無復帰、正常復帰後の再発通知テスト
+  - [x] 電圧異常（低電圧・高電圧）のエッジ＋ヒステリシステスト
+  - [x] 切断時の非発火テスト
+  - [x] 動的閾値更新の反映テスト
+  - [x] `UpsMonitorEngine` 経由でのイベント検出・Sink永続化テスト
+  - [x] 設定（ヒステリシス・外部コマンド）の読み書き・後方互換性テスト
+- [x] 6. ビルドおよび全テストの実行確認 <!-- id: 5 -->
+- [ ] 7. コミットの作成（日本語コミットメッセージ） <!-- id: 6 -->
+- [ ] 8. `TASK.md` 末尾へ完了報告の追記 <!-- id: 7 -->

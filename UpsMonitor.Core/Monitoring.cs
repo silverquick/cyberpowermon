@@ -50,13 +50,14 @@ public sealed class UpsMonitorEngine : IAsyncDisposable
         IUpsEventSink eventSink,
         int pollIntervalMs,
         TimeSpan runtimeLowThreshold,
-        IUpsSnapshotSink? snapshotSink = null)
+        IUpsSnapshotSink? snapshotSink = null,
+        UpsAlertThresholds? alertThresholds = null)
     {
         _provider = provider;
         _eventSink = eventSink;
         _snapshotSink = snapshotSink;
         _pollIntervalMs = ValidatePollInterval(pollIntervalMs);
-        _eventDetector = new UpsEventDetector(runtimeLowThreshold);
+        _eventDetector = new UpsEventDetector(runtimeLowThreshold, alertThresholds);
     }
 
     public event Action<UpsSnapshot>? SnapshotUpdated;
@@ -88,6 +89,11 @@ public sealed class UpsMonitorEngine : IAsyncDisposable
     public void SetRuntimeLowThreshold(TimeSpan threshold)
     {
         _eventDetector.SetRuntimeLowThreshold(threshold);
+    }
+
+    public void SetAlertThresholds(UpsAlertThresholds thresholds)
+    {
+        _eventDetector.SetAlertThresholds(thresholds);
     }
 
     public void NotifyDeviceChange()
