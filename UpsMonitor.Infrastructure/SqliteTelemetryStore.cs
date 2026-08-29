@@ -629,6 +629,21 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
             }
         }
 
+        if (currentVersion == 1)
+        {
+            // 既存ユーザー(スキーマv1)向け: v2で追加されたインデックスのみを後付けで作成する
+            // 軽量マイグレーション。フルDDL(CREATE TABLE群)は既存テーブルがあるため再実行不要。
+            await using var migrationCommand = connection.CreateCommand();
+            migrationCommand.CommandText = """
+                CREATE INDEX IF NOT EXISTS ix_telemetry_samples_time
+                    ON telemetry_samples(timestamp_utc_ms);
+                CREATE INDEX IF NOT EXISTS ix_raw_values_time
+                    ON raw_telemetry_values(timestamp_utc_ms);
+                PRAGMA user_version=2;
+                """;
+            await migrationCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         if (currentVersion >= 1)
         {
             return;
@@ -739,7 +754,7 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
             CREATE INDEX IF NOT EXISTS ix_health_device_time
                 ON battery_health_observations(device_id, timestamp_utc_ms);
 
-            PRAGMA user_version=1;
+            PRAGMA user_version=2;
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }

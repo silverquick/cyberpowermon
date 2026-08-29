@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using UpsMonitor.Core;
 using UpsMonitor.Infrastructure;
@@ -19,6 +20,7 @@ var tests = new (string Name, Action Run)[]
     ("Hard battery failures override score", HardFailureOverridesScore),
     ("Self-test failure requests a battery check", SelfTestFailureRequestsCheck),
     ("SQLite history stores samples, rollups, events, and health", SqliteHistoryRoundTrip),
+    ("Legacy v1 schema migrates new indexes without dropping data", LegacySchemaV1IndexMigration),
     ("Event severity classification", EventSeverityClassification),
     ("Telemetry and event export to CSV/JSON", TelemetryExportRoundTrip),
     ("Dynamic runtime-low threshold update", DynamicRuntimeLowThreshold),
@@ -420,6 +422,210 @@ static async Task SqliteHistoryRoundTripAsync()
         {
             Directory.Delete(testRoot, recursive: true);
         }
+    }
+}
+
+static void LegacySchemaV1IndexMigration() => LegacySchemaV1IndexMigrationAsync().GetAwaiter().GetResult();
+
+static async Task LegacySchemaV1IndexMigrationAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsMigrationTests-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(paths.TelemetryDatabaseFile)!);
+
+        // Recreate the pre-merge "v1" schema: full DDL minus the two new time indexes,
+        // ending on PRAGMA user_version=1 - exactly what every pre-existing installation has on disk.
+        using (var legacyConnection = new SqliteConnection($"Data Source={paths.TelemetryDatabaseFile}"))
+        {
+            await legacyConnection.OpenAsync();
+            using var command = legacyConnection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE IF NOT EXISTS telemetry_samples (
+                    id INTEGER PRIMARY KEY,
+                    device_id TEXT NOT NULL,
+                    timestamp_utc_ms INTEGER NOT NULL,
+                    is_connected INTEGER NOT NULL,
+                    power_state INTEGER NOT NULL,
+                    input_voltage REAL,
+                    output_voltage REAL,
+                    battery_voltage REAL,
+                    battery_percent REAL,
+                    runtime_seconds REAL,
+                    load_percent REAL,
+                    active_power_watts REAL,
+                    apparent_power_va REAL,
+                    frequency_hz REAL,
+                    temperature_c REAL,
+                    ac_present INTEGER,
+                    charging INTEGER,
+                    discharging INTEGER,
+                    low_battery INTEGER,
+                    shutdown_imminent INTEGER,
+                    overload INTEGER,
+                    boost INTEGER,
+                    UNIQUE(device_id, timestamp_utc_ms)
+                );
+                CREATE INDEX IF NOT EXISTS ix_telemetry_samples_device_time
+                    ON telemetry_samples(device_id, timestamp_utc_ms);
+
+                CREATE TABLE IF NOT EXISTS telemetry_rollups_1m (
+                    device_id TEXT NOT NULL,
+                    bucket_utc_ms INTEGER NOT NULL,
+                    metric INTEGER NOT NULL,
+                    minimum REAL NOT NULL,
+                    maximum REAL NOT NULL,
+                    value_sum REAL NOT NULL,
+                    sample_count INTEGER NOT NULL,
+                    last_value REAL NOT NULL,
+                    last_timestamp_utc_ms INTEGER NOT NULL,
+                    PRIMARY KEY(device_id, bucket_utc_ms, metric)
+                );
+                CREATE INDEX IF NOT EXISTS ix_rollups_device_metric_time
+                    ON telemetry_rollups_1m(device_id, metric, bucket_utc_ms);
+
+                CREATE TABLE IF NOT EXISTS raw_telemetry_values (
+                    id INTEGER PRIMARY KEY,
+                    device_id TEXT NOT NULL,
+                    timestamp_utc_ms INTEGER NOT NULL,
+                    metric_key TEXT NOT NULL,
+                    usage_page INTEGER NOT NULL,
+                    usage INTEGER NOT NULL,
+                    report_type TEXT NOT NULL,
+                    report_id INTEGER NOT NULL,
+                    numeric_value REAL NOT NULL,
+                    raw_value INTEGER,
+                    unit_symbol TEXT,
+                    usage_name TEXT NOT NULL,
+                    collection_path TEXT NOT NULL,
+                    is_vendor_defined INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_raw_values_device_metric_time
+                    ON raw_telemetry_values(device_id, metric_key, timestamp_utc_ms);
+
+                CREATE TABLE IF NOT EXISTS ups_events (
+                    id INTEGER PRIMARY KEY,
+                    device_id TEXT NOT NULL,
+                    timestamp_utc_ms INTEGER NOT NULL,
+                    event_type INTEGER NOT NULL,
+                    message TEXT NOT NULL,
+                    previous_state INTEGER NOT NULL,
+                    current_state INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_events_device_time
+                    ON ups_events(device_id, timestamp_utc_ms);
+
+                CREATE TABLE IF NOT EXISTS ups_state_changes (
+                    id INTEGER PRIMARY KEY,
+                    device_id TEXT NOT NULL,
+                    timestamp_utc_ms INTEGER NOT NULL,
+                    power_state INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_state_changes_device_time
+                    ON ups_state_changes(device_id, timestamp_utc_ms);
+
+                CREATE TABLE IF NOT EXISTS battery_health_observations (
+                    id INTEGER PRIMARY KEY,
+                    device_id TEXT NOT NULL,
+                    timestamp_utc_ms INTEGER NOT NULL,
+                    health_percent REAL,
+                    relative_performance_percent REAL,
+                    status INTEGER NOT NULL,
+                    method INTEGER NOT NULL,
+                    confidence INTEGER NOT NULL,
+                    anchor_source TEXT,
+                    vendor_category INTEGER NOT NULL,
+                    replacement_status INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_health_device_time
+                    ON battery_health_observations(device_id, timestamp_utc_ms);
+
+                INSERT INTO telemetry_samples
+                    (device_id, timestamp_utc_ms, is_connected, power_state, input_voltage)
+                    VALUES ('legacy-device', 1000, 1, 1, 100.0);
+
+                PRAGMA user_version=1;
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        // Sanity check: the new v2 indexes must not exist yet on the legacy database.
+        await AssertIndexExistsAsync(paths.TelemetryDatabaseFile, "ix_telemetry_samples_time", expected: false);
+        await AssertIndexExistsAsync(paths.TelemetryDatabaseFile, "ix_raw_values_time", expected: false);
+        Equal(1L, await ReadUserVersionAsync(paths.TelemetryDatabaseFile));
+
+        // (b) Existing user at v1: initializing should add only the new indexes, keep existing
+        // data intact, and bump user_version to 2 - without erroring on CREATE INDEX against
+        // tables that already exist.
+        await using (var store = new SqliteTelemetryStore(paths, new HistoryConfiguration()))
+        {
+            await store.InitializeAsync();
+        }
+        SqliteConnection.ClearAllPools();
+
+        Equal(2L, await ReadUserVersionAsync(paths.TelemetryDatabaseFile));
+        await AssertIndexExistsAsync(paths.TelemetryDatabaseFile, "ix_telemetry_samples_time", expected: true);
+        await AssertIndexExistsAsync(paths.TelemetryDatabaseFile, "ix_raw_values_time", expected: true);
+        Equal(1L, await CountRowsAsync(paths.TelemetryDatabaseFile, "telemetry_samples"));
+
+        // (c) Re-initializing an already-migrated (v2) database must be a no-op: version stays at
+        // 2, indexes and data remain untouched, and it must not throw.
+        await using (var store = new SqliteTelemetryStore(paths, new HistoryConfiguration()))
+        {
+            await store.InitializeAsync();
+        }
+        SqliteConnection.ClearAllPools();
+
+        Equal(2L, await ReadUserVersionAsync(paths.TelemetryDatabaseFile));
+        await AssertIndexExistsAsync(paths.TelemetryDatabaseFile, "ix_telemetry_samples_time", expected: true);
+        await AssertIndexExistsAsync(paths.TelemetryDatabaseFile, "ix_raw_values_time", expected: true);
+        Equal(1L, await CountRowsAsync(paths.TelemetryDatabaseFile, "telemetry_samples"));
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
+}
+
+static async Task<long> ReadUserVersionAsync(string databasePath)
+{
+    using var connection = new SqliteConnection($"Data Source={databasePath}");
+    await connection.OpenAsync();
+    using var command = connection.CreateCommand();
+    command.CommandText = "PRAGMA user_version;";
+    return Convert.ToInt64(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+}
+
+static async Task<long> CountRowsAsync(string databasePath, string tableName)
+{
+    using var connection = new SqliteConnection($"Data Source={databasePath}");
+    await connection.OpenAsync();
+    using var command = connection.CreateCommand();
+    command.CommandText = $"SELECT COUNT(*) FROM {tableName};";
+    return Convert.ToInt64(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+}
+
+static async Task AssertIndexExistsAsync(string databasePath, string indexName, bool expected)
+{
+    using var connection = new SqliteConnection($"Data Source={databasePath}");
+    await connection.OpenAsync();
+    using var command = connection.CreateCommand();
+    command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=$name;";
+    command.Parameters.AddWithValue("$name", indexName);
+    var count = Convert.ToInt64(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+    if (expected && count == 0)
+    {
+        throw new InvalidOperationException($"Expected index '{indexName}' to exist, but it was not found.");
+    }
+    if (!expected && count != 0)
+    {
+        throw new InvalidOperationException($"Expected index '{indexName}' to not exist yet, but it was found.");
     }
 }
 
