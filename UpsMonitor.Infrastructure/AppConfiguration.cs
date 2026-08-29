@@ -8,12 +8,55 @@ public sealed class AppConfiguration
 
     public UiConfiguration Ui { get; init; } = new();
 
+    public AlertsConfiguration Alerts { get; init; } = new();
+
+    public WebhookConfiguration Webhook { get; init; } = new();
+
+    public ExternalCommandConfiguration ExternalCommand { get; init; } = new();
+
     public BatteryHealthConfiguration BatteryHealth { get; init; } = new();
 
     public HistoryConfiguration History { get; init; } = new();
 
     // Intentionally inert in v0.1. This preserves the future configuration shape.
     public List<RuleDefinition> ShutdownPolicies { get; init; } = [];
+}
+
+public sealed class AlertsConfiguration
+{
+    public bool EnableSoundAlerts { get; set; } = false;
+
+    public double HighLoadWarningPercent { get; set; } = 80.0;
+
+    public double LowVoltageWarningThreshold { get; set; } = 92.0;
+
+    public double HighVoltageWarningThreshold { get; set; } = 108.0;
+}
+
+public sealed class WebhookConfiguration
+{
+    public bool Enabled { get; set; } = false;
+
+    public string Url { get; set; } = string.Empty;
+
+    public bool NotifyOnPowerLost { get; set; } = true;
+
+    public bool NotifyOnPowerRestored { get; set; } = true;
+
+    public bool NotifyOnBatteryLow { get; set; } = true;
+
+    public bool NotifyOnHighLoad { get; set; } = false;
+}
+
+public sealed class ExternalCommandConfiguration
+{
+    public bool Enabled { get; set; } = false;
+
+    public string CommandOnPowerLost { get; set; } = string.Empty;
+
+    public string CommandOnPowerRestored { get; set; } = string.Empty;
+
+    public string CommandOnBatteryLow { get; set; } = string.Empty;
 }
 
 public sealed class HistoryConfiguration
@@ -48,11 +91,18 @@ public sealed class BatteryHealthConfiguration
 public sealed class UiConfiguration
 {
     private string _language = "system";
+    private string _theme = "system";
 
     public string Language
     {
         get => _language;
         set => _language = value is "ja-JP" or "en-US" ? value : "system";
+    }
+
+    public string Theme
+    {
+        get => _theme;
+        set => _theme = value is "dark" or "light" ? value : "system";
     }
 
     public bool MinimizeToTray { get; set; } = true;

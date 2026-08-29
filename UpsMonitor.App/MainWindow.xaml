@@ -234,6 +234,12 @@
                     </StackPanel>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Command="{Binding OpenMiniMonitorCommand}" Margin="0,0,16,0" Padding="10,5" Background="{DynamicResource SecondaryPanelBrush}" BorderBrush="{DynamicResource BorderBrush}" ToolTip="{DynamicResource OpenMiniMonitorHelp}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE740;" FontFamily="Segoe Fluent Icons" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="{DynamicResource OpenMiniMonitor}" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                     <Border Width="9" Height="9" CornerRadius="5" Background="{Binding StatusAccent}" Margin="0,0,9,0" />
                     <TextBlock Text="{Binding ConnectionText}" FontWeight="SemiBold" Margin="0,0,18,0" />
                     <TextBlock Text="{Binding LastUpdateText}" Foreground="{DynamicResource MutedTextBrush}" />
@@ -570,6 +576,85 @@
                             </Border>
                         </Grid>
 
+                        <!-- Daily Energy & Trouble Summary -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.2*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource DailyEnergyReportTitle}" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{DynamicResource DailyEnergyReportSubtitle}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,3,0,10" />
+                                    <DataGrid ItemsSource="{Binding DailyEnergyReports}" Style="{StaticResource TelemetryGridStyle}" MaxHeight="220" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="{DynamicResource ColumnDate}" Binding="{Binding Date}" Width="100" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnEnergyKwh}" Binding="{Binding EnergyKwh, StringFormat={}{0:F2} kWh}" Width="95" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnEstimatedCost}" Binding="{Binding EstimatedCost, StringFormat={}約 {0:N0} 円}" Width="100" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnPeakWatts}" Binding="{Binding PeakWatts, StringFormat={}{0:F0} W}" Width="85" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnAvgWatts}" Binding="{Binding AvgWatts, StringFormat={}{0:F0} W}" Width="85" />
+                                            <DataGridTextColumn Header="{DynamicResource ColumnOutages}" Binding="{Binding OutageCount}" Width="75" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="1" Style="{StaticResource CardStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource TroubleSummaryTitle}" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{DynamicResource TroubleSummarySubtitle}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,3,0,12" />
+                                    <Border Background="{DynamicResource SecondaryPanelBrush}" CornerRadius="8" Padding="14" Margin="0,0,0,10">
+                                        <StackPanel>
+                                            <TextBlock Text="{DynamicResource TotalOutagesLabel}" Style="{StaticResource CaptionStyle}" />
+                                            <TextBlock Text="{Binding TroubleSummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="14" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                    <TextBlock Text="{DynamicResource TroubleEventsRecent}" Style="{StaticResource CaptionStyle}" Margin="0,4,0,4" />
+                                    <ListView ItemsSource="{Binding TroubleSummary.TroubleEvents}" MaxHeight="120" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextBrush}">
+                                        <ListView.View>
+                                            <GridView>
+                                                <GridViewColumn Header="{DynamicResource ColumnTime}" Width="130" DisplayMemberBinding="{Binding Timestamp, StringFormat={}{0:MM/dd HH:mm}}" />
+                                                <GridViewColumn Header="{DynamicResource ColumnEvent}" Width="120" DisplayMemberBinding="{Binding Type}" />
+                                                <GridViewColumn Header="{DynamicResource ColumnDetails}" Width="200" DisplayMemberBinding="{Binding Message}" />
+                                            </GridView>
+                                        </ListView.View>
+                                    </ListView>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- Load Runtime Simulator -->
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource SimulatorTitle}" Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{DynamicResource SimulatorSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,14" />
+                                <Grid Margin="0,0,0,14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{DynamicResource TargetLoadWattsLabel}" VerticalAlignment="Center" Margin="0,0,10,0" FontWeight="SemiBold" />
+                                    <TextBox Grid.Column="1" Text="{Binding LoadSimulationTargetWatts, UpdateSourceTrigger=LostFocus}" Padding="8,4" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="2" Text="W" VerticalAlignment="Center" Margin="6,0,24,0" Foreground="{DynamicResource MutedTextBrush}" />
+                                    <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="{DynamicResource SimulatedRuntimeResultLabel}" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <TextBlock Text="{Binding SimulatedRuntimeText}" FontSize="18" FontWeight="Bold" Foreground="#10B981" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{DynamicResource StandardLoadTableTitle}" Style="{StaticResource CaptionStyle}" Margin="0,0,0,6" />
+                                <DataGrid ItemsSource="{Binding StandardLoadEstimates}" Style="{StaticResource TelemetryGridStyle}" MaxHeight="180" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="{DynamicResource ColumnTargetLoad}" Binding="{Binding LoadWatts, StringFormat={}{0:F0} W}" Width="110" />
+                                        <DataGridTextColumn Header="{DynamicResource ColumnLoadRatio}" Binding="{Binding LoadPercent, StringFormat={}{0:F0}%}" Width="110" />
+                                        <DataGridTextColumn Header="{DynamicResource ColumnEstimatedRuntime}" Binding="{Binding EstimatedRuntime, StringFormat={}{0:hh\\:mm\\:ss}}" Width="150" />
+                                        <DataGridTextColumn Header="{DynamicResource ColumnDischargeCurrent}" Binding="{Binding EstimatedDischargeCurrentAmperes, StringFormat={}{0:F1} A}" Width="150" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </StackPanel>
+                        </Border>
+
                         <Border Style="{StaticResource CardStyle}">
                             <StackPanel>
                                 <TextBlock Text="{DynamicResource LocalHistoryStorage}" Style="{StaticResource CaptionStyle}" />
@@ -853,7 +938,7 @@
                                 <TextBlock Text="{DynamicResource Monitoring}" Style="{StaticResource SectionTitleStyle}" />
                                 <Grid Margin="0,14,0,0">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="270" /><ColumnDefinition Width="180" /></Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
                                     <StackPanel Grid.Row="0"><TextBlock Text="{DynamicResource DisplayLanguage}" /><TextBlock Text="{DynamicResource DisplayLanguageHelp}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
                                     <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding LanguageOptions}" SelectedValuePath="Code" SelectedValue="{Binding SelectedLanguageCode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12">
                                         <ComboBox.ItemTemplate>
@@ -862,17 +947,26 @@
                                             </DataTemplate>
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>
-                                    <StackPanel Grid.Row="1"><TextBlock Text="{DynamicResource PollInterval}" /><TextBlock Text="{DynamicResource PollIntervalHelp}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
-                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PollIntervalMs, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,12" />
-                                    <StackPanel Grid.Row="2"><TextBlock Text="{DynamicResource RuntimeLowThreshold}" /><TextBlock Text="{DynamicResource RestartRequired}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
-                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding RuntimeLowSeconds, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,12" />
-                                    <StackPanel Grid.Row="3"><TextBlock Text="{DynamicResource ElectricityRate}" /><TextBlock Text="{DynamicResource ElectricityRateHelp}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
-                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ElectricityRatePerKwh, UpdateSourceTrigger=LostFocus}" />
+                                    <StackPanel Grid.Row="1"><TextBlock Text="{DynamicResource ThemeLabel}" /><TextBlock Text="{DynamicResource ThemeHelp}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
+                                    <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding ThemeOptions}" SelectedValuePath="Code" SelectedValue="{Binding SelectedTheme, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource TextBrush}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <StackPanel Grid.Row="2"><TextBlock Text="{DynamicResource PollInterval}" /><TextBlock Text="{DynamicResource PollIntervalHelp}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding PollIntervalMs, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,12" />
+                                    <StackPanel Grid.Row="3"><TextBlock Text="{DynamicResource RuntimeLowThreshold}" /><TextBlock Text="{DynamicResource RestartRequired}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding RuntimeLowSeconds, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,12" />
+                                    <StackPanel Grid.Row="4"><TextBlock Text="{DynamicResource ElectricityRate}" /><TextBlock Text="{DynamicResource ElectricityRateHelp}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
+                                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ElectricityRatePerKwh, UpdateSourceTrigger=LostFocus}" />
                                 </Grid>
                                 <Button Content="{DynamicResource SaveSettings}" Command="{Binding SaveSettingsCommand}" HorizontalAlignment="Left" Margin="0,20,0,0" />
                                 <TextBlock Text="{Binding SettingsStatus}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,10,0,0" />
                             </StackPanel>
                         </Border>
+
                         <Border Style="{StaticResource CardStyle}" MaxWidth="720" HorizontalAlignment="Left">
                             <StackPanel>
                                 <TextBlock Text="{DynamicResource SystemSettings}" Style="{StaticResource SectionTitleStyle}" />
@@ -882,6 +976,69 @@
                                 <CheckBox Content="{DynamicResource StartMinimized}" IsChecked="{Binding StartMinimized, Mode=TwoWay}" />
                                 <CheckBox Content="{DynamicResource EnableNotifications}" IsChecked="{Binding EnableNotifications, Mode=TwoWay}" />
                                 <CheckBox Content="{DynamicResource RunOnStartup}" IsChecked="{Binding RunOnStartup, Mode=TwoWay}" />
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <Button Content="{DynamicResource TestNotificationBtn}" Command="{Binding TestNotificationCommand}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Custom Alerts -->
+                        <Border Style="{StaticResource CardStyle}" MaxWidth="720" HorizontalAlignment="Left">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource CustomAlertsTitle}" Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{DynamicResource CustomAlertsSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,14" />
+                                <CheckBox Content="{DynamicResource EnableSoundAlertsLabel}" IsChecked="{Binding EnableSoundAlerts, Mode=TwoWay}" Margin="0,0,0,12" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="270" /><ColumnDefinition Width="180" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Text="{DynamicResource HighLoadThresholdLabel}" VerticalAlignment="Center" />
+                                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding HighLoadWarningPercent, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,10" />
+                                    <TextBlock Grid.Row="1" Text="{DynamicResource LowVoltageThresholdLabel}" VerticalAlignment="Center" />
+                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding LowVoltageWarningThreshold, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,10" />
+                                    <TextBlock Grid.Row="2" Text="{DynamicResource HighVoltageThresholdLabel}" VerticalAlignment="Center" />
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding HighVoltageWarningThreshold, UpdateSourceTrigger=LostFocus}" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Webhook & Automation -->
+                        <Border Style="{StaticResource CardStyle}" MaxWidth="720" HorizontalAlignment="Left">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource WebhookTitle}" Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{DynamicResource WebhookSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,14" />
+                                <CheckBox Content="{DynamicResource WebhookEnableLabel}" IsChecked="{Binding WebhookEnabled, Mode=TwoWay}" Margin="0,0,0,10" />
+                                <TextBlock Text="{DynamicResource WebhookUrlLabel}" FontWeight="SemiBold" Margin="0,4,0,4" />
+                                <TextBox Text="{Binding WebhookUrl, UpdateSourceTrigger=PropertyChanged}" Padding="6,4" Margin="0,0,0,10" />
+                                <TextBlock Text="{DynamicResource WebhookEventsLabel}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,0,0,6" />
+                                <WrapPanel Margin="0,0,0,10">
+                                    <CheckBox Content="{DynamicResource WebhookEventPowerLost}" IsChecked="{Binding WebhookNotifyOnPowerLost, Mode=TwoWay}" Margin="0,0,14,6" />
+                                    <CheckBox Content="{DynamicResource WebhookEventPowerRestored}" IsChecked="{Binding WebhookNotifyOnPowerRestored, Mode=TwoWay}" Margin="0,0,14,6" />
+                                    <CheckBox Content="{DynamicResource WebhookEventBatteryLow}" IsChecked="{Binding WebhookNotifyOnBatteryLow, Mode=TwoWay}" Margin="0,0,14,6" />
+                                    <CheckBox Content="{DynamicResource WebhookEventHighLoad}" IsChecked="{Binding WebhookNotifyOnHighLoad, Mode=TwoWay}" Margin="0,0,14,6" />
+                                </WrapPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                    <Button Content="{DynamicResource WebhookTestBtn}" Command="{Binding TestWebhookCommand}" Margin="0,0,12,0" />
+                                    <TextBlock Text="{Binding WebhookStatus}" VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- External Command Automation -->
+                        <Border Style="{StaticResource CardStyle}" MaxWidth="720" HorizontalAlignment="Left">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource ExternalCommandTitle}" Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{DynamicResource ExternalCommandSubtitle}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,4,0,14" />
+                                <CheckBox Content="{DynamicResource ExternalCommandEnableLabel}" IsChecked="{Binding ExternalCommandEnabled, Mode=TwoWay}" Margin="0,0,0,12" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="180" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Text="{DynamicResource CmdPowerLostLabel}" VerticalAlignment="Center" Margin="0,0,8,10" />
+                                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding CommandOnPowerLost, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" Margin="0,0,0,10" />
+                                    <TextBlock Grid.Row="1" Text="{DynamicResource CmdPowerRestoredLabel}" VerticalAlignment="Center" Margin="0,0,8,10" />
+                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding CommandOnPowerRestored, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" Margin="0,0,0,10" />
+                                    <TextBlock Grid.Row="2" Text="{DynamicResource CmdBatteryLowLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding CommandOnBatteryLow, UpdateSourceTrigger=PropertyChanged}" Padding="6,3" />
+                                </Grid>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource CardStyle}" MaxWidth="720" HorizontalAlignment="Left">

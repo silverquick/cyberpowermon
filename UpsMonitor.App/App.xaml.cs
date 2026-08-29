@@ -61,8 +61,6 @@ public partial class App : Application
             return;
         }
 
-        ThemeManager.ApplySystemTheme(this);
-
         var paths = new AppPaths();
         var configurationStore = new JsonConfigurationStore(paths);
         AppConfiguration configuration;
@@ -77,6 +75,7 @@ public partial class App : Application
             configurationError = exception;
         }
 
+        ThemeManager.ApplyTheme(this, configuration.Ui.Theme);
         LocalizationManager.ApplyLanguage(this, configuration.Ui.Language);
 
         _eventSink = new FileUpsEventSink(paths);

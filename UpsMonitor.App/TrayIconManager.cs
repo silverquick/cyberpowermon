@@ -94,6 +94,33 @@ internal sealed class TrayIconManager : IDisposable
         Shell_NotifyIcon(NimModify, ref nid);
     }
 
+    public void UpdateDynamicIcon(UpsPowerState state, double? batteryPercent, bool acPresent)
+    {
+        if (!_isAdded || _disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            var oldDynamicIcon = _hIcon;
+            _hIcon = GenerateBatteryIcon(state, batteryPercent, acPresent);
+
+            var nid = CreateNotifyIconData(NifIcon);
+            nid.hIcon = _hIcon;
+            Shell_NotifyIcon(NimModify, ref nid);
+
+            if (oldDynamicIcon != IntPtr.Zero)
+            {
+                DestroyIcon(oldDynamicIcon);
+            }
+        }
+        catch
+        {
+            // アイコン描画失敗時は静的アイコンを維持
+        }
+    }
+
     public void ShowNotification(string title, string message, UpsEventSeverity severity = UpsEventSeverity.Information)
     {
         if (!_isAdded || _disposed || !_notificationsEnabled())
@@ -112,6 +139,73 @@ internal sealed class TrayIconManager : IDisposable
         };
 
         Shell_NotifyIcon(NimModify, ref nid);
+    }
+
+    public void ShowTestNotification(UpsEventSeverity severity)
+    {
+        var title = severity switch
+        {
+            UpsEventSeverity.Critical => "[PowerGuard] テスト通知 (重大)",
+            UpsEventSeverity.Warning => "[PowerGuard] テスト通知 (警告)",
+            _ => "[PowerGuard] テスト通知 (情報)",
+        };
+        var msg = "これは PowerGuard の Windows 通知テストです。通知設定は正常に機能しています。";
+        ShowNotification(title, msg, severity);
+    }
+
+    private static IntPtr GenerateBatteryIcon(UpsPowerState state, double? batteryPercent, bool acPresent)
+    {
+        using var bitmap = new Bitmap(16, 16);
+        using var g = Graphics.FromImage(bitmap);
+        g.Clear(Color.Transparent);
+
+        var pct = Math.Clamp(batteryPercent ?? 100.0, 0.0, 100.0);
+
+        Color accentColor;
+        if (state == UpsPowerState.Unknown)
+        {
+            accentColor = Color.FromArgb(120, 140, 160); // 灰
+        }
+        else if (state is UpsPowerState.LowBattery or UpsPowerState.Critical || pct <= 20.0)
+        {
+            accentColor = Color.FromArgb(239, 68, 68); // 赤
+        }
+        else if (state == UpsPowerState.OnBattery)
+        {
+            accentColor = Color.FromArgb(245, 158, 11); // 橙
+        }
+        else
+        {
+            accentColor = Color.FromArgb(16, 185, 129); // 緑
+        }
+
+        // バッテリー外枠描画 (16x16)
+        using var pen = new Pen(Color.FromArgb(220, 230, 242), 1f);
+        using var accentBrush = new SolidBrush(accentColor);
+        using var bgBrush = new SolidBrush(Color.FromArgb(180, 20, 30, 45));
+
+        // 背景
+        g.FillRectangle(bgBrush, 1, 3, 11, 10);
+        // 外枠
+        g.DrawRectangle(pen, 1, 3, 11, 10);
+        // 電極突起
+        g.FillRectangle(new SolidBrush(Color.FromArgb(220, 230, 242)), 12, 6, 2, 4);
+
+        // バッテリー残量バー (幅最大 9px)
+        var fillWidth = (int)Math.Round((pct / 100.0) * 9.0);
+        if (fillWidth > 0)
+        {
+            g.FillRectangle(accentBrush, 2, 4, fillWidth, 8);
+        }
+
+        // AC商用給電中なら右下に小さな緑のドット/プラグシンボル
+        if (acPresent)
+        {
+            using var dotBrush = new SolidBrush(Color.FromArgb(59, 130, 246));
+            g.FillEllipse(dotBrush, 10, 10, 5, 5);
+        }
+
+        return bitmap.GetHicon();
     }
 
     public void HandleMessage(int message, IntPtr wParam, IntPtr lParam)

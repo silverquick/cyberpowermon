@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private const int DwmSystemBackdropMainWindow = 2;
 
     private TrayIconManager? _trayManager;
+    private MiniMonitorWindow? _miniMonitor;
 
     public MainWindow()
     {
@@ -48,6 +49,23 @@ public partial class MainWindow : Window
             viewModel.TooltipUpdated += tooltip =>
             {
                 _trayManager.UpdateTooltip(tooltip);
+            };
+
+            viewModel.DynamicTrayIconUpdated += (state, bat, ac) =>
+            {
+                _trayManager.UpdateDynamicIcon(state, bat, ac);
+            };
+
+            viewModel.TestNotificationRequested += severity =>
+            {
+                _trayManager.ShowTestNotification(severity);
+            };
+
+            viewModel.ShowMiniMonitorRequested += () =>
+            {
+                _miniMonitor ??= new MiniMonitorWindow(this, viewModel);
+                _miniMonitor.Show();
+                _miniMonitor.Activate();
             };
 
             UpdateViewModelVisibility();

@@ -86,6 +86,23 @@ public sealed record TelemetryDatabaseStatistics
     public DateTimeOffset? LastSample { get; init; }
 }
 
+public sealed record DailyEnergyReportItem(
+    DateOnly Date,
+    double EnergyKwh,
+    double EstimatedCost,
+    double PeakWatts,
+    double AvgWatts,
+    int OutageCount);
+
+public sealed record PowerTroubleSummary
+{
+    public int TotalOutages { get; init; }
+    public TimeSpan TotalOutageDuration { get; init; }
+    public int VoltageSagCount { get; init; }
+    public int VoltageSurgeCount { get; init; }
+    public required IReadOnlyList<UpsEvent> TroubleEvents { get; init; }
+}
+
 public static class UpsDeviceIdentity
 {
     public static string Create(UpsDeviceInfo device) =>

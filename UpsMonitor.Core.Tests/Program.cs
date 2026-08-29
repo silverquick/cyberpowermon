@@ -23,6 +23,9 @@ var tests = new (string Name, Action Run)[]
     ("Telemetry and event export to CSV/JSON", TelemetryExportRoundTrip),
     ("Dynamic runtime-low threshold update", DynamicRuntimeLowThreshold),
     ("Weekly heatmap pattern aggregation", WeeklyPatternAggregation),
+    ("Runtime estimator load calculation", RuntimeEstimatorCalculation),
+    ("Configuration theme, alerts, webhook, and command settings", ConfigurationNewFeatures),
+    ("Daily energy reports and trouble summary queries", DailyEnergyAndTroubleSummaryQueries),
 };
 
 var failures = new List<string>();
@@ -428,6 +431,12 @@ static void EventSeverityClassification()
 
     var evOverload = new UpsEvent(DateTimeOffset.UtcNow, UpsEventType.OverloadDetected, "overload", UpsPowerState.Online, UpsPowerState.Online);
     Equal(UpsEventSeverity.Critical, evOverload.Severity);
+
+    var evVoltage = new UpsEvent(DateTimeOffset.UtcNow, UpsEventType.VoltageAbnormal, "voltage abnormal", UpsPowerState.Online, UpsPowerState.Online);
+    Equal(UpsEventSeverity.Warning, evVoltage.Severity);
+
+    var evHighLoad = new UpsEvent(DateTimeOffset.UtcNow, UpsEventType.HighLoadWarning, "high load", UpsPowerState.Online, UpsPowerState.Online);
+    Equal(UpsEventSeverity.Warning, evHighLoad.Severity);
 }
 
 static void TelemetryExportRoundTrip()
@@ -585,6 +594,114 @@ static void WeeklyPatternAggregation()
         if (Directory.Exists(testRoot))
         {
             try { Directory.Delete(testRoot, recursive: true); } catch { }
+        }
+    }
+}
+
+static void RuntimeEstimatorCalculation()
+{
+    // 1. Basic calculation: higher load -> shorter runtime
+    var t100 = RuntimeEstimator.EstimateRuntime(100, batteryPercent: 100, sohPercent: 100);
+    var t300 = RuntimeEstimator.EstimateRuntime(300, batteryPercent: 100, sohPercent: 100);
+    var t600 = RuntimeEstimator.EstimateRuntime(600, batteryPercent: 100, sohPercent: 100);
+
+    if (t100 <= t300 || t300 <= t600)
+    {
+        throw new InvalidOperationException($"Runtime estimation inverted: 100W={t100.TotalMinutes}m, 300W={t300.TotalMinutes}m, 600W={t600.TotalMinutes}m");
+    }
+
+    // 2. Baseline-anchored calculation
+    var baselineRuntime = TimeSpan.FromMinutes(60);
+    var currentLoad = 150.0;
+    var estimatedAt300 = RuntimeEstimator.EstimateRuntime(
+        targetLoadWatts: 300,
+        batteryPercent: 100,
+        baselineRuntimeAtCurrentLoad: baselineRuntime,
+        currentActiveLoadWatts: currentLoad);
+
+    // At 2x load, runtime should be less than half (Peukert's law)
+    if (estimatedAt300.TotalMinutes >= 30.0 || estimatedAt300.TotalMinutes < 15.0)
+    {
+        throw new InvalidOperationException($"Baseline-anchored estimate out of expected range: {estimatedAt300.TotalMinutes}m");
+    }
+
+    // 3. Generate standard load table
+    var table = RuntimeEstimator.GenerateStandardLoadEstimates(
+        batteryPercent: 100,
+        sohPercent: 90,
+        nominalBatteryVoltage: 24,
+        ratedActivePowerWatts: 780);
+
+    if (table.Count == 0 || table[0].LoadWatts != 50)
+    {
+        throw new InvalidOperationException("Standard load table generation failed.");
+    }
+}
+
+static void ConfigurationNewFeatures()
+{
+    var config = new AppConfiguration();
+    Equal("system", config.Ui.Theme);
+    Equal(false, config.Alerts.EnableSoundAlerts);
+    Equal(80.0, config.Alerts.HighLoadWarningPercent);
+    Equal(92.0, config.Alerts.LowVoltageWarningThreshold);
+    Equal(108.0, config.Alerts.HighVoltageWarningThreshold);
+    Equal(false, config.Webhook.Enabled);
+    Equal(false, config.ExternalCommand.Enabled);
+
+    // Modify and verify
+    config.Ui.Theme = "dark";
+    Equal("dark", config.Ui.Theme);
+    config.Alerts.HighLoadWarningPercent = 85.0;
+    Equal(85.0, config.Alerts.HighLoadWarningPercent);
+}
+
+static void DailyEnergyAndTroubleSummaryQueries()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsDailyTests-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+
+    SqliteTelemetryStore? store = null;
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        var config = new HistoryConfiguration { RawRetentionDays = 7, RawUsageCheckpointSeconds = 30 };
+        store = new SqliteTelemetryStore(paths, config);
+        store.InitializeAsync().GetAwaiter().GetResult();
+
+        var device = new UpsDeviceInfo("test-dev", 0x0764, 0x0601, "Vendor", "Product", "12345", 0x84, 0x04, 64, 64);
+        var devId = UpsDeviceIdentity.Create(device);
+        var now = DateTimeOffset.Now;
+
+        // Write telemetry sample with power and voltage
+        var snap = Snapshot(connected: true, ac: true, battery: 100, load: 30, runtime: TimeSpan.FromMinutes(45));
+        snap = snap with { Device = device, Timestamp = now.AddHours(-1), InputVoltage = 90.0, ActivePower = 200.0 };
+        store.WriteAsync(snap, CancellationToken.None).GetAwaiter().GetResult();
+
+        // Write power lost event
+        var ev = new UpsEvent(now.AddMinutes(-30), UpsEventType.PowerLost, "Power lost", UpsPowerState.Online, UpsPowerState.OnBattery);
+        store.WriteAsync(ev, CancellationToken.None).GetAwaiter().GetResult();
+        store.FlushAsync().GetAwaiter().GetResult();
+
+        // Query daily reports
+        var reports = store.QueryDailyEnergyReportsAsync(devId, 7, 31.0).GetAwaiter().GetResult();
+        Equal(7, reports.Count);
+
+        // Query power trouble summary
+        var trouble = store.QueryPowerTroubleSummaryAsync(devId, now.AddDays(-1), now, lowVoltageSagThreshold: 95.0, highVoltageSurgeThreshold: 105.0).GetAwaiter().GetResult();
+        Equal(1, trouble.TotalOutages);
+        Equal(1, trouble.VoltageSagCount);
+    }
+    finally
+    {
+        if (store is not null)
+        {
+            store.DisposeAsync().GetAwaiter().GetResult();
+        }
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            Directory.Delete(testRoot, recursive: true);
         }
     }
 }
