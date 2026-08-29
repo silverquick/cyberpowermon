@@ -79,28 +79,24 @@ public sealed partial class SqliteTelemetryStore
         var bucketMilliseconds = NiceBucketSize(
             Math.Max(minimumBucket, durationMilliseconds / maximumPoints));
 
-        var histories = new Dictionary<TelemetryMetric, TelemetryMetricHistory>();
-        foreach (var metric in metrics.Distinct())
-        {
-            var points = useRawSamples
-                ? await QueryRawMetricAsync(
-                    connection,
-                    deviceId,
-                    fromMilliseconds,
-                    toMilliseconds,
-                    bucketMilliseconds,
-                    metric,
-                    cancellationToken).ConfigureAwait(false)
-                : await QueryRollupMetricAsync(
-                    connection,
-                    deviceId,
-                    fromMilliseconds,
-                    toMilliseconds,
-                    bucketMilliseconds,
-                    metric,
-                    cancellationToken).ConfigureAwait(false);
-            histories[metric] = new TelemetryMetricHistory(metric, points);
-        }
+        var distinctMetrics = metrics.Distinct().ToList();
+        var histories = useRawSamples
+            ? await QueryRawMetricsAsync(
+                connection,
+                deviceId,
+                fromMilliseconds,
+                toMilliseconds,
+                bucketMilliseconds,
+                distinctMetrics,
+                cancellationToken).ConfigureAwait(false)
+            : await QueryRollupMetricsAsync(
+                connection,
+                deviceId,
+                fromMilliseconds,
+                toMilliseconds,
+                bucketMilliseconds,
+                distinctMetrics,
+                cancellationToken).ConfigureAwait(false);
 
         var events = await QueryEventsAsync(
             connection,
@@ -171,84 +167,151 @@ public sealed partial class SqliteTelemetryStore
         };
     }
 
-    private static async Task<IReadOnlyList<TelemetryHistoryPoint>> QueryRawMetricAsync(
+    private static async Task<Dictionary<TelemetryMetric, TelemetryMetricHistory>> QueryRawMetricsAsync(
         SqliteConnection connection,
         string deviceId,
         long fromMilliseconds,
         long toMilliseconds,
         long bucketMilliseconds,
-        TelemetryMetric metric,
+        IReadOnlyList<TelemetryMetric> metrics,
         CancellationToken cancellationToken)
     {
-        var column = SampleColumns[metric];
+        var histories = new Dictionary<TelemetryMetric, TelemetryMetricHistory>();
+        var pointLists = new Dictionary<TelemetryMetric, List<TelemetryHistoryPoint>>();
+        foreach (var metric in metrics)
+        {
+            pointLists[metric] = new List<TelemetryHistoryPoint>();
+        }
+
+        if (metrics.Count == 0)
+        {
+            return histories;
+        }
+
+        var selectColumns = new List<string>();
+        for (var i = 0; i < metrics.Count; i++)
+        {
+            var col = SampleColumns[metrics[i]];
+            selectColumns.Add($"MIN({col})");
+            selectColumns.Add($"AVG({col})");
+            selectColumns.Add($"MAX({col})");
+            selectColumns.Add($"COUNT({col})");
+        }
+
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
             SELECT
                 (timestamp_utc_ms / $bucket) * $bucket AS bucket,
-                MIN({column}),
-                AVG({column}),
-                MAX({column})
+                {string.Join(",\n                ", selectColumns)}
             FROM telemetry_samples
             WHERE device_id = $device
                 AND timestamp_utc_ms >= $from
                 AND timestamp_utc_ms <= $to
-                AND {column} IS NOT NULL
             GROUP BY bucket
             ORDER BY bucket;
             """;
         AddRangeParameters(command, deviceId, fromMilliseconds, toMilliseconds);
         command.Parameters.AddWithValue("$bucket", bucketMilliseconds);
-        return await ReadHistoryPointsAsync(command, cancellationToken).ConfigureAwait(false);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var bucketTime = FromMilliseconds(reader.GetInt64(0));
+            var colOffset = 1;
+            for (var i = 0; i < metrics.Count; i++)
+            {
+                var metric = metrics[i];
+                var count = reader.GetInt64(colOffset + 3);
+                if (count > 0)
+                {
+                    var min = reader.GetDouble(colOffset);
+                    var avg = reader.GetDouble(colOffset + 1);
+                    var max = reader.GetDouble(colOffset + 2);
+                    pointLists[metric].Add(new TelemetryHistoryPoint(bucketTime, min, avg, max, avg));
+                }
+
+                colOffset += 4;
+            }
+        }
+
+        foreach (var metric in metrics)
+        {
+            histories[metric] = new TelemetryMetricHistory(metric, pointLists[metric]);
+        }
+
+        return histories;
     }
 
-    private static async Task<IReadOnlyList<TelemetryHistoryPoint>> QueryRollupMetricAsync(
+    private static async Task<Dictionary<TelemetryMetric, TelemetryMetricHistory>> QueryRollupMetricsAsync(
         SqliteConnection connection,
         string deviceId,
         long fromMilliseconds,
         long toMilliseconds,
         long bucketMilliseconds,
-        TelemetryMetric metric,
+        IReadOnlyList<TelemetryMetric> metrics,
         CancellationToken cancellationToken)
     {
+        var histories = new Dictionary<TelemetryMetric, TelemetryMetricHistory>();
+        var pointLists = new Dictionary<TelemetryMetric, List<TelemetryHistoryPoint>>();
+        foreach (var metric in metrics)
+        {
+            pointLists[metric] = new List<TelemetryHistoryPoint>();
+        }
+
+        if (metrics.Count == 0)
+        {
+            return histories;
+        }
+
+        var metricParams = new List<string>();
+        for (var i = 0; i < metrics.Count; i++)
+        {
+            metricParams.Add($"$m{i}");
+        }
+
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT
+                metric,
                 (bucket_utc_ms / $bucket) * $bucket AS bucket,
                 MIN(minimum),
                 SUM(value_sum) / SUM(sample_count),
                 MAX(maximum)
             FROM telemetry_rollups_1m
             WHERE device_id = $device
-                AND metric = $metric
+                AND metric IN ({string.Join(", ", metricParams)})
                 AND bucket_utc_ms >= $from
                 AND bucket_utc_ms <= $to
-            GROUP BY (bucket_utc_ms / $bucket)
-            ORDER BY bucket;
+            GROUP BY metric, (bucket_utc_ms / $bucket)
+            ORDER BY metric, bucket;
             """;
         AddRangeParameters(command, deviceId, fromMilliseconds, toMilliseconds);
         command.Parameters.AddWithValue("$bucket", bucketMilliseconds);
-        command.Parameters.AddWithValue("$metric", (int)metric);
-        return await ReadHistoryPointsAsync(command, cancellationToken).ConfigureAwait(false);
-    }
+        for (var i = 0; i < metrics.Count; i++)
+        {
+            command.Parameters.AddWithValue($"$m{i}", (int)metrics[i]);
+        }
 
-    private static async Task<IReadOnlyList<TelemetryHistoryPoint>> ReadHistoryPointsAsync(
-        SqliteCommand command,
-        CancellationToken cancellationToken)
-    {
-        var points = new List<TelemetryHistoryPoint>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            var average = reader.GetDouble(2);
-            points.Add(new(
-                FromMilliseconds(reader.GetInt64(0)),
-                reader.GetDouble(1),
-                average,
-                reader.GetDouble(3),
-                average));
+            var metric = (TelemetryMetric)reader.GetInt32(0);
+            var bucketTime = FromMilliseconds(reader.GetInt64(1));
+            var min = reader.GetDouble(2);
+            var avg = reader.GetDouble(3);
+            var max = reader.GetDouble(4);
+            if (pointLists.TryGetValue(metric, out var list))
+            {
+                list.Add(new TelemetryHistoryPoint(bucketTime, min, avg, max, avg));
+            }
         }
 
-        return points;
+        foreach (var metric in metrics)
+        {
+            histories[metric] = new TelemetryMetricHistory(metric, pointLists[metric]);
+        }
+
+        return histories;
     }
 
     private static async Task<IReadOnlyList<UpsEvent>> QueryEventsAsync(
@@ -538,15 +601,7 @@ public sealed partial class SqliteTelemetryStore
         var cellMap = new Dictionary<(int DOW, int HOD), HourlyPatternPoint>();
         var totalSamples = 0L;
 
-        if (metric == TelemetryMetric.FrequencyHertz || metric == TelemetryMetric.TemperatureCelsius)
-        {
-            // For general single metric query
-            await QuerySingleMetricPatternAsync(connection, deviceId, fromMs, toMs, metric, cellMap, cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            await QuerySingleMetricPatternAsync(connection, deviceId, fromMs, toMs, metric, cellMap, cancellationToken).ConfigureAwait(false);
-        }
+        await QuerySingleMetricPatternAsync(connection, deviceId, fromMs, toMs, metric, cellMap, cancellationToken).ConfigureAwait(false);
 
         var grid = new List<HourlyPatternPoint>(168);
         // DayOfWeek: 1 (Monday) .. 6 (Saturday), 0 (Sunday)
@@ -644,42 +699,91 @@ public sealed partial class SqliteTelemetryStore
         var list = new List<DailyEnergyReportItem>();
         var today = DateOnly.FromDateTime(DateTime.Now);
 
+        var dayRanges = new List<(DateOnly Date, long StartUtc, long EndUtc)>();
         for (var i = days - 1; i >= 0; i--)
         {
             var targetDate = today.AddDays(-i);
             var startUtc = new DateTimeOffset(targetDate.ToDateTime(TimeOnly.MinValue), DateTimeOffset.Now.Offset).ToUniversalTime().ToUnixTimeMilliseconds();
             var endUtc = new DateTimeOffset(targetDate.ToDateTime(TimeOnly.MaxValue), DateTimeOffset.Now.Offset).ToUniversalTime().ToUnixTimeMilliseconds();
+            dayRanges.Add((targetDate, startUtc, endUtc));
+        }
 
-            await using var command = connection.CreateCommand();
-            command.CommandText = """
+        if (dayRanges.Count == 0)
+        {
+            return list;
+        }
+
+        var overallStartUtc = dayRanges[0].StartUtc;
+        var overallEndUtc = dayRanges[^1].EndUtc;
+
+        // 1. 日別の active_power_watts 集計を一括取得
+        var powerData = new Dictionary<string, (double AvgWatts, double PeakWatts)>();
+        await using (var powerCmd = connection.CreateCommand())
+        {
+            powerCmd.CommandText = """
                 SELECT
+                    strftime('%Y-%m-%d', datetime(timestamp_utc_ms / 1000, 'unixepoch', 'localtime')) AS day_str,
                     AVG(active_power_watts),
-                    MAX(active_power_watts),
-                    (SELECT COUNT(*) FROM ups_events WHERE device_id = $device AND timestamp_utc_ms >= $from AND timestamp_utc_ms <= $to AND event_type = 0)
+                    MAX(active_power_watts)
                 FROM telemetry_samples
                 WHERE device_id = $device
                     AND timestamp_utc_ms >= $from
                     AND timestamp_utc_ms <= $to
-                    AND active_power_watts IS NOT NULL;
+                    AND active_power_watts IS NOT NULL
+                GROUP BY day_str;
                 """;
-            AddRangeParameters(command, deviceId, startUtc, endUtc);
-
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && !reader.IsDBNull(0))
+            AddRangeParameters(powerCmd, deviceId, overallStartUtc, overallEndUtc);
+            await using var reader = await powerCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var avgWatts = reader.GetDouble(0);
-                var peakWatts = reader.GetDouble(1);
-                var outageCount = reader.GetInt32(2);
+                var dayStr = reader.GetString(0);
+                var avg = reader.GetDouble(1);
+                var max = reader.GetDouble(2);
+                powerData[dayStr] = (avg, max);
+            }
+        }
 
-                // 24時間分の積算kWh
+        // 2. 日別の停電イベント件数を一括取得
+        var outageData = new Dictionary<string, int>();
+        await using (var outageCmd = connection.CreateCommand())
+        {
+            outageCmd.CommandText = """
+                SELECT
+                    strftime('%Y-%m-%d', datetime(timestamp_utc_ms / 1000, 'unixepoch', 'localtime')) AS day_str,
+                    COUNT(*)
+                FROM ups_events
+                WHERE device_id = $device
+                    AND timestamp_utc_ms >= $from
+                    AND timestamp_utc_ms <= $to
+                    AND event_type = 0
+                GROUP BY day_str;
+                """;
+            AddRangeParameters(outageCmd, deviceId, overallStartUtc, overallEndUtc);
+            await using var reader = await outageCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var dayStr = reader.GetString(0);
+                var count = reader.GetInt32(1);
+                outageData[dayStr] = count;
+            }
+        }
+
+        foreach (var (targetDate, _, _) in dayRanges)
+        {
+            var dateKey = targetDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            var outageCount = outageData.GetValueOrDefault(dateKey, 0);
+
+            if (powerData.TryGetValue(dateKey, out var power))
+            {
+                var avgWatts = power.AvgWatts;
+                var peakWatts = power.PeakWatts;
                 var energyKwh = (avgWatts * 24.0) / 1000.0;
                 var cost = energyKwh * electricityRatePerKwh;
-
                 list.Add(new DailyEnergyReportItem(targetDate, energyKwh, cost, peakWatts, avgWatts, outageCount));
             }
             else
             {
-                list.Add(new DailyEnergyReportItem(targetDate, 0.0, 0.0, 0.0, 0.0, 0));
+                list.Add(new DailyEnergyReportItem(targetDate, 0.0, 0.0, 0.0, 0.0, outageCount));
             }
         }
 
@@ -702,15 +806,19 @@ public sealed partial class SqliteTelemetryStore
         var fromMs = from.ToUniversalTime().ToUnixTimeMilliseconds();
         var toMs = to.ToUniversalTime().ToUnixTimeMilliseconds();
 
-        // 1. サグ・サージ件数カウント
+        // 1. サグ・サージ件数カウント (単一クエリ・単一スキャン)
         long sagCount = 0;
         long surgeCount = 0;
         await using (var voltCmd = connection.CreateCommand())
         {
             voltCmd.CommandText = """
                 SELECT
-                    (SELECT COUNT(*) FROM telemetry_samples WHERE device_id = $device AND timestamp_utc_ms >= $from AND timestamp_utc_ms <= $to AND input_voltage > 0 AND input_voltage < $sag),
-                    (SELECT COUNT(*) FROM telemetry_samples WHERE device_id = $device AND timestamp_utc_ms >= $from AND timestamp_utc_ms <= $to AND input_voltage > $surge);
+                    COUNT(CASE WHEN input_voltage > 0 AND input_voltage < $sag THEN 1 END),
+                    COUNT(CASE WHEN input_voltage > $surge THEN 1 END)
+                FROM telemetry_samples
+                WHERE device_id = $device
+                    AND timestamp_utc_ms >= $from
+                    AND timestamp_utc_ms <= $to;
                 """;
             AddRangeParameters(voltCmd, deviceId, fromMs, toMs);
             voltCmd.Parameters.AddWithValue("$sag", lowVoltageSagThreshold);

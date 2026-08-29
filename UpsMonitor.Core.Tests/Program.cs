@@ -26,6 +26,7 @@ var tests = new (string Name, Action Run)[]
     ("Runtime estimator load calculation", RuntimeEstimatorCalculation),
     ("Configuration theme, alerts, webhook, and command settings", ConfigurationNewFeatures),
     ("Daily energy reports and trouble summary queries", DailyEnergyAndTroubleSummaryQueries),
+    ("Performance benchmark and EXPLAIN QUERY PLAN", PerformanceBenchmark),
 };
 
 var failures = new List<string>();
@@ -809,5 +810,224 @@ static void Near(double expected, double? actual, double tolerance = 0.001)
     if (actual is null || Math.Abs(expected - actual.Value) > tolerance)
     {
         throw new InvalidOperationException($"Expected approximately {expected}, got {actual?.ToString() ?? "null"}.");
+    }
+}
+
+static void PerformanceBenchmark() => PerformanceBenchmarkAsync().GetAwaiter().GetResult();
+
+static async Task PerformanceBenchmarkAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsPerfTest_{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        var store = new SqliteTelemetryStore(paths, new HistoryConfiguration { RawRetentionDays = 30 });
+        await store.InitializeAsync();
+
+        var device = new UpsDeviceInfo("test-path", 0x0764, 0x0601, "CPS", "Test UPS", "TEST01", 0x84, 0x04, 64, 64);
+        var devId = UpsDeviceIdentity.Create(device);
+        var start = DateTimeOffset.UtcNow.AddDays(-30);
+
+        using (var conn = new SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+
+            cmd.CommandText = """
+                INSERT INTO telemetry_samples (device_id, timestamp_utc_ms, is_connected, power_state, input_voltage, output_voltage, battery_voltage, battery_percent, runtime_seconds, load_percent, active_power_watts, apparent_power_va, frequency_hz, temperature_c)
+                VALUES ($d, $t, 1, 1, 100.0 + ($i % 10), 100.0, 27.0, 100.0, 1800.0, 30.0 + ($i % 20), 200.0 + ($i % 50), 220.0, 50.0, 25.0);
+            """;
+            var pDev = cmd.Parameters.Add("$d", SqliteType.Text);
+            var pTime = cmd.Parameters.Add("$t", SqliteType.Integer);
+            var pI = cmd.Parameters.Add("$i", SqliteType.Integer);
+
+            pDev.Value = devId;
+            var baseMs = start.ToUnixTimeMilliseconds();
+            for (int i = 0; i < 50000; i++)
+            {
+                pTime.Value = baseMs + (i * 2000L);
+                pI.Value = i;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            cmd.CommandText = """
+                INSERT INTO telemetry_rollups_1m (device_id, bucket_utc_ms, metric, minimum, maximum, value_sum, sample_count, last_value, last_timestamp_utc_ms)
+                VALUES ($d, $b, $m, 100.0, 110.0, 3150.0, 30, 105.0, $b + 58000);
+            """;
+            cmd.Parameters.Clear();
+            var pbDev = cmd.Parameters.Add("$d", SqliteType.Text);
+            var pbB = cmd.Parameters.Add("$b", SqliteType.Integer);
+            var pbM = cmd.Parameters.Add("$m", SqliteType.Integer);
+            pbDev.Value = devId;
+
+            int[] metrics = [0, 1, 2, 3, 5, 6];
+            for (int day = 0; day < 30; day++)
+            {
+                for (int min = 0; min < 1440; min += 5)
+                {
+                    var bucket = baseMs + ((day * 1440L + min) * 60_000L);
+                    pbB.Value = bucket;
+                    foreach (var m in metrics)
+                    {
+                        pbM.Value = m;
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+            }
+
+            cmd.CommandText = """
+                INSERT INTO ups_events (device_id, timestamp_utc_ms, event_type, message, previous_state, current_state)
+                VALUES ($d, $t, $type, 'Event msg', 1, 2);
+            """;
+            cmd.Parameters.Clear();
+            cmd.Parameters.AddWithValue("$d", devId);
+            var peTime = cmd.Parameters.Add("$t", SqliteType.Integer);
+            var peType = cmd.Parameters.Add("$type", SqliteType.Integer);
+            for (int i = 0; i < 500; i++)
+            {
+                peTime.Value = baseMs + (i * 3600_000L);
+                peType.Value = i % 5;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            await tx.CommitAsync();
+        }
+
+        using (var conn = new SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await conn.OpenAsync();
+
+            void Explain(string label, string sql, params (string, object)[] parameters)
+            {
+                Console.WriteLine($"\n=== {label} ===");
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "EXPLAIN QUERY PLAN " + sql;
+                foreach (var (k, v) in parameters) cmd.Parameters.AddWithValue(k, v);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    Console.WriteLine($"  [EXPLAIN] {reader[3]}");
+                }
+            }
+
+            Explain("1. QueryDailyEnergyReportsAsync (Batch daily active power)",
+                """
+                SELECT
+                    strftime('%Y-%m-%d', datetime(timestamp_utc_ms / 1000, 'unixepoch', 'localtime')) AS day_str,
+                    AVG(active_power_watts),
+                    MAX(active_power_watts)
+                FROM telemetry_samples
+                WHERE device_id = $device
+                    AND timestamp_utc_ms >= $from
+                    AND timestamp_utc_ms <= $to
+                    AND active_power_watts IS NOT NULL
+                GROUP BY day_str;
+                """,
+                ("$device", devId), ("$from", start.ToUnixTimeMilliseconds()), ("$to", start.AddDays(30).ToUnixTimeMilliseconds()));
+
+            Explain("2. QueryPowerTroubleSummaryAsync (Single-scan Sag/Surge counts)",
+                """
+                SELECT
+                    COUNT(CASE WHEN input_voltage > 0 AND input_voltage < $sag THEN 1 END),
+                    COUNT(CASE WHEN input_voltage > $surge THEN 1 END)
+                FROM telemetry_samples
+                WHERE device_id = $device
+                    AND timestamp_utc_ms >= $from
+                    AND timestamp_utc_ms <= $to;
+                """,
+                ("$device", devId), ("$from", start.ToUnixTimeMilliseconds()), ("$to", start.AddDays(30).ToUnixTimeMilliseconds()), ("$sag", 95.0), ("$surge", 105.0));
+
+            Explain("3. QueryRawMetricsAsync (Batch multi-metric raw query)",
+                """
+                SELECT
+                    (timestamp_utc_ms / $bucket) * $bucket AS bucket,
+                    MIN(input_voltage), AVG(input_voltage), MAX(input_voltage), COUNT(input_voltage),
+                    MIN(output_voltage), AVG(output_voltage), MAX(output_voltage), COUNT(output_voltage),
+                    MIN(battery_voltage), AVG(battery_voltage), MAX(battery_voltage), COUNT(battery_voltage)
+                FROM telemetry_samples
+                WHERE device_id = $device
+                    AND timestamp_utc_ms >= $from
+                    AND timestamp_utc_ms <= $to
+                GROUP BY bucket
+                ORDER BY bucket;
+                """,
+                ("$device", devId), ("$from", start.ToUnixTimeMilliseconds()), ("$to", start.AddDays(1).ToUnixTimeMilliseconds()), ("$bucket", 60000L));
+
+            Explain("4. QueryRollupMetricsAsync (Batch multi-metric rollup query)",
+                """
+                SELECT
+                    metric,
+                    (bucket_utc_ms / $bucket) * $bucket AS bucket,
+                    MIN(minimum),
+                    SUM(value_sum) / SUM(sample_count),
+                    MAX(maximum)
+                FROM telemetry_rollups_1m
+                WHERE device_id = $device
+                    AND metric IN (0, 1, 2, 3, 5, 6)
+                    AND bucket_utc_ms >= $from
+                    AND bucket_utc_ms <= $to
+                GROUP BY metric, (bucket_utc_ms / $bucket)
+                ORDER BY metric, bucket;
+                """,
+                ("$device", devId), ("$from", start.ToUnixTimeMilliseconds()), ("$to", start.AddDays(30).ToUnixTimeMilliseconds()), ("$bucket", 300000L));
+
+            Explain("5. QueryWeeklyPatternAsync (Single metric heatmap)",
+                """
+                SELECT 
+                    CAST(strftime('%w', datetime(bucket_utc_ms / 1000, 'unixepoch', 'localtime')) AS INTEGER) AS dow,
+                    CAST(strftime('%H', datetime(bucket_utc_ms / 1000, 'unixepoch', 'localtime')) AS INTEGER) AS hod,
+                    MIN(minimum),
+                    SUM(value_sum) / SUM(sample_count),
+                    MAX(maximum),
+                    SUM(sample_count)
+                FROM telemetry_rollups_1m
+                WHERE device_id = $device
+                    AND metric = $metric
+                    AND bucket_utc_ms >= $from
+                    AND bucket_utc_ms <= $to
+                GROUP BY dow, hod;
+                """,
+                ("$device", devId), ("$from", start.ToUnixTimeMilliseconds()), ("$to", start.AddDays(30).ToUnixTimeMilliseconds()), ("$metric", 0));
+
+            Explain("6. Cleanup query (DELETE telemetry_samples via ix_telemetry_samples_time)",
+                """
+                DELETE FROM telemetry_samples WHERE timestamp_utc_ms < $cutoff;
+                """,
+                ("$cutoff", start.AddDays(1).ToUnixTimeMilliseconds()));
+        }
+
+        Console.WriteLine("\n=== Benchmarking Current Methods ===");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var dailyReports = await store.QueryDailyEnergyReportsAsync(devId, 30, 31.0);
+        Console.WriteLine($"[BENCH] QueryDailyEnergyReportsAsync(30 days): {sw.ElapsedMilliseconds} ms, count={dailyReports.Count}");
+
+        sw.Restart();
+        var trouble = await store.QueryPowerTroubleSummaryAsync(devId, start, start.AddDays(30));
+        Console.WriteLine($"[BENCH] QueryPowerTroubleSummaryAsync(30 days): {sw.ElapsedMilliseconds} ms, outages={trouble.TotalOutages}");
+
+        sw.Restart();
+        var historyRaw = await store.QueryHistoryAsync(devId, start, start.AddDays(1), [TelemetryMetric.InputVoltage, TelemetryMetric.OutputVoltage, TelemetryMetric.BatteryVoltage, TelemetryMetric.LoadPercent, TelemetryMetric.ActivePowerWatts]);
+        Console.WriteLine($"[BENCH] QueryHistoryAsync(raw 1 day, 5 metrics): {sw.ElapsedMilliseconds} ms, points={historyRaw.Metrics[TelemetryMetric.InputVoltage].Points.Count}");
+
+        sw.Restart();
+        var historyRollup = await store.QueryHistoryAsync(devId, start, start.AddDays(30), [TelemetryMetric.InputVoltage, TelemetryMetric.OutputVoltage, TelemetryMetric.BatteryVoltage, TelemetryMetric.LoadPercent, TelemetryMetric.ActivePowerWatts]);
+        Console.WriteLine($"[BENCH] QueryHistoryAsync(rollup 30 days, 5 metrics): {sw.ElapsedMilliseconds} ms, points={historyRollup.Metrics[TelemetryMetric.InputVoltage].Points.Count}");
+
+        sw.Restart();
+        var weekly = await store.QueryWeeklyPatternAsync(devId, start, start.AddDays(30), TelemetryMetric.ActivePowerWatts);
+        Console.WriteLine($"[BENCH] QueryWeeklyPatternAsync(30 days): {sw.ElapsedMilliseconds} ms, totalSamples={weekly.TotalSamples}");
+
+        await store.DisposeAsync();
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            try { Directory.Delete(testRoot, recursive: true); } catch { }
+        }
     }
 }
