@@ -27,7 +27,7 @@ public sealed partial class SqliteTelemetryStore
         TelemetryMetric metric,
         CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
         ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
         if (to <= from)
         {
@@ -55,7 +55,7 @@ public sealed partial class SqliteTelemetryStore
         int maximumPoints = 720,
         CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
         ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
         if (to <= from)
         {
@@ -146,7 +146,7 @@ public sealed partial class SqliteTelemetryStore
     public async Task<TelemetryDatabaseStatistics> GetStatisticsAsync(
         CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
         await FlushAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -636,7 +636,7 @@ public sealed partial class SqliteTelemetryStore
         double electricityRatePerKwh,
         CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
         await FlushAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -694,7 +694,7 @@ public sealed partial class SqliteTelemetryStore
         double highVoltageSurgeThreshold = 105.0,
         CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
         await FlushAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);

@@ -24,7 +24,16 @@ public sealed class JsonConfigurationStore
         if (!File.Exists(_paths.ConfigurationFile))
         {
             var defaults = new AppConfiguration();
-            await SaveAsync(defaults, cancellationToken).ConfigureAwait(false);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SaveAsync(defaults, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch
+                {
+                }
+            });
             return defaults;
         }
 

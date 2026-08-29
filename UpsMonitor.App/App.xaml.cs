@@ -79,25 +79,10 @@ public partial class App : Application
         LocalizationManager.ApplyLanguage(this, configuration.Ui.Language);
 
         _eventSink = new FileUpsEventSink(paths);
-        Exception? historyError = null;
-        try
-        {
-            _historyStore = new SqliteTelemetryStore(paths, configuration.History);
-            await _historyStore.InitializeAsync();
-        }
-        catch (Exception exception)
-        {
-            historyError = exception;
-            if (_historyStore is not null)
-            {
-                await _historyStore.DisposeAsync();
-                _historyStore = null;
-            }
-        }
+        _historyStore = new SqliteTelemetryStore(paths, configuration.History);
+        var historyInitTask = _historyStore.InitializeAsync();
 
-        IUpsEventSink eventSink = _historyStore is null
-            ? _eventSink
-            : new CompositeUpsEventSink(_eventSink, _historyStore);
+        IUpsEventSink eventSink = new CompositeUpsEventSink(_eventSink, _historyStore);
         var engine = new UpsMonitorEngine(
             new WindowsHidUpsProvider(),
             eventSink,
@@ -111,10 +96,14 @@ public partial class App : Application
             _viewModel.SetStartupError(LocalizationManager.Format("ConfigurationLoadErrorFormat", configurationError.Message));
         }
 
-        if (historyError is not null)
+        _ = historyInitTask.ContinueWith(task =>
         {
-            _viewModel.SetStartupError(LocalizationManager.Format("HistoryStorageErrorFormat", historyError.Message));
-        }
+            if (task.IsFaulted && task.Exception is { } ex)
+            {
+                var msg = ex.InnerException?.Message ?? ex.Message;
+                _viewModel.SetStartupError(LocalizationManager.Format("HistoryStorageErrorFormat", msg));
+            }
+        }, TaskScheduler.FromCurrentSynchronizationContext());
 
         var window = new MainWindow { DataContext = _viewModel };
         MainWindow = window;
