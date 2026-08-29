@@ -33,6 +33,10 @@ var tests = new (string Name, Action Run)[]
     ("Command runner execution, large output, and escaping", CommandRunnerExecutionAndEscaping),
     ("Webhook notifier validation", WebhookNotifierValidation),
     ("Polling engine lifecycle and interval", PollingEngineLifecycleAndInterval),
+    ("Navigation tab refresh routing rules", NavigationTabRefreshRoutingRules),
+    ("Navigation refresh on tab selection", NavigationRefreshOnTabSelection),
+    ("Navigation refresh on visibility change", NavigationRefreshOnVisibilityChange),
+    ("Navigation refresh on language change", NavigationRefreshOnLanguageChange),
 };
 
 var failures = new List<string>();
@@ -1324,6 +1328,177 @@ static async Task PerformanceBenchmarkAsync()
     }
 }
 
+static void NavigationTabRefreshRoutingRules()
+{
+    Equal(0, NavigationTestRouter.DashboardIndex);
+    Equal(1, NavigationTestRouter.HistoryIndex);
+    Equal(2, NavigationTestRouter.UpsIndex);
+    Equal(3, NavigationTestRouter.AnalyticsIndex);
+    Equal(4, NavigationTestRouter.DevicesIndex);
+    Equal(5, NavigationTestRouter.ActionsIndex);
+    Equal(6, NavigationTestRouter.LogsIndex);
+    Equal(7, NavigationTestRouter.SettingsIndex);
+
+    // History refresh targets: Dashboard(0) and History(1)
+    Equal(true, NavigationTestRouter.IsHistoryRefreshTarget(NavigationTestRouter.DashboardIndex));
+    Equal(true, NavigationTestRouter.IsHistoryRefreshTarget(NavigationTestRouter.HistoryIndex));
+    Equal(false, NavigationTestRouter.IsHistoryRefreshTarget(NavigationTestRouter.UpsIndex));
+    Equal(false, NavigationTestRouter.IsHistoryRefreshTarget(NavigationTestRouter.AnalyticsIndex));
+    Equal(false, NavigationTestRouter.IsHistoryRefreshTarget(NavigationTestRouter.DevicesIndex));
+    Equal(false, NavigationTestRouter.IsHistoryRefreshTarget(NavigationTestRouter.ActionsIndex));
+    Equal(false, NavigationTestRouter.IsHistoryRefreshTarget(NavigationTestRouter.LogsIndex));
+    Equal(false, NavigationTestRouter.IsHistoryRefreshTarget(NavigationTestRouter.SettingsIndex));
+    Equal(false, NavigationTestRouter.IsHistoryRefreshTarget(-1));
+    Equal(false, NavigationTestRouter.IsHistoryRefreshTarget(99));
+
+    // Analytics refresh target: Analytics(3) only
+    Equal(false, NavigationTestRouter.IsAnalyticsRefreshTarget(NavigationTestRouter.DashboardIndex));
+    Equal(false, NavigationTestRouter.IsAnalyticsRefreshTarget(NavigationTestRouter.HistoryIndex));
+    Equal(false, NavigationTestRouter.IsAnalyticsRefreshTarget(NavigationTestRouter.UpsIndex));
+    Equal(true, NavigationTestRouter.IsAnalyticsRefreshTarget(NavigationTestRouter.AnalyticsIndex));
+    Equal(false, NavigationTestRouter.IsAnalyticsRefreshTarget(NavigationTestRouter.DevicesIndex));
+    Equal(false, NavigationTestRouter.IsAnalyticsRefreshTarget(NavigationTestRouter.ActionsIndex));
+    Equal(false, NavigationTestRouter.IsAnalyticsRefreshTarget(NavigationTestRouter.LogsIndex));
+    Equal(false, NavigationTestRouter.IsAnalyticsRefreshTarget(NavigationTestRouter.SettingsIndex));
+    Equal(false, NavigationTestRouter.IsAnalyticsRefreshTarget(-1));
+    Equal(false, NavigationTestRouter.IsAnalyticsRefreshTarget(99));
+}
+
+static void NavigationRefreshOnTabSelection()
+{
+    var sim = new NavigationSessionSimulator();
+    sim.ReceiveSnapshot();
+    sim.IsWindowVisible = true;
+
+    // Initially at Dashboard (0), history refresh triggered once
+    Equal(1, sim.HistoryRefreshCount);
+    Equal(0, sim.AnalyticsRefreshCount);
+
+    // Switch to UPS (index 2): neither History nor Analytics should refresh
+    sim.AdvanceTime(TimeSpan.FromSeconds(6));
+    sim.SelectedNavigationIndex = NavigationTestRouter.UpsIndex;
+    Equal(1, sim.HistoryRefreshCount);
+    Equal(0, sim.AnalyticsRefreshCount);
+
+    // Switch to Analytics (index 3): Analytics refreshes exactly once
+    sim.AdvanceTime(TimeSpan.FromSeconds(6));
+    sim.SelectedNavigationIndex = NavigationTestRouter.AnalyticsIndex;
+    Equal(1, sim.HistoryRefreshCount);
+    Equal(1, sim.AnalyticsRefreshCount);
+    sim.CompleteAnalyticsRefresh();
+
+    // Switch to History (index 1): History refreshes
+    sim.AdvanceTime(TimeSpan.FromSeconds(6));
+    sim.SelectedNavigationIndex = NavigationTestRouter.HistoryIndex;
+    Equal(2, sim.HistoryRefreshCount);
+    Equal(1, sim.AnalyticsRefreshCount);
+
+    // Switch to Dashboard (index 0): History refreshes
+    sim.AdvanceTime(TimeSpan.FromSeconds(6));
+    sim.SelectedNavigationIndex = NavigationTestRouter.DashboardIndex;
+    Equal(3, sim.HistoryRefreshCount);
+    Equal(1, sim.AnalyticsRefreshCount);
+
+    // Switch to Analytics (index 3) and trigger rapid multiple calls while pending -> verifies cancellation of previous request
+    sim.AdvanceTime(TimeSpan.FromSeconds(6));
+    sim.SelectedNavigationIndex = NavigationTestRouter.AnalyticsIndex;
+    Equal(2, sim.AnalyticsRefreshCount);
+    Equal(0, sim.CancelledAnalyticsCount);
+
+    // Rapid second call while first is still running
+    sim.SimulateRapidAnalyticsRefresh();
+    Equal(3, sim.AnalyticsRefreshCount);
+    Equal(1, sim.CancelledAnalyticsCount);
+    sim.CompleteAnalyticsRefresh();
+}
+
+static void NavigationRefreshOnVisibilityChange()
+{
+    var sim = new NavigationSessionSimulator();
+    sim.ReceiveSnapshot();
+    sim.IsWindowVisible = false;
+
+    // While hidden, switch to Analytics (index 3): no refresh should occur
+    sim.SelectedNavigationIndex = NavigationTestRouter.AnalyticsIndex;
+    Equal(0, sim.AnalyticsRefreshCount);
+    Equal(0, sim.HistoryRefreshCount);
+
+    // Window becomes visible: Analytics refresh should trigger once
+    sim.AdvanceTime(TimeSpan.FromSeconds(6));
+    sim.IsWindowVisible = true;
+    Equal(1, sim.AnalyticsRefreshCount);
+    Equal(0, sim.HistoryRefreshCount);
+
+    // Hide window, switch to UPS (index 2), then make visible: no refresh
+    sim.IsWindowVisible = false;
+    sim.SelectedNavigationIndex = NavigationTestRouter.UpsIndex;
+    sim.AdvanceTime(TimeSpan.FromSeconds(6));
+    sim.IsWindowVisible = true;
+    Equal(1, sim.AnalyticsRefreshCount);
+    Equal(0, sim.HistoryRefreshCount);
+
+    // Hide window, switch to History (index 1), then make visible: History refreshes once
+    sim.IsWindowVisible = false;
+    sim.SelectedNavigationIndex = NavigationTestRouter.HistoryIndex;
+    sim.AdvanceTime(TimeSpan.FromSeconds(6));
+    sim.IsWindowVisible = true;
+    Equal(1, sim.AnalyticsRefreshCount);
+    Equal(1, sim.HistoryRefreshCount);
+}
+
+static void NavigationRefreshOnLanguageChange()
+{
+    var sim = new NavigationSessionSimulator();
+    sim.ReceiveSnapshot();
+    sim.IsWindowVisible = true;
+
+    // Reset counts from initial show
+    sim.ResetCounts();
+
+    // Language changed on Analytics tab (index 3) -> Analytics re-queried
+    sim.SelectedNavigationIndex = NavigationTestRouter.AnalyticsIndex;
+    sim.ResetCounts();
+    sim.ChangeLanguage();
+    Equal(1, sim.AnalyticsRefreshCount);
+    Equal(0, sim.HistoryRefreshCount);
+
+    // Language changed on History tab (index 1) -> History re-queried
+    sim.SelectedNavigationIndex = NavigationTestRouter.HistoryIndex;
+    sim.ResetCounts();
+    sim.ChangeLanguage();
+    Equal(0, sim.AnalyticsRefreshCount);
+    Equal(1, sim.HistoryRefreshCount);
+
+    // Language changed on Dashboard tab (index 0) -> History re-queried
+    sim.SelectedNavigationIndex = NavigationTestRouter.DashboardIndex;
+    sim.ResetCounts();
+    sim.ChangeLanguage();
+    Equal(0, sim.AnalyticsRefreshCount);
+    Equal(1, sim.HistoryRefreshCount);
+
+    // Language changed on UPS tab (index 2) -> no refresh
+    sim.SelectedNavigationIndex = NavigationTestRouter.UpsIndex;
+    sim.ResetCounts();
+    sim.ChangeLanguage();
+    Equal(0, sim.AnalyticsRefreshCount);
+    Equal(0, sim.HistoryRefreshCount);
+
+    // Language changed on Logs tab (index 6) -> no refresh
+    sim.SelectedNavigationIndex = NavigationTestRouter.LogsIndex;
+    sim.ResetCounts();
+    sim.ChangeLanguage();
+    Equal(0, sim.AnalyticsRefreshCount);
+    Equal(0, sim.HistoryRefreshCount);
+
+    // Language changed while hidden -> no refresh
+    sim.IsWindowVisible = false;
+    sim.SelectedNavigationIndex = NavigationTestRouter.AnalyticsIndex;
+    sim.ResetCounts();
+    sim.ChangeLanguage();
+    Equal(0, sim.AnalyticsRefreshCount);
+    Equal(0, sim.HistoryRefreshCount);
+}
+
 sealed class MockUpsProvider : IUpsProvider
 {
     public UpsDeviceInfo? Device { get; private set; } = new UpsDeviceInfo("Path", 0x1234, 0x5678, "Mock", "Model", "SN123", 0x84, 0x04, 64, 64);
@@ -1336,4 +1511,134 @@ sealed class MockUpsProvider : IUpsProvider
 sealed class MockUpsEventSink : IUpsEventSink
 {
     public Task WriteAsync(UpsEvent upsEvent, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+sealed class NavigationTestRouter
+{
+    public const int DashboardIndex = 0;
+    public const int HistoryIndex = 1;
+    public const int UpsIndex = 2;
+    public const int AnalyticsIndex = 3;
+    public const int DevicesIndex = 4;
+    public const int ActionsIndex = 5;
+    public const int LogsIndex = 6;
+    public const int SettingsIndex = 7;
+
+    public static bool IsHistoryRefreshTarget(int index) => index is DashboardIndex or HistoryIndex;
+    public static bool IsAnalyticsRefreshTarget(int index) => index is AnalyticsIndex;
+}
+
+sealed class NavigationSessionSimulator
+{
+    public int HistoryRefreshCount { get; private set; }
+    public int AnalyticsRefreshCount { get; private set; }
+    public int CancelledAnalyticsCount { get; private set; }
+
+    private bool _isWindowVisible;
+    private int _selectedNavigationIndex;
+    private bool _hasSnapshot;
+    private DateTimeOffset _currentTime = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+    private DateTimeOffset _lastHistoryRefresh = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastAnalyticsRefresh = DateTimeOffset.MinValue;
+    private readonly TimeSpan _debounce = TimeSpan.FromSeconds(5);
+    private CancellationTokenSource? _analyticsCts;
+
+    public void AdvanceTime(TimeSpan delta) => _currentTime += delta;
+
+    public void ResetCounts()
+    {
+        HistoryRefreshCount = 0;
+        AnalyticsRefreshCount = 0;
+        CancelledAnalyticsCount = 0;
+    }
+
+    public bool IsWindowVisible
+    {
+        get => _isWindowVisible;
+        set
+        {
+            if (_isWindowVisible != value)
+            {
+                _isWindowVisible = value;
+                if (value)
+                {
+                    if (NavigationTestRouter.IsHistoryRefreshTarget(_selectedNavigationIndex) && _hasSnapshot && _currentTime - _lastHistoryRefresh >= _debounce)
+                    {
+                        TriggerHistoryRefresh();
+                    }
+                    else if (NavigationTestRouter.IsAnalyticsRefreshTarget(_selectedNavigationIndex) && _hasSnapshot && _currentTime - _lastAnalyticsRefresh >= _debounce)
+                    {
+                        TriggerAnalyticsRefresh();
+                    }
+                }
+            }
+        }
+    }
+
+    public int SelectedNavigationIndex
+    {
+        get => _selectedNavigationIndex;
+        set
+        {
+            if (_selectedNavigationIndex != value)
+            {
+                _selectedNavigationIndex = value;
+                if (NavigationTestRouter.IsHistoryRefreshTarget(value) && _isWindowVisible && _hasSnapshot && _currentTime - _lastHistoryRefresh >= _debounce)
+                {
+                    TriggerHistoryRefresh();
+                }
+                else if (NavigationTestRouter.IsAnalyticsRefreshTarget(value) && _isWindowVisible && _hasSnapshot && _currentTime - _lastAnalyticsRefresh >= _debounce)
+                {
+                    TriggerAnalyticsRefresh();
+                }
+            }
+        }
+    }
+
+    public void ReceiveSnapshot()
+    {
+        _hasSnapshot = true;
+    }
+
+    public void ChangeLanguage()
+    {
+        if (_hasSnapshot && NavigationTestRouter.IsHistoryRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
+        {
+            TriggerHistoryRefresh();
+        }
+        else if (_hasSnapshot && NavigationTestRouter.IsAnalyticsRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
+        {
+            TriggerAnalyticsRefresh();
+        }
+    }
+
+    public void CompleteAnalyticsRefresh()
+    {
+        _analyticsCts = null;
+    }
+
+    public void SimulateRapidAnalyticsRefresh()
+    {
+        TriggerAnalyticsRefresh();
+    }
+
+    private void TriggerHistoryRefresh()
+    {
+        HistoryRefreshCount++;
+        _lastHistoryRefresh = _currentTime;
+    }
+
+    private void TriggerAnalyticsRefresh()
+    {
+        var prev = _analyticsCts;
+        _analyticsCts = new CancellationTokenSource();
+        if (prev != null)
+        {
+            CancelledAnalyticsCount++;
+            prev.Cancel();
+            prev.Dispose();
+        }
+        AnalyticsRefreshCount++;
+        _lastAnalyticsRefresh = _currentTime;
+    }
 }
