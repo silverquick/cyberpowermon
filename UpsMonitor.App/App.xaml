@@ -16,6 +16,13 @@
         <SolidColorBrush x:Key="PopupSelectedBrush" Color="#FF243A63" />
         <SolidColorBrush x:Key="DisabledBrush" Color="#263247" />
         <SolidColorBrush x:Key="DisabledTextBrush" Color="#8090A7" />
+        <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#2563EB" />
+        <SolidColorBrush x:Key="SelectionForegroundBrush" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="SuccessTextBrush" Color="#34D399" />
+        <SolidColorBrush x:Key="WarningTextBrush" Color="#FBBF24" />
+        <SolidColorBrush x:Key="DangerTextBrush" Color="#F87171" />
+        <SolidColorBrush x:Key="InfoTextBrush" Color="#7DD3FC" />
+        <SolidColorBrush x:Key="AccentContentBrush" Color="#111827" />
 
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
@@ -65,14 +72,19 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Margin" Value="0,4,0,8" />
         </Style>
+        <Style TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
         <Style TargetType="TextBox">
             <Setter Property="Padding" Value="9,7" />
             <Setter Property="Background" Value="{DynamicResource SecondaryPanelBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="CaretBrush" Value="{DynamicResource TextBrush}" />
-            <Setter Property="SelectionBrush" Value="#3B82F6" />
-            <Setter Property="SelectionTextBrush" Value="White" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource SelectionBackgroundBrush}" />
+            <Setter Property="SelectionTextBrush" Value="{DynamicResource SelectionForegroundBrush}" />
         </Style>
         <Style TargetType="ComboBox">
             <Setter Property="Padding" Value="9,7" />

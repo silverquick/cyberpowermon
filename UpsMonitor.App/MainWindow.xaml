@@ -114,6 +114,46 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="TelemetryGridColumnHeaderStyle" TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource NavigationBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="Padding" Value="8" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource PopupHoverBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource PopupSelectedBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="TelemetryGridCellStyle" TargetType="DataGridCell">
+            <Setter Property="Padding" Value="7,5" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedNavBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="TelemetryGridRowStyle" TargetType="DataGridRow">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedNavBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
         <Style x:Key="TelemetryGridStyle" TargetType="DataGrid">
             <Setter Property="AutoGenerateColumns" Value="False" />
             <Setter Property="IsReadOnly" Value="True" />
@@ -130,6 +170,9 @@
             <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="SelectionMode" Value="Single" />
             <Setter Property="SelectionUnit" Value="FullRow" />
+            <Setter Property="ColumnHeaderStyle" Value="{StaticResource TelemetryGridColumnHeaderStyle}" />
+            <Setter Property="CellStyle" Value="{StaticResource TelemetryGridCellStyle}" />
+            <Setter Property="RowStyle" Value="{StaticResource TelemetryGridRowStyle}" />
         </Style>
         <Style x:Key="SubTabControlStyle" TargetType="TabControl">
             <Setter Property="Background" Value="Transparent" />
@@ -190,6 +233,16 @@
             <Setter Property="BorderThickness" Value="0,0,0,1" />
             <Setter Property="Padding" Value="10,8" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource PopupHoverBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource PopupSelectedBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
         <Style x:Key="EventItemStyle" TargetType="ListViewItem">
             <Setter Property="Background" Value="Transparent" />
@@ -265,12 +318,12 @@
                             <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <Border Width="44" Height="44" CornerRadius="22" Background="{Binding StatusAccent}">
-                                    <TextBlock Text="&#xE930;" FontFamily="Segoe Fluent Icons" FontSize="19" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <TextBlock Text="&#xE930;" FontFamily="Segoe Fluent Icons" FontSize="19" Foreground="{DynamicResource AccentContentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                                 <StackPanel Grid.Column="1" Margin="16,0,0,0">
                                     <TextBlock Text="{Binding StatusMessage}" FontSize="17" FontWeight="SemiBold" />
                                     <TextBlock Text="{Binding StateText}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,0" />
-                                    <TextBlock Text="{Binding LastError}" Foreground="#EF4444" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding LastError}" Foreground="{DynamicResource DangerTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
                                 </StackPanel>
                             </Grid>
                         </Border>
@@ -325,12 +378,12 @@
                                         <TextBlock Grid.Row="0" Text="{DynamicResource InputVoltage}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InputVoltageText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
                                         <TextBlock Grid.Row="1" Text="{DynamicResource OutputVoltage}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding OutputVoltageText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
                                         <TextBlock Grid.Row="2" Text="{DynamicResource VoltageMargin}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding VoltageMarginText}" Style="{StaticResource InfoValueStyle}" Foreground="{DynamicResource MutedTextBrush}" />
-                                        <TextBlock Grid.Row="3" Text="{DynamicResource AvrBoost}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AvrBoostText}" Style="{StaticResource InfoValueStyle}" Foreground="{Binding AvrBoostAccent}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Row="3" Text="{DynamicResource AvrBoost}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AvrBoostText}" Style="{StaticResource InfoValueStyle}" Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold" />
                                         <TextBlock Grid.Row="4" Text="{DynamicResource BatteryVoltage}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding BatteryVoltageText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
                                         <TextBlock Grid.Row="5" Text="{DynamicResource CellVoltage}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding CellVoltageText}" Style="{StaticResource InfoValueStyle}" Foreground="{DynamicResource MutedTextBrush}" />
                                         <TextBlock Grid.Row="6" Text="{DynamicResource Load}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding PercentLoadText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
                                         <TextBlock Grid.Row="7" Text="{DynamicResource ActivePower}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding ActivePowerText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
-                                        <TextBlock Grid.Row="8" Text="{DynamicResource PowerMargin}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding PowerMarginText}" Style="{StaticResource InfoValueStyle}" Foreground="#10B981" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Row="8" Text="{DynamicResource PowerMargin}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding PowerMarginText}" Style="{StaticResource InfoValueStyle}" Foreground="{DynamicResource SuccessTextBrush}" FontWeight="SemiBold" />
                                         <TextBlock Grid.Row="9" Text="{DynamicResource ApparentPower}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="9" Grid.Column="1" Text="{Binding ApparentPowerText}" Style="{StaticResource InfoValueStyle}" FontWeight="SemiBold" />
                                     </Grid>
                                 </StackPanel>
@@ -364,7 +417,7 @@
                                         <Border Width="10" Height="10" CornerRadius="5" Background="{Binding BatteryHealthAccent}" Margin="0,5,10,0" VerticalAlignment="Top" />
                                         <StackPanel>
                                             <TextBlock Text="{Binding BatteryHealthText}" FontFamily="Segoe UI Variable Display" FontSize="32" FontWeight="SemiBold" />
-                                            <TextBlock Text="{Binding BatteryHealthDetailText}" Foreground="{Binding BatteryHealthAccent}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding BatteryHealthDetailText}" Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold" />
                                         </StackPanel>
                                     </StackPanel>
                                     <Grid Margin="0,18,24,0">
@@ -382,7 +435,7 @@
                                         <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding BatteryHealthDataQualityText}" Style="{StaticResource InfoValueStyle}" Margin="18,7,0,7" />
                                         <TextBlock Grid.Row="5" Text="{DynamicResource ReplacementAssessmentLabel}" Style="{StaticResource InfoLabelStyle}" />
                                         <StackPanel Grid.Row="5" Grid.Column="1" Margin="18,7,0,7">
-                                            <TextBlock Text="{Binding BatteryReplacementText}" Foreground="{Binding BatteryReplacementAccent}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding BatteryReplacementText}" Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold" />
                                             <TextBlock Text="{Binding BatteryReplacementDetailText}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0" />
                                         </StackPanel>
                                     </Grid>
@@ -469,7 +522,7 @@
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource SummaryEnergy}" Style="{StaticResource CaptionStyle}" />
                                     <TextBlock Text="{Binding PeriodEnergySummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="13" Margin="0,4,0,0" TextWrapping="Wrap" />
-                                    <TextBlock Text="{Binding PeriodCostSummaryText}" Foreground="#10B981" FontSize="11" FontWeight="SemiBold" Margin="0,3,0,0" />
+                                    <TextBlock Text="{Binding PeriodCostSummaryText}" Foreground="{DynamicResource SuccessTextBrush}" FontSize="11" FontWeight="SemiBold" Margin="0,3,0,0" />
                                     <TextBlock Text="{Binding PeriodCo2SummaryText}" Foreground="{DynamicResource MutedTextBrush}" FontSize="10" Margin="0,1,0,0" />
                                 </StackPanel>
                             </Border>
@@ -621,9 +674,9 @@
                                         </StackPanel>
                                     </Border>
                                     <TextBlock Text="{DynamicResource TroubleEventsRecent}" Style="{StaticResource CaptionStyle}" Margin="0,4,0,4" />
-                                    <ListView ItemsSource="{Binding TroubleSummary.TroubleEvents}" MaxHeight="120" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextBrush}">
+                                    <ListView ItemsSource="{Binding TroubleSummary.TroubleEvents}" MaxHeight="120" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextBrush}" ItemContainerStyle="{StaticResource EventItemStyle}">
                                         <ListView.View>
-                                            <GridView>
+                                            <GridView ColumnHeaderContainerStyle="{StaticResource EventHeaderStyle}">
                                                 <GridViewColumn Header="{DynamicResource ColumnTime}" Width="130" DisplayMemberBinding="{Binding Timestamp, StringFormat={}{0:MM/dd HH:mm}}" />
                                                 <GridViewColumn Header="{DynamicResource ColumnEvent}" Width="120" DisplayMemberBinding="{Binding Type}" />
                                                 <GridViewColumn Header="{DynamicResource ColumnDetails}" Width="200" DisplayMemberBinding="{Binding Message}" />
@@ -651,7 +704,7 @@
                                     <TextBlock Grid.Column="2" Text="W" VerticalAlignment="Center" Margin="6,0,24,0" Foreground="{DynamicResource MutedTextBrush}" />
                                     <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBlock Text="{DynamicResource SimulatedRuntimeResultLabel}" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                        <TextBlock Text="{Binding SimulatedRuntimeText}" FontSize="18" FontWeight="Bold" Foreground="#10B981" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding SimulatedRuntimeText}" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource SuccessTextBrush}" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Grid>
                                 <TextBlock Text="{DynamicResource StandardLoadTableTitle}" Style="{StaticResource CaptionStyle}" Margin="0,0,0,6" />
@@ -760,11 +813,6 @@
                                 </StackPanel>
                                 <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="0">
                                     <DataGrid ItemsSource="{Binding TelemetryItems}" Style="{StaticResource TelemetryGridStyle}" FrozenColumnCount="2" ScrollViewer.HorizontalScrollBarVisibility="Auto">
-                                        <DataGrid.Resources>
-                                            <Style TargetType="DataGridColumnHeader"><Setter Property="Background" Value="{DynamicResource NavigationBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="Padding" Value="8" /><Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" /></Style>
-                                            <Style TargetType="DataGridCell"><Setter Property="Padding" Value="7,5" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{DynamicResource SelectedNavBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /></Trigger></Style.Triggers></Style>
-                                            <Style TargetType="DataGridRow"><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{DynamicResource SelectedNavBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /></Trigger></Style.Triggers></Style>
-                                        </DataGrid.Resources>
                                         <DataGrid.Columns>
                                             <DataGridTextColumn Header="{DynamicResource ColumnName}" Binding="{Binding Name}" Width="210" /><DataGridTextColumn Header="{DynamicResource ColumnValue}" Binding="{Binding Value}" Width="150" />
                                             <DataGridTextColumn Header="{DynamicResource ColumnCollection}" Binding="{Binding Collection}" Width="260" /><DataGridTextColumn Header="{DynamicResource ColumnPageUsage}" Binding="{Binding PageUsage}" Width="135" />
@@ -822,13 +870,13 @@
                             <Border Grid.Column="0" Style="{StaticResource MetricCardStyle}" Margin="4,0" MinHeight="82" Padding="14,12">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource AnalyticsPeakHour}" Style="{StaticResource CaptionStyle}" />
-                                    <TextBlock Text="{Binding AnalyticsPeakHourText}" Style="{StaticResource MetricValueStyle}" FontSize="14" Margin="0,5,0,0" Foreground="#F59E0B" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding AnalyticsPeakHourText}" Style="{StaticResource MetricValueStyle}" FontSize="14" Margin="0,5,0,0" Foreground="{DynamicResource WarningTextBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="1" Style="{StaticResource MetricCardStyle}" Margin="4,0" MinHeight="82" Padding="14,12">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource AnalyticsLowestHour}" Style="{StaticResource CaptionStyle}" />
-                                    <TextBlock Text="{Binding AnalyticsLowestHourText}" Style="{StaticResource MetricValueStyle}" FontSize="14" Margin="0,5,0,0" Foreground="#38BDF8" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding AnalyticsLowestHourText}" Style="{StaticResource MetricValueStyle}" FontSize="14" Margin="0,5,0,0" Foreground="{DynamicResource InfoTextBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="2" Style="{StaticResource MetricCardStyle}" Margin="4,0" MinHeight="82" Padding="14,12">
