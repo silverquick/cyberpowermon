@@ -40,6 +40,13 @@ internal static class ThemeManager
                 ["PopupSelectedBrush"] = "#FF243A63",
                 ["DisabledBrush"] = "#263247",
                 ["DisabledTextBrush"] = "#9AA8BC",
+                ["SelectionBackgroundBrush"] = "#2563EB",
+                ["SelectionForegroundBrush"] = "#FFFFFF",
+                ["SuccessTextBrush"] = "#34D399",
+                ["WarningTextBrush"] = "#FBBF24",
+                ["DangerTextBrush"] = "#F87171",
+                ["InfoTextBrush"] = "#7DD3FC",
+                ["AccentContentBrush"] = "#111827",
             }
             : new Dictionary<string, string>
             {
@@ -57,6 +64,13 @@ internal static class ThemeManager
                 ["PopupSelectedBrush"] = "#FFDCEBFF",
                 ["DisabledBrush"] = "#FFE2E8F0",
                 ["DisabledTextBrush"] = "#FF64748B",
+                ["SelectionBackgroundBrush"] = "#1D4ED8",
+                ["SelectionForegroundBrush"] = "#FFFFFF",
+                ["SuccessTextBrush"] = "#047857",
+                ["WarningTextBrush"] = "#92400E",
+                ["DangerTextBrush"] = "#B91C1C",
+                ["InfoTextBrush"] = "#0369A1",
+                ["AccentContentBrush"] = "#111827",
             };
 
         foreach (var (key, color) in colors)
