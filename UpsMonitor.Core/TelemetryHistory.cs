@@ -14,6 +14,14 @@ public enum TelemetryMetric
     TemperatureCelsius,
 }
 
+public enum WeeklyPatternMetric
+{
+    ActivePower,
+    InputVoltage,
+    LoadPercent,
+    PowerFactor,
+}
+
 public sealed record TelemetryHistoryPoint(
     DateTimeOffset Timestamp,
     double Minimum,
@@ -135,7 +143,7 @@ public sealed record HourlyPatternPoint(
 
 public sealed record WeeklyPatternResult
 {
-    public required TelemetryMetric Metric { get; init; }
+    public required WeeklyPatternMetric Metric { get; init; }
     public required DateTimeOffset From { get; init; }
     public required DateTimeOffset To { get; init; }
     public required double OverallMin { get; init; }

@@ -25,7 +25,7 @@ public sealed partial class SqliteTelemetryStore
         string deviceId,
         DateTimeOffset from,
         DateTimeOffset to,
-        TelemetryMetric metric,
+        WeeklyPatternMetric metric,
         CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
@@ -593,7 +593,7 @@ public sealed partial class SqliteTelemetryStore
         string deviceId,
         DateTimeOffset from,
         DateTimeOffset to,
-        TelemetryMetric metric,
+        WeeklyPatternMetric metric,
         CancellationToken cancellationToken = default)
     {
         var fromMs = from.ToUniversalTime().ToUnixTimeMilliseconds();
@@ -602,7 +602,21 @@ public sealed partial class SqliteTelemetryStore
         var cellMap = new Dictionary<(int DOW, int HOD), HourlyPatternPoint>();
         var totalSamples = 0L;
 
-        await QuerySingleMetricPatternAsync(connection, deviceId, fromMs, toMs, metric, cellMap, cancellationToken).ConfigureAwait(false);
+        if (metric == WeeklyPatternMetric.PowerFactor)
+        {
+            await QueryPowerFactorPatternAsync(connection, deviceId, fromMs, toMs, cellMap, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await QuerySingleMetricPatternAsync(
+                connection,
+                deviceId,
+                fromMs,
+                toMs,
+                MapTelemetryMetric(metric),
+                cellMap,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         var grid = new List<HourlyPatternPoint>(168);
         // DayOfWeek: 1 (Monday) .. 6 (Saturday), 0 (Sunday)
@@ -645,6 +659,14 @@ public sealed partial class SqliteTelemetryStore
         };
     }
 
+    private static TelemetryMetric MapTelemetryMetric(WeeklyPatternMetric metric) => metric switch
+    {
+        WeeklyPatternMetric.ActivePower => TelemetryMetric.ActivePowerWatts,
+        WeeklyPatternMetric.InputVoltage => TelemetryMetric.InputVoltage,
+        WeeklyPatternMetric.LoadPercent => TelemetryMetric.LoadPercent,
+        _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, "PowerFactor is a derived weekly pattern metric."),
+    };
+
     private static async Task QuerySingleMetricPatternAsync(
         SqliteConnection connection,
         string deviceId,
@@ -672,6 +694,58 @@ public sealed partial class SqliteTelemetryStore
             """;
         AddRangeParameters(command, deviceId, fromMs, toMs);
         command.Parameters.AddWithValue("$metric", (int)metric);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var dow = reader.GetInt32(0);
+            var hod = reader.GetInt32(1);
+            var min = reader.GetDouble(2);
+            var avg = reader.GetDouble(3);
+            var max = reader.GetDouble(4);
+            var count = reader.GetInt64(5);
+            cellMap[(dow, hod)] = new HourlyPatternPoint(dow, hod, avg, min, max, count);
+        }
+    }
+
+    private static async Task QueryPowerFactorPatternAsync(
+        SqliteConnection connection,
+        string deviceId,
+        long fromMs,
+        long toMs,
+        IDictionary<(int DOW, int HOD), HourlyPatternPoint> cellMap,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            WITH power_factor_minutes AS (
+                SELECT
+                    CAST(strftime('%w', datetime(w.bucket_utc_ms / 1000, 'unixepoch', 'localtime')) AS INTEGER) AS dow,
+                    CAST(strftime('%H', datetime(w.bucket_utc_ms / 1000, 'unixepoch', 'localtime')) AS INTEGER) AS hod,
+                    MIN(MAX(
+                        (((w.value_sum * 1.0 / w.sample_count) / (va.value_sum * 1.0 / va.sample_count)) * 100.0),
+                        0.0),
+                        100.0) AS power_factor
+                FROM telemetry_rollups_1m AS w
+                INNER JOIN telemetry_rollups_1m AS va
+                    ON va.device_id = w.device_id
+                    AND va.bucket_utc_ms = w.bucket_utc_ms
+                    AND va.metric = $apparentPowerMetric
+                WHERE w.device_id = $device
+                    AND w.metric = $activePowerMetric
+                    AND w.bucket_utc_ms >= $from
+                    AND w.bucket_utc_ms <= $to
+                    AND w.sample_count > 0
+                    AND va.sample_count > 0
+                    AND (va.value_sum * 1.0 / va.sample_count) > 1.0
+            )
+            SELECT dow, hod, MIN(power_factor), AVG(power_factor), MAX(power_factor), COUNT(*)
+            FROM power_factor_minutes
+            GROUP BY dow, hod;
+            """;
+        AddRangeParameters(command, deviceId, fromMs, toMs);
+        command.Parameters.AddWithValue("$activePowerMetric", (int)TelemetryMetric.ActivePowerWatts);
+        command.Parameters.AddWithValue("$apparentPowerMetric", (int)TelemetryMetric.ApparentPowerVoltAmperes);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

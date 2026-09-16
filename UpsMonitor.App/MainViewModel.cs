@@ -2331,12 +2331,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private void RefreshAnalyticsOptions()
     {
-        var currentMetric = SelectedAnalyticsMetric?.Metric ?? TelemetryMetric.ActivePowerWatts;
+        var currentMetric = SelectedAnalyticsMetric?.Metric ?? WeeklyPatternMetric.ActivePower;
         AnalyticsMetricOptions =
         [
-            new(TelemetryMetric.ActivePowerWatts, L("AnalyticsMetricPower"), "W"),
-            new(TelemetryMetric.InputVoltage, L("AnalyticsMetricVoltage"), "V"),
-            new(TelemetryMetric.LoadPercent, L("AnalyticsMetricLoad"), "%"),
+            new(WeeklyPatternMetric.ActivePower, L("AnalyticsMetricPower"), "W"),
+            new(WeeklyPatternMetric.InputVoltage, L("AnalyticsMetricVoltage"), "V"),
+            new(WeeklyPatternMetric.LoadPercent, L("AnalyticsMetricLoad"), "%"),
+            new(WeeklyPatternMetric.PowerFactor, L("AnalyticsMetricPowerFactor"), "%"),
         ];
         SelectedAnalyticsMetric = AnalyticsMetricOptions.FirstOrDefault(item => item.Metric == currentMetric) ?? AnalyticsMetricOptions[0];
 
@@ -2365,7 +2366,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             return;
         }
 
-        var metric = SelectedAnalyticsMetric?.Metric ?? TelemetryMetric.ActivePowerWatts;
+        var metric = SelectedAnalyticsMetric?.Metric ?? WeeklyPatternMetric.ActivePower;
         var duration = SelectedAnalyticsRange?.Duration;
         var to = DateTimeOffset.Now;
         var from = duration.HasValue ? to - duration.Value : DateTimeOffset.UnixEpoch;
@@ -2749,7 +2750,7 @@ public sealed record VendorHealthCategoryOption(
 }
 
 public sealed record AnalyticsMetricOption(
-    TelemetryMetric Metric,
+    WeeklyPatternMetric Metric,
     string DisplayName,
     string Unit)
 {
