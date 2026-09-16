@@ -5,15 +5,16 @@
 
 本書は `docs/performance/*_analysis.md` と全 `docs/*/{implementation_plan,task,walkthrough}.md` を読み、walkthrough の記載だけでなく `UpsMonitor.*` の実コードと `git log` を照合して、提案済み施策の実装状況と積み残しを整理したものである。なお、依頼背景には .NET 8 とあるが、現コードの `UpsMonitor.App/UpsMonitor.App.csproj` は `net10.0-windows` を対象としているため、以下の設計は現行コードを正としている。
 
-## 実装状況（2026-08-30 更新）
+## 実装状況（2026-09-17 更新）
 
 Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Antigravity / 統合: Claude）で #1・#2・#4 を実装・main へ統合済み。
+#3 は Antigravity のワークスペース信頼確認でエージェント起動がブロックされたため Codex `gpt-5.6-terra`（medium）へ切り替え、Core/Infrastructure・UI統合の2waveで実装・main へ統合済み。
 
 | 番号 | 施策 | 状態 | 関連コミット |
 |---:|---|---|---|
 | 1 | カスタムアラートの一貫化 | ✅ 実装済み | Core/Infra `2ecb735`、UI `2bbd7a9` |
 | 2 | Analytics タブのアクティブ判定修正 | ✅ 実装済み | `8dffed8` |
-| 3 | 力率ヒートマップ | ⏳ 次ラウンド | — |
+| 3 | 力率ヒートマップ | ✅ 実装済み | `0026e20`（Core/Infra + UI 統合）、Merge `148d362` |
 | 4 | 日次電力量の正確化＋月次集計 | ✅ 実装済み | Core/SQLite `96e2879`（正確化は旧 API ラッパー経由で既存 UI にも反映）、月次 UI `727c9c7` |
 | 5 | エクスポート全期間＋ストリーミング | ⏳ 次ラウンド | — |
 | 6 | 保存済みログのフィルタ | ⏳ 次ラウンド | — |
