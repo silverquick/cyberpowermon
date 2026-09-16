@@ -324,19 +324,19 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
         dc.DrawText(t4, new Point(tipX + 12, curY));
     }
 
-    private static Brush GetHeatmapBrush(double t, TelemetryMetric metric)
+    private static Brush GetHeatmapBrush(double t, WeeklyPatternMetric metric)
     {
         var brush = new SolidColorBrush(GetHeatmapColor(t, metric));
         brush.Freeze();
         return brush;
     }
 
-    private static Color GetHeatmapColor(double t, TelemetryMetric metric)
+    private static Color GetHeatmapColor(double t, WeeklyPatternMetric metric)
     {
         t = Math.Clamp(t, 0.0, 1.0);
 
         // Power / Load: Slate Blue -> Teal -> Amber -> Red
-        if (metric is TelemetryMetric.ActivePowerWatts or TelemetryMetric.LoadPercent)
+        if (metric is WeeklyPatternMetric.ActivePower or WeeklyPatternMetric.LoadPercent)
         {
             if (t < 0.33)
             {

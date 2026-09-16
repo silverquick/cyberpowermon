@@ -25,6 +25,7 @@ var tests = new (string Name, Action Run)[]
     ("Telemetry and event export to CSV/JSON", TelemetryExportRoundTrip),
     ("Dynamic runtime-low threshold update", DynamicRuntimeLowThreshold),
     ("Weekly heatmap pattern aggregation", WeeklyPatternAggregation),
+    ("Weekly heatmap power-factor aggregation", WeeklyPatternPowerFactorAggregation),
     ("Runtime estimator load calculation", RuntimeEstimatorCalculation),
     ("Configuration theme, alerts, webhook, and command settings", ConfigurationNewFeatures),
     ("Daily energy reports and trouble summary queries", DailyEnergyAndTroubleSummaryQueries),
@@ -779,12 +780,14 @@ static void WeeklyPatternAggregation()
             activePower: 350.0,
             apparentPower: 400.0,
             load: 45.0,
+            inputVoltage: 100.0,
             timestamp: targetTime);
         var snapshot2 = Snapshot(
             device: device,
             activePower: 450.0,
             apparentPower: 500.0,
             load: 55.0,
+            inputVoltage: 110.0,
             timestamp: targetTime.AddMinutes(15));
 
         store.WriteAsync(snapshot1, CancellationToken.None).GetAwaiter().GetResult();
@@ -795,10 +798,10 @@ static void WeeklyPatternAggregation()
             UpsDeviceIdentity.Create(device),
             targetTime.AddDays(-7),
             targetTime.AddDays(7),
-            TelemetryMetric.ActivePowerWatts).GetAwaiter().GetResult();
+            WeeklyPatternMetric.ActivePower).GetAwaiter().GetResult();
 
         Equal(168, result.Grid.Count);
-        Equal(TelemetryMetric.ActivePowerWatts, result.Metric);
+        Equal(WeeklyPatternMetric.ActivePower, result.Metric);
         Equal(2L, result.TotalSamples);
         Near(400.0, result.OverallAvg);
         Near(350.0, result.OverallMin);
@@ -807,6 +810,83 @@ static void WeeklyPatternAggregation()
         var mon14 = result.Grid.First(p => p.DayOfWeek == 1 && p.HourOfDay == 14);
         Equal(2L, mon14.SampleCount);
         Near(400.0, mon14.Average);
+
+        foreach (var metric in new[] { WeeklyPatternMetric.InputVoltage, WeeklyPatternMetric.LoadPercent })
+        {
+            var regression = store.QueryWeeklyPatternAsync(
+                UpsDeviceIdentity.Create(device),
+                targetTime.AddDays(-7),
+                targetTime.AddDays(7),
+                metric).GetAwaiter().GetResult();
+            Equal(metric, regression.Metric);
+            Equal(168, regression.Grid.Count);
+            Equal(2L, regression.TotalSamples);
+        }
+
+        store.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            try { Directory.Delete(testRoot, recursive: true); } catch { }
+        }
+    }
+}
+
+static void WeeklyPatternPowerFactorAggregation()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsPowerFactorPatternTests-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        store.InitializeAsync().GetAwaiter().GetResult();
+
+        var device = new UpsDeviceInfo("test-pf", 0x0764, 0x0601, "Vendor", "Product", "TEST_PF", 0x84, 0x04, 64, 64);
+        var monday = new DateTimeOffset(2026, 8, 24, 0, 30, 0, TimeSpan.FromHours(9));
+        var snapshots = new[]
+        {
+            Snapshot(device: device, activePower: 50.0, apparentPower: 100.0, timestamp: monday),
+            Snapshot(device: device, activePower: 100.0, apparentPower: 200.0, timestamp: monday.AddMinutes(1)),
+            // The cell average must be the average of per-minute ratios, not a ratio of hourly totals.
+            Snapshot(device: device, activePower: 90.0, apparentPower: 100.0, timestamp: monday.AddMinutes(6)),
+            // VA <= 1 and missing VA are excluded from the derived metric.
+            Snapshot(device: device, activePower: 80.0, apparentPower: 1.0, timestamp: monday.AddMinutes(2)),
+            Snapshot(device: device, activePower: 80.0, timestamp: monday.AddMinutes(3)),
+            // Clamp values outside the valid percentage range.
+            Snapshot(device: device, activePower: 0.0, apparentPower: 100.0, timestamp: monday.AddHours(1)),
+            Snapshot(device: device, activePower: 300.0, apparentPower: 100.0, timestamp: monday.AddHours(1).AddMinutes(1)),
+            // Cross the local Sunday/Monday boundary.
+            Snapshot(device: device, activePower: 25.0, apparentPower: 100.0, timestamp: monday.AddMinutes(-45)),
+        };
+        foreach (var snapshot in snapshots)
+        {
+            store.WriteAsync(snapshot, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        store.FlushAsync().GetAwaiter().GetResult();
+
+        var result = store.QueryWeeklyPatternAsync(
+            UpsDeviceIdentity.Create(device),
+            monday.AddHours(-1),
+            monday.AddHours(2),
+            WeeklyPatternMetric.PowerFactor).GetAwaiter().GetResult();
+
+        Equal(WeeklyPatternMetric.PowerFactor, result.Metric);
+        Equal(168, result.Grid.Count);
+        Equal(6L, result.TotalSamples);
+        Near(0.0, result.OverallMin);
+        Near(100.0, result.OverallMax);
+        var mondayMidnight = result.Grid.Single(p => p.DayOfWeek == 1 && p.HourOfDay == 0);
+        Equal(3L, mondayMidnight.SampleCount);
+        Near(50.0, mondayMidnight.Minimum);
+        Near(190.0 / 3.0, mondayMidnight.Average);
+        Near(90.0, mondayMidnight.Maximum);
+        var sunday = result.Grid.Single(p => p.DayOfWeek == 0 && p.HourOfDay == 23);
+        Equal(1L, sunday.SampleCount);
+        Near(25.0, sunday.Average);
 
         store.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
@@ -1342,7 +1422,7 @@ static async Task PerformanceBenchmarkAsync()
         Console.WriteLine($"[BENCH] QueryHistoryAsync(rollup 30 days, 5 metrics): {sw.ElapsedMilliseconds} ms, points={historyRollup.Metrics[TelemetryMetric.InputVoltage].Points.Count}");
 
         sw.Restart();
-        var weekly = await store.QueryWeeklyPatternAsync(devId, start, start.AddDays(30), TelemetryMetric.ActivePowerWatts);
+        var weekly = await store.QueryWeeklyPatternAsync(devId, start, start.AddDays(30), WeeklyPatternMetric.ActivePower);
         Console.WriteLine($"[BENCH] QueryWeeklyPatternAsync(30 days): {sw.ElapsedMilliseconds} ms, totalSamples={weekly.TotalSamples}");
 
         await store.DisposeAsync();
