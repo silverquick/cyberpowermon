@@ -1,7 +1,10 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Microsoft.Data.Sqlite;
 using UpsMonitor.Core;
+
+[assembly: InternalsVisibleTo("UpsMonitor.Core.Tests")]
 
 namespace UpsMonitor.Infrastructure;
 
@@ -37,7 +40,6 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
         {
             DataSource = _databasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared,
             Pooling = true,
             DefaultTimeout = 5,
         }.ToString();
@@ -46,6 +48,7 @@ public sealed partial class SqliteTelemetryStore : IUpsSnapshotSink, IUpsEventSi
     public event Action<Exception>? StorageError;
 
     public string DatabasePath => _databasePath;
+    internal string ConnectionString => _connectionString;
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {

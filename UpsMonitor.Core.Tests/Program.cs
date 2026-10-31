@@ -45,6 +45,7 @@ var tests = new (string Name, Action Run)[]
     ("Dynamic alert thresholds update", DynamicAlertThresholdsUpdate),
     ("Engine alert thresholds propagation and persistence", EngineAlertThresholdsPropagationAndPersistence),
     ("Alert events SQLite round trip", AlertEventsSqliteRoundTrip),
+    ("Concurrent reader does not lock telemetry store writer", ConcurrentReaderDoesNotLockTelemetryStoreWriter),
 };
 
 var failures = new List<string>();
@@ -1819,6 +1820,56 @@ static async Task AlertEventsSqliteRoundTripAsync()
         Equal(2, history.Events.Count);
         HasType(history.Events, UpsEventType.HighLoadWarning);
         HasType(history.Events, UpsEventType.VoltageAbnormal);
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
+}
+
+static void ConcurrentReaderDoesNotLockTelemetryStoreWriter() => ConcurrentReaderDoesNotLockTelemetryStoreWriterAsync().GetAwaiter().GetResult();
+
+static async Task ConcurrentReaderDoesNotLockTelemetryStoreWriterAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsConcurrentReaderTest-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        var errors = new List<Exception>();
+        store.StorageError += errors.Add;
+        await store.InitializeAsync();
+
+        var device = new UpsDeviceInfo("test-path", 0x0764, 0x0601, "CPS", "Test UPS", "TEST01", 0x84, 0x04, 64, 64);
+        var snapshot = Snapshot(connected: true, ac: true, device: device, timestamp: DateTimeOffset.UtcNow, inputVoltage: 100.0);
+
+        await using var readerConnection = new SqliteConnection(store.ConnectionString);
+        await readerConnection.OpenAsync();
+
+        await using var readerTransaction = readerConnection.BeginTransaction(deferred: true);
+        await using var readerCmd = readerConnection.CreateCommand();
+        readerCmd.Transaction = readerTransaction;
+        readerCmd.CommandText = "SELECT COUNT(*) FROM telemetry_samples;";
+        await using var reader = await readerCmd.ExecuteReaderAsync();
+        _ = await reader.ReadAsync();
+
+        await store.WriteAsync(snapshot, CancellationToken.None);
+        await store.FlushAsync();
+
+        await reader.DisposeAsync();
+        await readerTransaction.CommitAsync();
+
+        Equal(0, errors.Count);
+
+        await using var verifyCmd = readerConnection.CreateCommand();
+        verifyCmd.CommandText = "SELECT COUNT(*) FROM telemetry_samples;";
+        var count = Convert.ToInt64(await verifyCmd.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+        Equal(1L, count);
     }
     finally
     {
