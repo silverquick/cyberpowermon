@@ -396,7 +396,7 @@
                                         <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Text="{DynamicResource AudibleAlarm}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding AudibleAlarmText}" Style="{StaticResource InfoValueStyle}" />
                                         <TextBlock Grid.Row="1" Text="{DynamicResource SelfTest}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelfTestText}" Style="{StaticResource InfoValueStyle}" />
-                                        <TextBlock Grid.Row="2" Text="{DynamicResource LowVoltageTransferThreshold}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding TransferRangeText}" Style="{StaticResource InfoValueStyle}" />
+                                        <TextBlock Grid.Row="2" Text="{DynamicResource TransferRange}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding TransferRangeText}" Style="{StaticResource InfoValueStyle}" />
                                         <TextBlock Grid.Row="3" Text="{DynamicResource RatedPower}" Style="{StaticResource InfoLabelStyle}" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding RatedPowerText}" Style="{StaticResource InfoValueStyle}" />
                                     </Grid>
                                     <Border Background="{DynamicResource SecondaryPanelBrush}" CornerRadius="8" Padding="14" Margin="0,14,0,12">
