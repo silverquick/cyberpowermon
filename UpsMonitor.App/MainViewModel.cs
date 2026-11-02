@@ -44,6 +44,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private string _selectedLanguageCode;
     private UpsSnapshot? _lastSnapshot;
     private UpsTelemetry? _lastTelemetry;
+    // 健全性計算専用の定常化済みテレメトリ。画面表示・基準記録は生の _lastTelemetry を使う。
+    private UpsTelemetry? _lastHealthTelemetry;
+    private readonly Dictionary<string, RuntimeSteadyStateFilter> _steadyStateFilters = new(StringComparer.OrdinalIgnoreCase);
+    private double? _officialRecordPercent;
+    private DateTime? _officialRecordDate = DateTime.Today;
+    private string _officialRecordTime = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+    private VendorBatteryHealthCategory _officialRecordSource = VendorBatteryHealthCategory.Unknown;
+    private string _officialRecordNote = string.Empty;
+    private DateTime? _batteryInstalledDate;
+    private string _officialErrorText = "—";
+    private bool _officialEditorLoading;
     private double _batteryWarningThresholdPercent;
     private double _batteryCriticalThresholdPercent;
     private double _comparableLoadTolerancePercent;
@@ -120,6 +131,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private string _powerText = "N/A";
     private string _batteryText = "N/A";
     private string _batteryHealthText = "N/A";
+    private DateTimeOffset _lastOfficialModelRefresh = DateTimeOffset.MinValue;
     private string _batteryHealthDetailText = string.Empty;
     private string _batteryHealthConfidenceText = "N/A";
     private string _batteryHealthMethodText = "N/A";
@@ -242,6 +254,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             _historyStore.StorageError += OnHistoryStorageError;
         }
+        RecordOfficialHealthCommand = new AsyncRelayCommand(RecordOfficialHealthAsync, SetCommandError);
+        MigrateLegacyOfficialRecords();
+        _ = BackfillOfficialContextsAsync();
         ApplyWaitingState();
     }
 
@@ -496,6 +511,62 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public ICommand RecordRuntimeBaselineCommand { get; }
 
     public ICommand ClearRuntimeBaselineCommand { get; }
+
+    public ICommand RecordOfficialHealthCommand { get; }
+
+    public ObservableCollection<OfficialRecordRow> OfficialRecords { get; } = [];
+
+    public ObservableCollection<OfficialModelRow> OfficialModelRows { get; } = [];
+
+    public string OfficialErrorText
+    {
+        get => _officialErrorText;
+        private set => SetField(ref _officialErrorText, value);
+    }
+
+    public double? OfficialRecordPercent
+    {
+        get => _officialRecordPercent;
+        set => SetField(ref _officialRecordPercent, value);
+    }
+
+    public DateTime? OfficialRecordDate
+    {
+        get => _officialRecordDate;
+        set => SetField(ref _officialRecordDate, value);
+    }
+
+    public string OfficialRecordTime
+    {
+        get => _officialRecordTime;
+        set => SetField(ref _officialRecordTime, value ?? string.Empty);
+    }
+
+    public VendorBatteryHealthCategory OfficialRecordSource
+    {
+        get => _officialRecordSource;
+        set => SetField(ref _officialRecordSource, value);
+    }
+
+    public string OfficialRecordNote
+    {
+        get => _officialRecordNote;
+        set => SetField(ref _officialRecordNote, value ?? string.Empty);
+    }
+
+    public DateTime? BatteryInstalledDate
+    {
+        get => _batteryInstalledDate;
+        set
+        {
+            if (!SetField(ref _batteryInstalledDate, value?.Date) || _officialEditorLoading)
+            {
+                return;
+            }
+
+            _ = SaveBatteryInstalledDateAsync(_batteryInstalledDate);
+        }
+    }
 
     public ICommand RefreshHistoryCommand { get; }
 
@@ -1056,6 +1127,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private void ApplyWaitingState()
     {
+        _steadyStateFilters.Clear();
         ConnectionText = L("SearchingConnection");
         StateText = L("StateUnknown");
         StatusMessage = L("SearchingStatus");
@@ -1071,10 +1143,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _lastSnapshot = snapshot;
         var telemetry = UpsTelemetryValidator.Normalize(snapshot);
         _lastTelemetry = telemetry;
+        _lastHealthTelemetry = ApplySteadyStateFilter(snapshot, telemetry);
         var healthProfile = FindHealthProfile(snapshot.Device);
-        var health = BatteryHealthCalculator.Calculate(telemetry, healthProfile, CreateHealthOptions());
+        var health = BatteryHealthCalculator.Calculate(_lastHealthTelemetry, healthProfile, CreateHealthOptions());
+        if (healthProfile is not null
+            && healthProfile.OfficialHealthRecords.Count > 0
+            && DateTimeOffset.Now - _lastOfficialModelRefresh >= TimeSpan.FromMinutes(1))
+        {
+            // モデル比較表の現在値は1分ごとに更新する(毎秒は再計算しない)。
+            RefreshOfficialModelRows(healthProfile);
+        }
 
-        var state = UpsPowerStateEvaluator.Evaluate(snapshot);
+        var state =UpsPowerStateEvaluator.Evaluate(snapshot);
         StateText = state switch
         {
             UpsPowerState.Online => L("StateOnline"),
@@ -1126,7 +1206,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         var telemetry = _lastTelemetry ?? UpsTelemetryValidator.Normalize(snapshot);
         var healthProfile = FindHealthProfile(snapshot.Device);
-        var health = BatteryHealthCalculator.Calculate(telemetry, healthProfile, CreateHealthOptions());
+        var health = BatteryHealthCalculator.Calculate(_lastHealthTelemetry ?? telemetry, healthProfile, CreateHealthOptions());
         ApplySnapshotCore(snapshot, telemetry, healthProfile, health);
     }
 
@@ -1178,7 +1258,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         BatteryReplacementText = LocalizeReplacementStatus(health.Replacement.Status);
         BatteryReplacementDetailText = LocalizeReplacementDetail(health);
         BatteryReplacementAccent = ReplacementAccent(health.Replacement.Status);
-        BatteryHealthReasons = health.Reasons.Select(LocalizeHealthReason).Distinct().ToArray();
+        BatteryHealthReasons = LocalizeHealthReasons(health);
         BatteryHealthBaselineText = FormatBaselineSummary(healthProfile);
         BatteryRelativeTrendText = health.RelativePerformancePercent is { } relative
             ? $"{relative:0.#}%"
@@ -1329,6 +1409,391 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
     }
 
+    private UpsTelemetry ApplySteadyStateFilter(UpsSnapshot snapshot, UpsTelemetry telemetry)
+    {
+        // 切断・デバイス不明時はフィルタを破棄し、再接続後は新しい窓で始める。
+        if (snapshot.Device is not { } device || !telemetry.IsConnected)
+        {
+            _steadyStateFilters.Clear();
+            return telemetry;
+        }
+
+        var id = DeviceId(device);
+        if (!_steadyStateFilters.TryGetValue(id, out var filter))
+        {
+            filter = new RuntimeSteadyStateFilter();
+            _steadyStateFilters[id] = filter;
+        }
+
+        return filter.Apply(telemetry);
+    }
+
+    private void MigrateLegacyOfficialRecords()
+    {
+        var migrated = false;
+        foreach (var profile in _configuration.BatteryHealth.Profiles)
+        {
+            migrated |= OfficialHealthEstimator.TryMigrateLegacyAnchor(profile);
+        }
+
+        if (migrated)
+        {
+            _ = SaveConfigurationQuietlyAsync();
+        }
+    }
+
+    // 起動時に1回、状況(Context)が無い既存記録へ履歴から補完する。試行済みの記録は再試行しない。
+    private async Task BackfillOfficialContextsAsync()
+    {
+        if (_historyStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var changed = false;
+            foreach (var profile in _configuration.BatteryHealth.Profiles.ToArray())
+            {
+                if (!profile.OfficialHealthRecords.Any(item => item.Context is null && !item.ContextBackfillAttempted))
+                {
+                    continue;
+                }
+
+                changed |= await OfficialHealthContextService
+                    .BackfillAsync(profile.OfficialHealthRecords, profile.DeviceId, _historyStore)
+                    .ConfigureAwait(false) > 0;
+            }
+
+            if (changed)
+            {
+                await _configurationStore.SaveAsync(_configuration).ConfigureAwait(false);
+                await _dispatcher.InvokeAsync(() =>
+                {
+                    if (_lastSnapshot?.Device is { } device)
+                    {
+                        RefreshOfficialEditor(FindHealthProfile(device));
+                    }
+                });
+            }
+        }
+        catch (Exception exception)
+        {
+            SetCommandError(exception);
+        }
+    }
+
+    private OfficialHealthContext? CaptureLiveContext()
+    {
+        var snapshot = _lastSnapshot;
+        var telemetry = _lastTelemetry;
+        if (snapshot is null || telemetry is not { IsConnected: true })
+        {
+            return null;
+        }
+
+        return new OfficialHealthContext
+        {
+            LoadPercent = telemetry.LoadPercent.IsValid ? telemetry.LoadPercent.Value : null,
+            ActivePowerWatts = telemetry.ActivePowerWatts.IsValid ? telemetry.ActivePowerWatts.Value : null,
+            RuntimeSeconds = telemetry.RuntimeRemaining.IsValid ? telemetry.RuntimeRemaining.Value?.TotalSeconds : null,
+            BatteryVoltage = telemetry.BatteryVoltage.IsValid ? telemetry.BatteryVoltage.Value : null,
+            InputVoltage = snapshot.InputVoltage,
+            TemperatureCelsius = snapshot.Temperature,
+            Charging = snapshot.Charging,
+        };
+    }
+
+    private async Task SaveConfigurationQuietlyAsync()
+    {
+        try
+        {
+            await _configurationStore.SaveAsync(_configuration);
+        }
+        catch (Exception exception)
+        {
+            SetCommandError(exception);
+        }
+    }
+
+    private async Task RecordOfficialHealthAsync()
+    {
+        if (_lastSnapshot?.Device is not { } device)
+        {
+            SettingsStatus = L("OfficialRecordRequiresUps");
+            return;
+        }
+
+        if (OfficialRecordPercent is not { } percent || !double.IsFinite(percent) || percent is < 0 or > 100)
+        {
+            SettingsStatus = L("OfficialRecordValueInvalid");
+            return;
+        }
+
+        var date = (OfficialRecordDate ?? DateTime.Today).Date;
+        var time = TimeSpan.Zero;
+        if (OfficialRecordDate is null && string.IsNullOrWhiteSpace(OfficialRecordTime))
+        {
+            date = DateTime.Today;
+            time = DateTime.Now.TimeOfDay;
+        }
+        else if (!string.IsNullOrWhiteSpace(OfficialRecordTime))
+        {
+            if (!DateTime.TryParseExact(
+                    OfficialRecordTime.Trim(),
+                    ["H:mm", "HH:mm"],
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var parsed))
+            {
+                SettingsStatus = L("OfficialRecordTimeInvalid");
+                return;
+            }
+
+            time = parsed.TimeOfDay;
+        }
+
+        var recordedAt = new DateTimeOffset(date + time);
+        var profile = FindHealthProfile(device);
+        if (profile is null)
+        {
+            profile = new BatteryHealthProfile { DeviceId = DeviceId(device) };
+            _configuration.BatteryHealth.Profiles.Add(profile);
+        }
+
+        // 記録時の状況は履歴DBへの問い合わせ(この記録時のみ)と現在値から作る。
+        var context = await OfficialHealthContextService.CaptureAsync(
+            _historyStore,
+            profile.DeviceId,
+            recordedAt,
+            DateTimeOffset.Now,
+            CaptureLiveContext());
+        var record = OfficialHealthEstimator.AddRecord(
+            profile.OfficialHealthRecords,
+            profile.BatteryInstalledAt,
+            new OfficialHealthRecord
+            {
+                RecordedAt = recordedAt,
+                HealthPercent = percent,
+                Source = OfficialRecordSource,
+                Note = string.IsNullOrWhiteSpace(OfficialRecordNote) ? null : OfficialRecordNote.Trim(),
+                Context = context,
+                ContextBackfillAttempted = true,
+            });
+
+        await _configurationStore.SaveAsync(_configuration);
+        RefreshOfficialEditor(profile);
+        SettingsStatus = LocalizationManager.Format(
+            "OfficialRecordSavedFormat",
+            record.HealthPercent,
+            record.RecordedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.CurrentCulture));
+        ApplySnapshot(_lastSnapshot);
+    }
+
+    private async Task DeleteOfficialRecordAsync(OfficialHealthRecord record)
+    {
+        if (_lastSnapshot?.Device is not { } device || FindHealthProfile(device) is not { } profile)
+        {
+            return;
+        }
+
+        // 他の記録の PredictedPercent は再計算せず、記録時点の値を保持する。
+        if (!profile.OfficialHealthRecords.Remove(record))
+        {
+            return;
+        }
+
+        await _configurationStore.SaveAsync(_configuration);
+        RefreshOfficialEditor(profile);
+        SettingsStatus = L("OfficialRecordDeleted");
+        ApplySnapshot(_lastSnapshot);
+    }
+
+    private async Task SaveBatteryInstalledDateAsync(DateTime? date)
+    {
+        try
+        {
+            if (_lastSnapshot?.Device is not { } device)
+            {
+                SettingsStatus = L("OfficialRecordRequiresUps");
+                return;
+            }
+
+            var profile = FindHealthProfile(device);
+            if (profile is null)
+            {
+                if (date is null)
+                {
+                    return;
+                }
+
+                profile = new BatteryHealthProfile { DeviceId = DeviceId(device) };
+                _configuration.BatteryHealth.Profiles.Add(profile);
+            }
+
+            profile.BatteryInstalledAt = date is { } value ? new DateTimeOffset(value.Date) : null;
+            await _configurationStore.SaveAsync(_configuration);
+            SettingsStatus = L("OfficialInstalledSaved");
+            ApplySnapshot(_lastSnapshot);
+        }
+        catch (Exception exception)
+        {
+            SetCommandError(exception);
+        }
+    }
+
+    private void RefreshOfficialEditor(BatteryHealthProfile? profile)
+    {
+        _officialEditorLoading = true;
+        try
+        {
+            BatteryInstalledDate = profile?.BatteryInstalledAt?.ToLocalTime().Date;
+        }
+        finally
+        {
+            _officialEditorLoading = false;
+        }
+
+        OfficialRecords.Clear();
+        var records = profile?.OfficialHealthRecords ?? [];
+        foreach (var record in records.OrderBy(item => item.RecordedAt))
+        {
+            var predicted = record.PredictedPercent;
+            OfficialRecords.Add(new OfficialRecordRow(
+                record,
+                record.RecordedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.CurrentCulture),
+                $"{record.HealthPercent:0.#}%",
+                predicted is { } value ? $"{value:0.#}%" : "—",
+                FormatOfficialError(record.HealthPercent, predicted),
+                FormatOfficialDetail(record),
+                new AsyncRelayCommand(() => DeleteOfficialRecordAsync(record), SetCommandError)));
+        }
+
+        OfficialErrorText = OfficialHealthEstimator.MeanAbsoluteError(records) is { } mae
+            ? LocalizationManager.Format("OfficialRecordMaeFormat", mae)
+            : "—";
+        RefreshOfficialModelRows(profile);
+    }
+
+    private void RefreshOfficialModelRows(BatteryHealthProfile? profile)
+    {
+        _lastOfficialModelRefresh = DateTimeOffset.Now;
+        OfficialModelRows.Clear();
+        if (profile is null
+            || OfficialHealthEstimator.Estimate(profile.OfficialHealthRecords, profile.BatteryInstalledAt, DateTimeOffset.Now)
+                is not { } estimate)
+        {
+            return;
+        }
+
+        foreach (var result in estimate.Models)
+        {
+            OfficialModelRows.Add(new OfficialModelRow(
+                LocalizeOfficialModel(result.Model),
+                result.Percent is { } value ? $"{value:0.0}%" : L("OfficialModelUnavailable"),
+                result.BacktestCount > 0 ? result.BacktestCount.ToString(CultureInfo.CurrentCulture) : "—",
+                result.MeanAbsoluteError is { } mae ? $"{mae:0.00}" : "—",
+                result.Model == estimate.Model ? L("OfficialModelSelected") : string.Empty));
+        }
+    }
+
+    private static string LocalizeOfficialModel(OfficialHealthModel model) => L(model switch
+    {
+        OfficialHealthModel.InstallAnchoredLinear => "OfficialModelInstallAnchoredLinear",
+        OfficialHealthModel.AcceleratingPower => "OfficialModelAcceleratingPower",
+        _ => "OfficialModelRecentLinear",
+    });
+
+    private static string FormatOfficialError(double actual, double? predicted)
+    {
+        if (predicted is not { } value)
+        {
+            return "—";
+        }
+
+        var error = actual - value;
+        var text = error.ToString("+0.0;-0.0;0.0", CultureInfo.CurrentCulture);
+        return OfficialHealthEstimator.IsWithinRounding(error)
+            ? $"{text} ({L("OfficialRecordWithinRounding")})"
+            : text;
+    }
+
+    // 記録一覧の補足1行: メモ + 記録時の状況の要約。無い項目は省略し、全部無ければ空。
+    private static string FormatOfficialDetail(OfficialHealthRecord record)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(record.Note))
+        {
+            parts.Add(record.Note.Trim());
+        }
+
+        if (record.Context is { } context)
+        {
+            var load = new List<string>();
+            if (context.LoadPercent is { } loadPercent)
+            {
+                load.Add(LocalizationManager.Format("OfficialContextLoad", loadPercent));
+            }
+
+            if (context.ActivePowerWatts is { } watts)
+            {
+                load.Add(LocalizationManager.Format("OfficialContextPower", watts));
+            }
+
+            var items = new List<string>();
+            if (load.Count > 0)
+            {
+                items.Add(string.Join(" / ", load));
+            }
+
+            if (context.RuntimeSeconds is { } runtimeSeconds && runtimeSeconds > 0)
+            {
+                items.Add(LocalizationManager.Format("OfficialContextRuntime", FormatDuration(TimeSpan.FromSeconds(runtimeSeconds))));
+            }
+
+            if (context.BatteryVoltage is { } batteryVoltage)
+            {
+                items.Add(LocalizationManager.Format("OfficialContextBatteryVoltage", batteryVoltage));
+            }
+
+            if (context.InputVoltage is { } inputVoltage)
+            {
+                items.Add(LocalizationManager.Format("OfficialContextInputVoltage", inputVoltage));
+            }
+
+            if (context.TemperatureCelsius is { } temperature)
+            {
+                items.Add(LocalizationManager.Format("OfficialContextTemperature", temperature));
+            }
+
+            if (context.Charging is true)
+            {
+                items.Add(L("OfficialContextCharging"));
+            }
+
+            if (context.Load24HourMean is { } dayMean)
+            {
+                items.Add(LocalizationManager.Format("OfficialContextLoad24h", dayMean));
+            }
+
+            if (context.DaysSinceLastDischarge is { } days)
+            {
+                items.Add(LocalizationManager.Format("OfficialContextLastDischarge", days));
+            }
+            else if (context.HistoryStartedAt is { } started && items.Count > 0)
+            {
+                items.Add(LocalizationManager.Format("OfficialContextNoDischarge", FormatOfficialDate(started)));
+            }
+
+            if (items.Count > 0)
+            {
+                parts.Add(string.Join("・", items));
+            }
+        }
+
+        return string.Join("  |  ", parts);
+    }
+
     private async Task RecordRuntimeBaselineAsync()
     {
         if (_lastSnapshot?.Device is not { } device || _lastTelemetry is not { IsConnected: true } telemetry)
@@ -1411,6 +1876,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             load,
             FormatDuration(runtime),
             LocalizeBaselineKind(SelectedBaselineKind));
+        RefreshOfficialEditor(profile);
         ApplySnapshot(_lastSnapshot);
     }
 
@@ -2165,6 +2631,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         BatteryHealthMethod.RuntimeBaseline => "HealthMethodRuntimeBaseline",
         BatteryHealthMethod.RelativeRuntimeTrend => "HealthMethodRelativeRuntime",
         BatteryHealthMethod.VendorAnchoredRuntime => "HealthMethodVendorAnchored",
+        BatteryHealthMethod.OfficialHealthTrend => "HealthMethodOfficialTrend",
         _ => "HealthMethodNone",
     });
 
@@ -2183,6 +2650,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         if (health.Status != BatteryHealthStatus.VendorReported)
         {
             return LocalizeHealthStatus(health.Status);
+        }
+
+        if (health.PrimaryMethod == BatteryHealthMethod.OfficialHealthTrend)
+        {
+            return health.OfficialEstimate?.LastRecord is { Source: not VendorBatteryHealthCategory.Unknown } last
+                ? LocalizationManager.Format("OfficialHealthDetailFormat", LocalizeVendorHealthCategory(last.Source))
+                : L("OfficialHealthDetailUnknown");
         }
 
         var source = string.IsNullOrWhiteSpace(health.AnchorSource)
@@ -2226,6 +2700,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             "ReplacementReasonNewBatteryRuntime", reason.Observed, reason.Reference),
         BatteryReplacementReasonCode.RelativeRuntimeDeclined => LocalizationManager.Format(
             "ReplacementReasonRelativeRuntime", reason.Observed, reason.Reference),
+        BatteryReplacementReasonCode.OfficialHealthTrendBelowReference => LocalizationManager.Format(
+            "ReplacementReasonOfficialTrend", reason.Observed, reason.Reference),
         _ => L("ReplacementReasonNoSignal"),
     };
 
@@ -2255,8 +2731,72 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _ => "#64748B",
     };
 
-    private static string LocalizeHealthReason(BatteryHealthReason reason) => reason.Code switch
+    private static IReadOnlyList<string> LocalizeHealthReasons(BatteryHealthResult health)
     {
+        var reasons = health.Reasons
+            .Select(reason => LocalizeHealthReason(reason, health))
+            .ToList();
+        if (health.PrimaryMethod == BatteryHealthMethod.OfficialHealthTrend
+            && health.RelativePerformancePercent is { } relative)
+        {
+            // 相対性能は健全性に反映しない参考値。根拠の直後に並べる。
+            reasons.Insert(
+                Math.Min(1, reasons.Count),
+                LocalizationManager.Format("HealthReasonRelativePerformance", relative));
+        }
+
+        if (health.PrimaryMethod == BatteryHealthMethod.OfficialHealthTrend && health.OfficialEstimate is { } estimate)
+        {
+            // 採用モデルと、利用可能な全モデルの値の幅。
+            reasons.Insert(
+                Math.Min(1, reasons.Count),
+                estimate.SpreadPercent >= 0.05
+                    ? LocalizationManager.Format(
+                        "HealthReasonOfficialModelRange",
+                        LocalizeOfficialModel(estimate.Model),
+                        estimate.Percent,
+                        estimate.MinPercent,
+                        estimate.MaxPercent)
+                    : LocalizationManager.Format(
+                        "HealthReasonOfficialModel",
+                        LocalizeOfficialModel(estimate.Model)));
+        }
+
+        return reasons.Distinct().ToArray();
+    }
+
+    private static string LocalizeOfficialTrendReason(BatteryHealthResult? health)
+    {
+        var estimate = health?.OfficialEstimate;
+        if (estimate?.LastRecord is not { } last)
+        {
+            return L("HealthMethodOfficialTrend");
+        }
+
+        var days = estimate.DaysSinceLastRecord ?? 0;
+        return estimate.PreviousRecord is { } previous
+            ? LocalizationManager.Format(
+                "HealthReasonOfficialTwoRecords",
+                previous.HealthPercent,
+                FormatOfficialDate(previous.RecordedAt),
+                last.HealthPercent,
+                FormatOfficialDate(last.RecordedAt),
+                days)
+            : LocalizationManager.Format(
+                "HealthReasonOfficialOneRecord",
+                last.HealthPercent,
+                FormatOfficialDate(last.RecordedAt),
+                days);
+    }
+
+    private static string FormatOfficialDate(DateTimeOffset value) =>
+        value.ToLocalTime().ToString("yyyy/MM/dd", CultureInfo.CurrentCulture);
+
+    private static string LocalizeHealthReason(BatteryHealthReason reason, BatteryHealthResult? health = null) => reason.Code switch
+    {
+        BatteryHealthReasonCode.OfficialHealthTrendEstimated => LocalizeOfficialTrendReason(health),
+        BatteryHealthReasonCode.RuntimeDeclineDetectedRerecord => LocalizationManager.Format(
+            "HealthReasonRuntimeDeclineRerecord", reason.Observed ?? 0),
         BatteryHealthReasonCode.NotConnected => L("HealthReasonNotConnected"),
         BatteryHealthReasonCode.NeedReplacementReported => L("HealthReasonNeedReplacement"),
         BatteryHealthReasonCode.SelfTestFailed => L("HealthReasonSelfTestFailed"),
@@ -2456,6 +2996,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             return;
         }
+
+        RefreshOfficialEditor(profile);
 
         if (profile.RuntimeBaselineKind != BatteryRuntimeBaselineKind.Unspecified)
         {
@@ -2741,6 +3283,25 @@ public sealed record BatteryBaselineModeOption(
 {
     public override string ToString() => DisplayName;
 }
+
+public sealed record OfficialRecordRow(
+    OfficialHealthRecord Record,
+    string DateText,
+    string ValueText,
+    string PredictedText,
+    string ErrorText,
+    string DetailText,
+    ICommand DeleteCommand)
+{
+    public bool HasDetail => DetailText.Length > 0;
+}
+
+public sealed record OfficialModelRow(
+    string Name,
+    string ValueText,
+    string CountText,
+    string MaeText,
+    string SelectedText);
 
 public sealed record VendorHealthCategoryOption(
     VendorBatteryHealthCategory Category,

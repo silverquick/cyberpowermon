@@ -265,6 +265,7 @@ public enum BatteryHealthMethod
     RuntimeBaseline,
     RelativeRuntimeTrend,
     VendorAnchoredRuntime,
+    OfficialHealthTrend,
 }
 
 public enum BatteryHealthReasonCode
@@ -287,6 +288,8 @@ public enum BatteryHealthReasonCode
     BatteryAgeKnown,
     InvalidTelemetryIgnored,
     InsufficientData,
+    OfficialHealthTrendEstimated,
+    RuntimeDeclineDetectedRerecord,
 }
 
 public sealed record BatteryHealthReason(
@@ -343,6 +346,7 @@ public enum BatteryReplacementReasonCode
     ControlledMeasurementBelowReference,
     NewBatteryRuntimeBelowReference,
     RelativeRuntimeDeclined,
+    OfficialHealthTrendBelowReference,
 }
 
 public sealed record BatteryReplacementReason(
@@ -367,6 +371,7 @@ public sealed record BatteryHealthProfile
     public DateTimeOffset? BaselineRecordedAt { get; set; }
     public List<BatteryRuntimeBaselinePoint> RuntimeBaselines { get; init; } = [];
     public List<BatteryHealthMeasurement> ControlledMeasurements { get; init; } = [];
+    public List<OfficialHealthRecord> OfficialHealthRecords { get; init; } = [];
 }
 
 public sealed record BatteryHealthOptions
@@ -376,6 +381,7 @@ public sealed record BatteryHealthOptions
     public double ComparableLoadTolerancePercent { get; init; } = 5;
     public double MaximumInterpolationSpanPercent { get; init; } = 20;
     public double ReplacementPerformanceThresholdPercent { get; init; } = 80;
+    public double RuntimeLoadExponent { get; init; } = 1.9;
 }
 
 public sealed record BatteryHealthResult
@@ -384,6 +390,7 @@ public sealed record BatteryHealthResult
     public double? RelativePerformancePercent { get; init; }
     public double? AnchorHealthPercent { get; init; }
     public string? AnchorSource { get; init; }
+    public OfficialHealthEstimate? OfficialEstimate { get; init; }
     public VendorBatteryHealthCategory VendorHealthCategory { get; init; }
     public BatteryRuntimeBaselineKind BaselineKind { get; init; }
     public required BatteryHealthStatus Status { get; init; }
@@ -435,6 +442,7 @@ public static class BatteryHealthCalculator
         double? relativePerformance = null;
         var method = BatteryHealthMethod.None;
         var evidenceScore = 0;
+        OfficialHealthEstimate? officialEstimate = null;
 
         var controlled = profile?.ControlledMeasurements
             .Where(IsValidControlledMeasurement)
@@ -462,6 +470,40 @@ public static class BatteryHealthCalculator
                 BatteryHealthReasonCode.CapacityCompared,
                 telemetry.FullChargeCapacity.Value,
                 telemetry.DesignCapacity.Value));
+        }
+        else if (profile is not null
+                 && profile.OfficialHealthRecords.Any(item => double.IsFinite(item.HealthPercent))
+                 && OfficialHealthEstimator.Estimate(
+                     profile.OfficialHealthRecords,
+                     profile.BatteryInstalledAt,
+                     telemetry.Timestamp) is { } official)
+        {
+            officialEstimate = official;
+            health = official.Percent;
+            method = BatteryHealthMethod.OfficialHealthTrend;
+            evidenceScore = official.Confidence switch
+            {
+                BatteryHealthConfidence.High => 70,
+                BatteryHealthConfidence.Medium => 50,
+                _ => 30,
+            };
+            reasons.Add(new(
+                BatteryHealthReasonCode.OfficialHealthTrendEstimated,
+                official.Percent,
+                official.LastRecord?.HealthPercent));
+
+            // ランタイム比は相対性能としてのみ使い、健全性には反映しない。
+            var runtimeReasons = new List<BatteryHealthReason>();
+            if (TryCalculateRuntimeRatio(telemetry, profile, options, runtimeReasons, out var officialRatio)
+                && officialRatio is { } ratio)
+            {
+                relativePerformance = ratio;
+                reasons.AddRange(runtimeReasons);
+                if (ratio < 90)
+                {
+                    reasons.Add(new(BatteryHealthReasonCode.RuntimeDeclineDetectedRerecord, ratio, 90));
+                }
+            }
         }
         else if (TryCalculateRuntimeRatio(telemetry, profile, options, reasons, out var runtimeRatio))
         {
@@ -531,10 +573,12 @@ public static class BatteryHealthCalculator
 
         var confidence = hardFailure
             ? BatteryHealthConfidence.High
-            : ConfidenceFromScore(evidenceScore, health.HasValue || relativePerformance.HasValue);
+            : officialEstimate is not null
+                ? officialEstimate.Confidence
+                : ConfidenceFromScore(evidenceScore, health.HasValue || relativePerformance.HasValue);
         var status = hardFailure
             ? BatteryHealthStatus.Critical
-            : method == BatteryHealthMethod.VendorAnchoredRuntime
+            : method is BatteryHealthMethod.VendorAnchoredRuntime or BatteryHealthMethod.OfficialHealthTrend
                 ? BatteryHealthStatus.VendorReported
                 : StatusFromHealth(health, options);
         var replacement = AssessReplacement(
@@ -553,6 +597,7 @@ public static class BatteryHealthCalculator
                 ? profile!.AnchorHealthPercent
                 : null,
             AnchorSource = profile?.AnchorSource,
+            OfficialEstimate = officialEstimate,
             VendorHealthCategory = profile?.VendorHealthCategory ?? VendorBatteryHealthCategory.Unknown,
             BaselineKind = profile?.RuntimeBaselineKind ?? BatteryRuntimeBaselineKind.Unspecified,
             Status = status,
@@ -617,6 +662,8 @@ public static class BatteryHealthCalculator
                 BatteryHealthMethod.RuntimeBaseline
                     when profile?.RuntimeBaselineKind == BatteryRuntimeBaselineKind.NewBattery =>
                     BatteryReplacementReasonCode.NewBatteryRuntimeBelowReference,
+                BatteryHealthMethod.OfficialHealthTrend =>
+                    BatteryReplacementReasonCode.OfficialHealthTrendBelowReference,
                 _ => (BatteryReplacementReasonCode?)null,
             };
 
@@ -723,19 +770,44 @@ public static class BatteryHealthCalculator
             return nearest.Runtime;
         }
 
+        // 前後2点が取れ負荷差が許容範囲内なら、従来どおり線形補間する。
         var lower = points.LastOrDefault(item => item.LoadPercent < load);
         var upper = points.FirstOrDefault(item => item.LoadPercent > load);
-        if (lower is null
-            || upper is null
-            || upper.LoadPercent - lower.LoadPercent > options.MaximumInterpolationSpanPercent)
+        if (lower is not null
+            && upper is not null
+            && upper.LoadPercent - lower.LoadPercent <= options.MaximumInterpolationSpanPercent)
+        {
+            var fraction = (load - lower.LoadPercent) / (upper.LoadPercent - lower.LoadPercent);
+            var interpolated = lower.Runtime.TotalSeconds
+                + ((upper.Runtime.TotalSeconds - lower.Runtime.TotalSeconds) * fraction);
+            return interpolated > 0 ? TimeSpan.FromSeconds(interpolated) : null;
+        }
+
+        // それ以外(範囲外・間隔過大)は最近傍の基準点から負荷のべき乗則で正規化する。
+        if (nearest is null || load <= 0 || nearest.LoadPercent <= 0)
         {
             return null;
         }
 
-        var fraction = (load - lower.LoadPercent) / (upper.LoadPercent - lower.LoadPercent);
-        var seconds = lower.Runtime.TotalSeconds
-            + ((upper.Runtime.TotalSeconds - lower.Runtime.TotalSeconds) * fraction);
-        return seconds > 0 ? TimeSpan.FromSeconds(seconds) : null;
+        var exponent = EstimateLoadExponent(points, options.RuntimeLoadExponent);
+        var seconds = nearest.Runtime.TotalSeconds * Math.Pow(nearest.LoadPercent / load, exponent);
+        return double.IsFinite(seconds) && seconds > 0 ? TimeSpan.FromSeconds(seconds) : null;
+    }
+
+    private static double EstimateLoadExponent(
+        IReadOnlyList<BatteryRuntimeBaselinePoint> points,
+        double defaultExponent)
+    {
+        // points は負荷昇順。負荷差が最大の2点(最小正負荷と最大負荷)から推定する。
+        var positive = points.Where(item => item.LoadPercent > 0).ToArray();
+        if (positive.Length < 2 || positive[^1].LoadPercent - positive[0].LoadPercent < 10)
+        {
+            return defaultExponent;
+        }
+
+        var exponent = Math.Log(positive[0].Runtime.TotalSeconds / positive[^1].Runtime.TotalSeconds)
+            / Math.Log(positive[^1].LoadPercent / positive[0].LoadPercent);
+        return double.IsFinite(exponent) ? Math.Clamp(exponent, 0.5, 4) : defaultExponent;
     }
 
     private static bool IsValidControlledMeasurement(BatteryHealthMeasurement measurement) =>
@@ -816,7 +888,8 @@ public static class BatteryHealthCalculator
             || options.WarningThresholdPercent > 100
             || options.ComparableLoadTolerancePercent is < 0 or > 25
             || options.MaximumInterpolationSpanPercent is <= 0 or > 100
-            || options.ReplacementPerformanceThresholdPercent is <= 0 or > 100)
+            || options.ReplacementPerformanceThresholdPercent is <= 0 or > 100
+            || options.RuntimeLoadExponent is < 0.5 or > 4)
         {
             throw new ArgumentOutOfRangeException(nameof(options));
         }

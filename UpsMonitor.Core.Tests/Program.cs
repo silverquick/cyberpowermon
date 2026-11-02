@@ -46,6 +46,23 @@ var tests = new (string Name, Action Run)[]
     ("Engine alert thresholds propagation and persistence", EngineAlertThresholdsPropagationAndPersistence),
     ("Alert events SQLite round trip", AlertEventsSqliteRoundTrip),
     ("Concurrent reader does not lock telemetry store writer", ConcurrentReaderDoesNotLockTelemetryStoreWriter),
+    ("Official health trend interpolates and extrapolates", OfficialTrendInterpolateAndExtrapolate),
+    ("Official health trend slope is clipped to decline only", OfficialTrendSlopeClip),
+    ("Official health trend uses install date as implicit 100% point", OfficialTrendInstalledAtImplicitPoint),
+    ("Official health single record holds value and caps confidence", OfficialTrendSingleRecordAndConfidence),
+    ("Official health prediction errors and MAE", OfficialHealthPredictionErrors),
+    ("Runtime load normalization replaces interpolation", RuntimeLoadNormalization),
+    ("Runtime steady-state filter", RuntimeSteadyStateFilterBehavior),
+    ("Calculate prefers official health trend", OfficialTrendIsPreferredInCalculate),
+    ("Legacy anchor migration is idempotent", LegacyAnchorMigration),
+    ("Official health records configuration round trip", OfficialHealthRecordsConfigurationRoundTrip),
+    ("Official install-anchored model fits slope and gates availability", OfficialInstallAnchoredSlope),
+    ("Official accelerating model recovers synthetic parameters", OfficialAcceleratingPowerRecovery),
+    ("Official models extrapolate continuously from the last record", OfficialModelsExtrapolateFromLastRecord),
+    ("Official backtest counts, MAE, and model selection", OfficialBacktestAndSelection),
+    ("Official model predictions are stored and rounding is detected", OfficialModelPredictionsAndRounding),
+    ("Official record context configuration compatibility", OfficialContextConfigurationCompatibility),
+    ("Official record context query and idempotent backfill", OfficialContextQueryAndBackfill),
 };
 
 var failures = new List<string>();
@@ -320,6 +337,628 @@ static void SelfTestFailureRequestsCheck()
     Equal(BatteryHealthStatus.Critical, health.Status);
     Equal(BatteryReplacementStatus.CheckRequired, health.Replacement.Status);
     Equal(BatteryReplacementReasonCode.SelfTestFailed, health.Replacement.Reasons[0].Code);
+}
+
+static DateTimeOffset OfficialT0() => new(2026, 8, 22, 0, 0, 0, TimeSpan.Zero);
+
+static OfficialHealthRecord OfficialRecord(DateTimeOffset at, double percent) => new()
+{
+    RecordedAt = at,
+    HealthPercent = percent,
+    Source = VendorBatteryHealthCategory.Poor,
+};
+
+static void OfficialTrendInterpolateAndExtrapolate()
+{
+    var t1 = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
+    OfficialHealthRecord[] records = [OfficialRecord(OfficialT0(), 59), OfficialRecord(t1, 54)];
+
+    Near(56.5, OfficialHealthEstimator.Estimate(records, null, OfficialT0() + ((t1 - OfficialT0()) / 2))?.Percent);
+    Near(51.887, OfficialHealthEstimator.Estimate(records, null, t1.AddDays(30))?.Percent, 0.01);
+    Near(59, OfficialHealthEstimator.Estimate(records, null, OfficialT0().AddDays(-10))?.Percent);
+    Equal(true, OfficialHealthEstimator.Estimate([], null, t1) is null);
+}
+
+static void OfficialTrendSlopeClip()
+{
+    var t1 = OfficialT0().AddDays(10);
+    var steep = OfficialHealthEstimator.Estimate([OfficialRecord(OfficialT0(), 90), OfficialRecord(t1, 50)], null, t1.AddDays(365));
+    Near(10, steep?.Percent, 0.01);
+    Near(-40, steep?.SlopePointsPerYear, 0.01);
+
+    var rising = OfficialHealthEstimator.Estimate([OfficialRecord(OfficialT0(), 50), OfficialRecord(t1, 60)], null, t1.AddDays(100));
+    Near(60, rising?.Percent);
+    Near(0, rising?.SlopePointsPerYear);
+
+    Near(0, OfficialHealthEstimator.Estimate([OfficialRecord(OfficialT0(), 20), OfficialRecord(t1, 10)], null, t1.AddDays(3650))?.Percent);
+}
+
+static void OfficialTrendInstalledAtImplicitPoint()
+{
+    var installed = OfficialT0().AddDays(-365);
+    var estimate = OfficialHealthEstimator.Estimate([OfficialRecord(OfficialT0(), 80)], installed, OfficialT0().AddDays(365));
+    Near(60, estimate?.Percent, 0.01);
+    Near(-20, estimate?.SlopePointsPerYear, 0.01);
+
+    var only = OfficialHealthEstimator.Estimate([], installed, OfficialT0());
+    Near(100, only?.Percent);
+    Equal(BatteryHealthConfidence.Low, only!.Confidence);
+}
+
+static void OfficialTrendSingleRecordAndConfidence()
+{
+    var one = OfficialHealthEstimator.Estimate([OfficialRecord(OfficialT0(), 70)], null, OfficialT0().AddDays(5));
+    Near(70, one?.Percent);
+    Equal(BatteryHealthConfidence.Medium, one!.Confidence);
+
+    OfficialHealthRecord[] two = [OfficialRecord(OfficialT0().AddDays(-30), 72), OfficialRecord(OfficialT0(), 70)];
+    Equal(BatteryHealthConfidence.High, OfficialHealthEstimator.Estimate(two, null, OfficialT0().AddDays(14))!.Confidence);
+    Equal(BatteryHealthConfidence.Medium, OfficialHealthEstimator.Estimate(two, null, OfficialT0().AddDays(14.5))!.Confidence);
+    Equal(BatteryHealthConfidence.Medium, OfficialHealthEstimator.Estimate(two, null, OfficialT0().AddDays(60))!.Confidence);
+    Equal(BatteryHealthConfidence.Low, OfficialHealthEstimator.Estimate(two, null, OfficialT0().AddDays(61))!.Confidence);
+}
+
+static void OfficialHealthPredictionErrors()
+{
+    var records = new List<OfficialHealthRecord>();
+    var first = OfficialHealthEstimator.AddRecord(records, null, OfficialRecord(OfficialT0(), 59));
+    Equal(null, first.PredictedPercent);
+    var t1 = OfficialT0().AddDays(71);
+    var second = OfficialHealthEstimator.AddRecord(records, null, OfficialRecord(t1, 54));
+    Near(59, second.PredictedPercent);
+    var third = OfficialHealthEstimator.AddRecord(records, null, OfficialRecord(t1.AddDays(30), 50));
+    Near(51.887, third.PredictedPercent, 0.01);
+
+    // 過去日の記録は時刻順に挿入され、それより前の記録のみで予測される。
+    var middle = OfficialHealthEstimator.AddRecord(records, null, OfficialRecord(OfficialT0().AddDays(35.5), 58));
+    Near(59, middle.PredictedPercent);
+    Equal(1, records.IndexOf(middle));
+
+    var errors = OfficialHealthEstimator.Errors(records);
+    Equal(3, errors.Count);
+    Near(-1, errors[0].Error);
+    Near(-5, errors[1].Error);
+    Near(-1.887, errors[2].Error, 0.01);
+    Near((1 + 5 + 1.887) / 3, OfficialHealthEstimator.MeanAbsoluteError(records), 0.01);
+    Equal(null, OfficialHealthEstimator.MeanAbsoluteError([OfficialRecord(OfficialT0(), 59)]));
+
+    var withInstall = new List<OfficialHealthRecord>();
+    var p = OfficialHealthEstimator.AddRecord(withInstall, OfficialT0().AddDays(-100), OfficialRecord(OfficialT0(), 80));
+    Near(100, p.PredictedPercent);
+}
+
+static void RuntimeLoadNormalization()
+{
+    var options = new BatteryHealthOptions();
+    var telemetry = UpsTelemetryValidator.Normalize(Snapshot(
+        battery: 100, load: 40, fullyCharged: true, runtime: TimeSpan.FromMinutes(12)));
+    // 基準1点(20%/52分)のみ: 既定 k=1.9 で 40% 負荷へ正規化。
+    var expectedMinutes = 52 * Math.Pow(20.0 / 40.0, 1.9);
+    var health = BatteryHealthCalculator.Calculate(telemetry, RuntimeProfile(BatteryRuntimeBaselineKind.CurrentRelative), options);
+    Near(12 / expectedMinutes * 100, health.RelativePerformancePercent, 0.01);
+
+    // 2点(負荷差10pt以上)から k を推定: 20%/52分, 40%/13分 -> k=2。
+    var profile = RuntimeProfile(BatteryRuntimeBaselineKind.CurrentRelative);
+    profile.RuntimeBaselines.Add(new BatteryRuntimeBaselinePoint
+    {
+        LoadPercent = 40,
+        Runtime = TimeSpan.FromMinutes(13),
+        MeasuredAt = DateTimeOffset.UtcNow,
+    });
+    // 2基準点の間(30%)は従来の線形補間(52分と13分の中点 32.5分)が使われ、正規化値ではない。
+    var at30 = UpsTelemetryValidator.Normalize(Snapshot(
+        battery: 100, load: 30, fullyCharged: true, runtime: TimeSpan.FromMinutes(32.5)));
+    Near(100, BatteryHealthCalculator.Calculate(at30, profile, options).RelativePerformancePercent, 0.01);
+    var at30Normalized = UpsTelemetryValidator.Normalize(Snapshot(
+        battery: 100, load: 30, fullyCharged: true, runtime: TimeSpan.FromMinutes(52 * Math.Pow(20.0 / 30.0, 2))));
+    Equal(true, BatteryHealthCalculator.Calculate(at30Normalized, profile, options).RelativePerformancePercent < 80);
+    // 許容差外の低負荷(10%)でも N/A にならない。
+    var at10 = UpsTelemetryValidator.Normalize(Snapshot(
+        battery: 100, load: 10, fullyCharged: true, runtime: TimeSpan.FromMinutes(52 * 4)));
+    Near(100, BatteryHealthCalculator.Calculate(at10, profile, options).RelativePerformancePercent, 0.01);
+
+    var invalid = false;
+    try
+    {
+        BatteryHealthCalculator.Calculate(telemetry, null, new BatteryHealthOptions { RuntimeLoadExponent = 5 });
+    }
+    catch (ArgumentOutOfRangeException)
+    {
+        invalid = true;
+    }
+
+    Equal(true, invalid);
+}
+
+static void RuntimeSteadyStateFilterBehavior()
+{
+    var start = new DateTimeOffset(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
+    UpsTelemetry Sample(int seconds, double? load, double runtimeMinutes) => UpsTelemetryValidator.Normalize(Snapshot(
+        load: load, runtime: TimeSpan.FromMinutes(runtimeMinutes), timestamp: start.AddSeconds(seconds)));
+
+    var filter = new RuntimeSteadyStateFilter();
+    // 履歴が60秒に満たない間は定常値が無く Missing。
+    Equal(false, filter.Apply(Sample(0, 20, 50)).RuntimeRemaining.IsValid);
+    Equal(false, filter.Apply(Sample(30, 21, 51)).RuntimeRemaining.IsValid);
+    // 60秒以上 3pt 以内で定常: そのまま通す。
+    var steady = filter.Apply(Sample(60, 22, 52));
+    Near(52, steady.RuntimeRemaining.Value?.TotalMinutes);
+    // 負荷が跳ねた過渡値は直前の定常値に置換される。
+    var transient = filter.Apply(Sample(70, 40, 20));
+    Near(52, transient.RuntimeRemaining.Value?.TotalMinutes);
+    Near(22, transient.LoadPercent.Value);
+    // 負荷が無効なら履歴クリア。再び定常になるまで直前の定常値を保持する。
+    var cleared = filter.Apply(Sample(80, null, 10));
+    Near(52, cleared.RuntimeRemaining.Value?.TotalMinutes);
+    Near(22, filter.Apply(Sample(90, 40, 20)).LoadPercent.Value);
+    // 40% で60秒以上安定すれば新しい定常値になる。
+    var settled = filter.Apply(Sample(150, 41, 21));
+    Near(21, settled.RuntimeRemaining.Value?.TotalMinutes);
+    Near(41, settled.LoadPercent.Value);
+}
+
+static void OfficialTrendIsPreferredInCalculate()
+{
+    var now = new DateTimeOffset(2026, 12, 1, 0, 0, 0, TimeSpan.Zero);
+    var profile = RuntimeProfile(BatteryRuntimeBaselineKind.CurrentRelative);
+    profile.OfficialHealthRecords.Add(OfficialRecord(new DateTimeOffset(2026, 8, 22, 0, 0, 0, TimeSpan.Zero), 59));
+    profile.OfficialHealthRecords.Add(OfficialRecord(new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero), 54));
+
+    var slow = UpsTelemetryValidator.Normalize(Snapshot(
+        battery: 100, load: 20, fullyCharged: true, runtime: TimeSpan.FromMinutes(36.4), timestamp: now));
+    var result = BatteryHealthCalculator.Calculate(slow, profile);
+    Equal(BatteryHealthMethod.OfficialHealthTrend, result.PrimaryMethod);
+    Near(51.887, result.HealthPercent, 0.01);
+    Near(70, result.RelativePerformancePercent);
+    Equal(BatteryHealthStatus.VendorReported, result.Status);
+    Equal(BatteryHealthConfidence.Medium, result.Confidence);
+    Equal(true, result.OfficialEstimate is not null);
+    Equal(true, result.Reasons.Any(item => item.Code == BatteryHealthReasonCode.OfficialHealthTrendEstimated));
+    Equal(true, result.Reasons.Any(item => item.Code == BatteryHealthReasonCode.RuntimeDeclineDetectedRerecord));
+    Equal(BatteryReplacementStatus.ConsiderReplacement, result.Replacement.Status);
+    Equal(BatteryReplacementReasonCode.OfficialHealthTrendBelowReference, result.Replacement.Reasons[0].Code);
+
+    // ベースラインが無くても成立し、相対性能が計算できなければ再記録理由は付かない。
+    var bare = new BatteryHealthProfile { DeviceId = "test", BatteryInstalledAt = now.AddYears(-1) };
+    bare.OfficialHealthRecords.Add(OfficialRecord(now.AddDays(-40), 86));
+    bare.OfficialHealthRecords.Add(OfficialRecord(now.AddDays(-3), 85));
+    var good = BatteryHealthCalculator.Calculate(slow, bare);
+    Equal(BatteryHealthMethod.OfficialHealthTrend, good.PrimaryMethod);
+    Equal(BatteryHealthConfidence.High, good.Confidence);
+    Equal(null, good.RelativePerformancePercent);
+    Equal(false, good.Reasons.Any(item => item.Code == BatteryHealthReasonCode.RuntimeDeclineDetectedRerecord));
+
+    // 物理容量比は公式値推移より優先される。
+    var capacity = UpsTelemetryValidator.Normalize(Snapshot(
+        designCapacity: 100, fullChargeCapacity: 90, timestamp: now,
+        telemetry: [CapacityItem(0x83, 100, "Wh", 0x00F0D121, 1000), CapacityItem(0x67, 90, "Wh", 0x00F0D121, 1000)]));
+    Equal(BatteryHealthMethod.CapacityRatio, BatteryHealthCalculator.Calculate(capacity, profile).PrimaryMethod);
+
+    // 設置日のみ(記録0件)では公式値推移は採用されず、従来のランタイム比になる。
+    var installOnly = RuntimeProfile(BatteryRuntimeBaselineKind.CurrentRelative);
+    installOnly.BatteryInstalledAt = now.AddYears(-1);
+    Equal(BatteryHealthMethod.RelativeRuntimeTrend, BatteryHealthCalculator.Calculate(slow, installOnly).PrimaryMethod);
+
+    // 設置日が最古の記録より後なら暗黙点は無視され、上昇する補間にならない。
+    var lateInstall = new[] { OfficialRecord(now.AddDays(-40), 80) };
+    Near(80, OfficialHealthEstimator.Estimate(lateInstall, now.AddDays(-10), now.AddDays(-20))?.Percent, 0.001);
+    Equal(true, OfficialHealthEstimator.Estimate(lateInstall, now.AddDays(-10), now)!.Percent <= 80);
+
+    // 記録も設置日も無ければ従来どおりランタイム比(新規分岐に入らない)。
+    Equal(BatteryHealthMethod.RelativeRuntimeTrend,
+        BatteryHealthCalculator.Calculate(slow, RuntimeProfile(BatteryRuntimeBaselineKind.CurrentRelative)).PrimaryMethod);
+}
+
+static void LegacyAnchorMigration()
+{
+    var recordedAt = new DateTimeOffset(2026, 8, 22, 9, 30, 15, 500, TimeSpan.Zero);
+    var profile = new BatteryHealthProfile
+    {
+        DeviceId = "test",
+        RuntimeBaselineKind = BatteryRuntimeBaselineKind.KnownHealthAnchor,
+        AnchorHealthPercent = 59,
+        VendorHealthCategory = VendorBatteryHealthCategory.Poor,
+        BaselineRecordedAt = recordedAt,
+    };
+
+    Equal(true, OfficialHealthEstimator.TryMigrateLegacyAnchor(profile));
+    Equal(false, OfficialHealthEstimator.TryMigrateLegacyAnchor(profile));
+    Equal(1, profile.OfficialHealthRecords.Count);
+    Near(59, profile.OfficialHealthRecords[0].HealthPercent);
+    Equal(VendorBatteryHealthCategory.Poor, profile.OfficialHealthRecords[0].Source);
+    Equal(null, profile.OfficialHealthRecords[0].PredictedPercent);
+    Near(59, profile.AnchorHealthPercent);
+    Equal(BatteryRuntimeBaselineKind.KnownHealthAnchor, profile.RuntimeBaselineKind);
+
+    var other = new BatteryHealthProfile { DeviceId = "other", AnchorHealthPercent = 59, BaselineRecordedAt = recordedAt };
+    Equal(false, OfficialHealthEstimator.TryMigrateLegacyAnchor(other));
+}
+
+static void OfficialHealthRecordsConfigurationRoundTrip() =>
+    OfficialHealthRecordsConfigurationRoundTripAsync().GetAwaiter().GetResult();
+
+static async Task OfficialHealthRecordsConfigurationRoundTripAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsOfficialHealth_{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        var store = new JsonConfigurationStore(paths);
+        var configuration = new AppConfiguration();
+        var profile = new BatteryHealthProfile
+        {
+            DeviceId = "test",
+            BatteryInstalledAt = new DateTimeOffset(2024, 3, 1, 0, 0, 0, TimeSpan.FromHours(9)),
+        };
+        OfficialHealthEstimator.AddRecord(profile.OfficialHealthRecords, profile.BatteryInstalledAt, OfficialRecord(OfficialT0(), 59));
+        profile.OfficialHealthRecords[0].Note = "memo";
+        configuration.BatteryHealth.Profiles.Add(profile);
+        await store.SaveAsync(configuration);
+
+        var json = await File.ReadAllTextAsync(paths.ConfigurationFile);
+        Equal(true, json.Contains("\"poor\""));
+
+        var loaded = (await store.LoadAsync()).BatteryHealth.Profiles.Single();
+        Equal(profile.BatteryInstalledAt, loaded.BatteryInstalledAt);
+        Equal(1, loaded.OfficialHealthRecords.Count);
+        Equal(OfficialT0(), loaded.OfficialHealthRecords[0].RecordedAt);
+        Near(59, loaded.OfficialHealthRecords[0].HealthPercent);
+        Equal(VendorBatteryHealthCategory.Poor, loaded.OfficialHealthRecords[0].Source);
+        Near(100, loaded.OfficialHealthRecords[0].PredictedPercent);
+        Equal("memo", loaded.OfficialHealthRecords[0].Note);
+    }
+    finally
+    {
+        Directory.Delete(testRoot, recursive: true);
+    }
+}
+
+static OfficialHealthModelResult ModelResult(OfficialHealthEstimate estimate, OfficialHealthModel model) =>
+    estimate.Models.Single(item => item.Model == model);
+
+static DateTimeOffset OfficialInstalled() => new(2024, 7, 15, 0, 0, 0, TimeSpan.Zero);
+
+static void OfficialInstallAnchoredSlope()
+{
+    OfficialHealthRecord[] records =
+    [
+        OfficialRecord(new DateTimeOffset(2026, 8, 22, 8, 18, 0, TimeSpan.Zero), 59),
+        OfficialRecord(new DateTimeOffset(2026, 11, 1, 6, 38, 0, TimeSpan.Zero), 54),
+    ];
+    var at = new DateTimeOffset(2026, 12, 1, 0, 0, 0, TimeSpan.Zero);
+    var estimate = OfficialHealthEstimator.Estimate(records, OfficialInstalled(), at)!;
+    // 件数が足りない間は購入日起点の直線を採用する。傾きは約 19.8pt/年。
+    Equal(OfficialHealthModel.InstallAnchoredLinear, estimate.Model);
+    Near(-19.79, estimate.SlopePointsPerYear, 0.1);
+    Near(54 - (19.79 * (at - records[1].RecordedAt).TotalDays / 365), estimate.Percent, 0.05);
+
+    // 購入日が無い、または最古の記録より後なら M2/M3 は利用不可で M1 を使う。
+    var noInstall = OfficialHealthEstimator.Estimate(records, null, at)!;
+    Equal(OfficialHealthModel.RecentLinear, noInstall.Model);
+    Equal(false, ModelResult(noInstall, OfficialHealthModel.InstallAnchoredLinear).IsAvailable);
+    Equal(false, ModelResult(noInstall, OfficialHealthModel.AcceleratingPower).IsAvailable);
+    var late = OfficialHealthEstimator.Estimate(records, records[0].RecordedAt.AddDays(1), at)!;
+    Equal(false, ModelResult(late, OfficialHealthModel.InstallAnchoredLinear).IsAvailable);
+    Equal(OfficialHealthModel.RecentLinear, late.Model);
+}
+
+static void OfficialAcceleratingPowerRecovery()
+{
+    var installed = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    OfficialHealthRecord Make(double years) =>
+        OfficialRecord(installed.AddDays(years * 365), 100 - (12 * Math.Pow(years, 1.5)));
+    OfficialHealthRecord[] records = [Make(0.5), Make(1), Make(1.5), Make(2)];
+
+    // 合成データ(p=1.5, a=12)を復元できていれば、外挿は元の曲線に一致する。
+    var at = installed.AddDays(2.5 * 365);
+    var estimate = OfficialHealthEstimator.Estimate(records, installed, at)!;
+    var power = ModelResult(estimate, OfficialHealthModel.AcceleratingPower);
+    Near(100 - (12 * Math.Pow(2.5, 1.5)), power.Percent, 0.05);
+    var fit = OfficialHealthEstimator.FitPower(records, installed)!.Value;
+    Near(1.5, fit.P, 0.011);
+    Near(12, fit.A, 0.3);
+
+    // 記録1件では M3 は利用不可。
+    var single = OfficialHealthEstimator.Estimate([records[0]], installed, at)!;
+    Equal(false, ModelResult(single, OfficialHealthModel.AcceleratingPower).IsAvailable);
+    Equal(true, ModelResult(single, OfficialHealthModel.InstallAnchoredLinear).IsAvailable);
+}
+
+static void OfficialModelsExtrapolateFromLastRecord()
+{
+    var installed = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    OfficialHealthRecord[] records =
+    [
+        OfficialRecord(installed.AddDays(400), 80),
+        OfficialRecord(installed.AddDays(600), 70),
+    ];
+    var last = records[1].RecordedAt;
+
+    // どのモデルも最後の記録の直後は記録値から連続し、範囲内は共通の線形補間。
+    var justAfter = OfficialHealthEstimator.Estimate(records, installed, last.AddSeconds(1))!;
+    foreach (var result in justAfter.Models)
+    {
+        Near(70, result.Percent, 0.001);
+    }
+
+    var middle = OfficialHealthEstimator.Estimate(records, installed, installed.AddDays(500))!;
+    foreach (var result in middle.Models)
+    {
+        Near(75, result.Percent, 0.001);
+    }
+
+    // クリップ: 低下は年40pt以内、0 未満にならない、上昇はしない。
+    var year = OfficialHealthEstimator.Estimate(records, installed, last.AddDays(365))!;
+    foreach (var result in year.Models)
+    {
+        Equal(true, result.Percent >= 30 - 0.001 && result.Percent <= 70 + 0.001);
+    }
+
+    var far = OfficialHealthEstimator.Estimate(records, installed, last.AddDays(36500))!;
+    foreach (var result in far.Models)
+    {
+        Equal(true, result.Percent >= 0 && result.Percent <= 70);
+    }
+
+    OfficialHealthRecord[] rising = [OfficialRecord(installed.AddDays(400), 60), OfficialRecord(installed.AddDays(600), 70)];
+    foreach (var result in OfficialHealthEstimator.Estimate(rising, installed, installed.AddDays(900))!.Models)
+    {
+        Equal(true, result.Percent <= 70 + 0.001);
+    }
+
+    Near(justAfter.MinPercent, justAfter.MaxPercent);
+    Equal(true, year.SpreadPercent >= 0);
+}
+
+static void OfficialBacktestAndSelection()
+{
+    var installed = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    // h = 100 - 5 t^2: 加速曲線そのもの。
+    OfficialHealthRecord Make(double years) =>
+        OfficialRecord(installed.AddDays(years * 365), 100 - (5 * years * years));
+    OfficialHealthRecord[] five = [Make(1), Make(1.5), Make(2), Make(2.5), Make(3)];
+    var at = installed.AddDays(3.5 * 365);
+
+    var all = OfficialHealthEstimator.Estimate(five, installed, at)!;
+    Equal(4, ModelResult(all, OfficialHealthModel.RecentLinear).BacktestCount);
+    Equal(4, ModelResult(all, OfficialHealthModel.InstallAnchoredLinear).BacktestCount);
+    Equal(3, ModelResult(all, OfficialHealthModel.AcceleratingPower).BacktestCount);
+    Near(0, ModelResult(all, OfficialHealthModel.AcceleratingPower).MeanAbsoluteError, 0.02);
+    Equal(true, ModelResult(all, OfficialHealthModel.InstallAnchoredLinear).MeanAbsoluteError > 0.5);
+    // 全モデルのバックテストが3件以上 → MAE 最小(加速曲線)。
+    Equal(OfficialHealthModel.AcceleratingPower, all.Model);
+
+    // 3件未満が1つでもあれば M2 を採用する。
+    var three = OfficialHealthEstimator.Estimate(five[..3], installed, at)!;
+    Equal(1, ModelResult(three, OfficialHealthModel.AcceleratingPower).BacktestCount);
+    Equal(OfficialHealthModel.InstallAnchoredLinear, three.Model);
+
+    // 購入日なしは M1 のみ。
+    Equal(OfficialHealthModel.RecentLinear, OfficialHealthEstimator.Estimate(five, null, at)!.Model);
+
+    // MAE が同値(直線データ: 全モデル誤差0)なら M2 > M1 > M3 の順で優先。
+    OfficialHealthRecord Linear(double years) =>
+        OfficialRecord(installed.AddDays(years * 365), 100 - (10 * years));
+    OfficialHealthRecord[] line = [Linear(0.5), Linear(1), Linear(1.5), Linear(2), Linear(2.5)];
+    Equal(OfficialHealthModel.InstallAnchoredLinear, OfficialHealthEstimator.Estimate(line, installed, at)!.Model);
+
+    var backtest = OfficialHealthEstimator.BacktestModels(five, installed);
+    Equal(4, backtest.Single(item => item.Model == OfficialHealthModel.RecentLinear).BacktestCount);
+    Equal(0, OfficialHealthEstimator.BacktestModels([five[0]], installed).Max(item => item.BacktestCount));
+}
+
+static void OfficialModelPredictionsAndRounding()
+{
+    var installed = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    var records = new List<OfficialHealthRecord>();
+    var first = OfficialHealthEstimator.AddRecord(records, installed, OfficialRecord(installed.AddDays(400), 80));
+    Equal(true, first.ModelPredictions is { Count: 1 } && first.ModelPredictions.ContainsKey(OfficialHealthModel.RecentLinear));
+
+    var second = OfficialHealthEstimator.AddRecord(records, installed, OfficialRecord(installed.AddDays(600), 70));
+    Equal(2, second.ModelPredictions!.Count);
+    Near(second.ModelPredictions[OfficialHealthModel.InstallAnchoredLinear], second.PredictedPercent);
+
+    var third = OfficialHealthEstimator.AddRecord(records, installed, OfficialRecord(installed.AddDays(800), 60));
+    Equal(3, third.ModelPredictions!.Count);
+    Equal(null, OfficialHealthEstimator.AddRecord(new List<OfficialHealthRecord>(), null, OfficialRecord(installed, 90)).ModelPredictions);
+
+    Equal(true, OfficialHealthEstimator.IsWithinRounding(0.5));
+    Equal(true, OfficialHealthEstimator.IsWithinRounding(-0.5));
+    Equal(false, OfficialHealthEstimator.IsWithinRounding(0.51));
+    Equal(false, OfficialHealthEstimator.IsWithinRounding(-1.2));
+}
+
+static void OfficialContextConfigurationCompatibility() =>
+    OfficialContextConfigurationCompatibilityAsync().GetAwaiter().GetResult();
+
+static async Task OfficialContextConfigurationCompatibilityAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsOfficialContext_{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        var store = new JsonConfigurationStore(paths);
+        Directory.CreateDirectory(paths.SharedDirectory);
+
+        // 旧形式(Context/ModelPredictions/ContextBackfillAttempted なし)がそのまま読める。
+        await File.WriteAllTextAsync(paths.ConfigurationFile, """
+            {"batteryHealth":{"profiles":[{"deviceId":"x","officialHealthRecords":[
+              {"recordedAt":"2026-08-22T17:18:00+09:00","healthPercent":59,"source":"poor","predictedPercent":100,"note":"legacy anchor"}
+            ]}]}}
+            """);
+        var old = (await store.LoadAsync()).BatteryHealth.Profiles.Single().OfficialHealthRecords.Single();
+        Near(59, old.HealthPercent);
+        Equal(null, old.Context);
+        Equal(null, old.ModelPredictions);
+        Equal(false, old.ContextBackfillAttempted);
+
+        // 新形式の保存・読込。
+        var configuration = await store.LoadAsync();
+        var record = configuration.BatteryHealth.Profiles.Single().OfficialHealthRecords.Single();
+        record.Context = new OfficialHealthContext
+        {
+            LoadPercent = 34,
+            ActivePowerWatts = 315,
+            RuntimeSeconds = 1092,
+            BatteryVoltage = 27.1,
+            Charging = true,
+            DaysSinceLastDischarge = null,
+            HistoryStartedAt = new DateTimeOffset(2026, 8, 22, 9, 20, 0, TimeSpan.Zero),
+        };
+        record.ModelPredictions = new() { [OfficialHealthModel.RecentLinear] = 58.5, [OfficialHealthModel.AcceleratingPower] = 57.2 };
+        record.ContextBackfillAttempted = true;
+        await store.SaveAsync(configuration);
+
+        var loaded = (await store.LoadAsync()).BatteryHealth.Profiles.Single().OfficialHealthRecords.Single();
+        Near(34, loaded.Context!.LoadPercent);
+        Near(315, loaded.Context.ActivePowerWatts);
+        Near(27.1, loaded.Context.BatteryVoltage);
+        Equal(true, loaded.Context.Charging);
+        Equal(null, loaded.Context.InputVoltage);
+        Equal(null, loaded.Context.DaysSinceLastDischarge);
+        Equal(record.Context.HistoryStartedAt, loaded.Context.HistoryStartedAt);
+        Near(57.2, loaded.ModelPredictions![OfficialHealthModel.AcceleratingPower]);
+        Equal(true, loaded.ContextBackfillAttempted);
+    }
+    finally
+    {
+        Directory.Delete(testRoot, recursive: true);
+    }
+}
+
+static void OfficialContextQueryAndBackfill() => OfficialContextQueryAndBackfillAsync().GetAwaiter().GetResult();
+
+static async Task OfficialContextQueryAndBackfillAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsOfficialContextDb_{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        await store.InitializeAsync();
+        var at = new DateTimeOffset(2026, 11, 1, 6, 38, 0, TimeSpan.Zero);
+        long Ms(DateTimeOffset value) => value.ToUnixTimeMilliseconds();
+
+        await using (var connection = new SqliteConnection($"Data Source={paths.TelemetryDatabaseFile};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            async Task Exec(string sql, params (string Name, object Value)[] parameters)
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = sql;
+                foreach (var (name, value) in parameters)
+                {
+                    command.Parameters.AddWithValue(name, value);
+                }
+
+                await command.ExecuteNonQueryAsync();
+            }
+
+            const string sampleSql = """
+                INSERT INTO telemetry_samples (device_id, timestamp_utc_ms, is_connected, power_state,
+                    input_voltage, battery_voltage, runtime_seconds, load_percent, active_power_watts, temperature_c, charging)
+                VALUES ($d, $t, 1, 1, $iv, 27.1, 1092, $load, 315, 25, 1);
+                """;
+            await Exec(sampleSql, ("$d", "dev"), ("$t", Ms(at.AddSeconds(-30))), ("$iv", 100.0), ("$load", 34.0));
+            // 窓(±5分)の外にあるサンプルは無視される。
+            await Exec(sampleSql, ("$d", "dev"), ("$t", Ms(at.AddMinutes(10))), ("$iv", 90.0), ("$load", 90.0));
+
+            const string rollupSql = """
+                INSERT INTO telemetry_rollups_1m (device_id, bucket_utc_ms, metric, minimum, maximum, value_sum, sample_count, last_value, last_timestamp_utc_ms)
+                VALUES ($d, $b, $m, $min, $max, $sum, 60, $last, $b);
+                """;
+            for (var minute = 0; minute <= 1500; minute++)
+            {
+                var bucket = Ms(at.AddMinutes(-minute));
+                var load = minute <= 10 ? 40.0 : 20.0;
+                await Exec(rollupSql, ("$d", "dev"), ("$b", bucket), ("$m", (int)TelemetryMetric.LoadPercent),
+                    ("$min", load), ("$max", load + 5), ("$sum", load * 60), ("$last", load));
+                await Exec(rollupSql, ("$d", "dev"), ("$b", bucket), ("$m", (int)TelemetryMetric.BatteryVoltage),
+                    ("$min", 27.0), ("$max", 27.0), ("$sum", 27.0 * 60), ("$last", 27.0));
+            }
+
+            // 別デバイスは混ざらない。
+            await Exec(rollupSql, ("$d", "other"), ("$b", Ms(at)), ("$m", (int)TelemetryMetric.LoadPercent),
+                ("$min", 99.0), ("$max", 99.0), ("$sum", 99.0 * 60), ("$last", 99.0));
+
+            const string stateSql = "INSERT INTO ups_state_changes (device_id, timestamp_utc_ms, power_state) VALUES ($d, $t, $s);";
+            await Exec(stateSql, ("$d", "dev"), ("$t", Ms(at.AddDays(-5))), ("$s", (int)UpsPowerState.Online));
+            await Exec(stateSql, ("$d", "dev"), ("$t", Ms(at.AddDays(-3))), ("$s", (int)UpsPowerState.OnBattery));
+            await Exec(stateSql, ("$d", "dev"), ("$t", Ms(at.AddDays(-3).AddMinutes(10))), ("$s", (int)UpsPowerState.Online));
+        }
+
+        var context = await store.QueryOfficialHealthContextAsync("dev", at);
+        Near(34, context.LoadPercent);
+        Near(315, context.ActivePowerWatts);
+        Near(1092, context.RuntimeSeconds);
+        Near(27.1, context.BatteryVoltage);
+        Near(100, context.InputVoltage);
+        Near(25, context.TemperatureCelsius);
+        Equal(true, context.Charging);
+        Near(40, context.Load10MinuteMean);
+        Near(45, context.Load10MinuteMax);
+        Near(((11 * 40.0) + (1430 * 20.0)) / 1441, context.Load24HourMean, 0.001);
+        Near(45, context.Load24HourMax);
+        Near(27.0, context.BatteryVoltage24HourMean);
+        Near(3 - (10.0 / 1440), context.DaysSinceLastDischarge, 0.001);
+        Equal(at.AddDays(-5), context.HistoryStartedAt);
+
+        // raw サンプルが無い時刻は1分ロールアップから瞬間値を取る(ロールアップに無い項目は null)。
+        var fallback = await store.QueryOfficialHealthContextAsync("dev", at.AddHours(-2));
+        Near(20, fallback.LoadPercent);
+        Equal(null, fallback.ActivePowerWatts);
+        Equal(null, fallback.RuntimeSeconds);
+        Near(27.0, fallback.BatteryVoltage);
+        Equal(null, fallback.Charging);
+
+        // 履歴の開始より前の時刻は全項目 null(開始日時だけが分かる)。放電履歴の無いデバイスは日数 null。
+        var before = await store.QueryOfficialHealthContextAsync("dev", at.AddDays(-30));
+        Equal(false, before.HasAnyValue);
+        Equal(at.AddDays(-5), before.HistoryStartedAt);
+        var noDischarge = await store.QueryOfficialHealthContextAsync("other", at);
+        Equal(null, noDischarge.DaysSinceLastDischarge);
+        Near(99, noDischarge.Load10MinuteMean);
+        Equal((await store.QueryOfficialHealthContextAsync("nothing", at)).HistoryStartedAt, null);
+
+        // 後付け: Context が無い記録だけに補完し、試行済みは再試行しない(冪等)。
+        var existing = OfficialRecord(at.AddDays(-1), 50);
+        existing.Context = new OfficialHealthContext { LoadPercent = 11 };
+        var records = new List<OfficialHealthRecord>
+        {
+            OfficialRecord(at.AddDays(-40), 60),
+            OfficialRecord(at, 54),
+            existing,
+        };
+        Equal(2, await OfficialHealthContextService.BackfillAsync(records, "dev", store));
+        Equal(null, records[0].Context);
+        Equal(true, records[0].ContextBackfillAttempted);
+        Near(34, records[1].Context!.LoadPercent);
+        Equal(true, records[1].ContextBackfillAttempted);
+        Near(11, existing.Context.LoadPercent);
+        Equal(false, existing.ContextBackfillAttempted);
+
+        var snapshotJson = System.Text.Json.JsonSerializer.Serialize(records);
+        Equal(0, await OfficialHealthContextService.BackfillAsync(records, "dev", store));
+        Equal(snapshotJson, System.Text.Json.JsonSerializer.Serialize(records));
+
+        // 記録時: 現在に近い記録は瞬間値を現在値で上書きし、遠い記録は履歴の値のまま。
+        var live = new OfficialHealthContext { LoadPercent = 50, ActivePowerWatts = 400 };
+        var near = await OfficialHealthContextService.CaptureAsync(store, "dev", at, at.AddMinutes(1), live);
+        Near(50, near!.LoadPercent);
+        Near(400, near.ActivePowerWatts);
+        Near(40, near.Load10MinuteMean);
+        var distant = await OfficialHealthContextService.CaptureAsync(store, "dev", at, at.AddDays(2), live);
+        Near(34, distant!.LoadPercent);
+        Equal(null, await OfficialHealthContextService.CaptureAsync(null, "dev", at, at, null));
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        Directory.Delete(testRoot, recursive: true);
+    }
 }
 
 static void SqliteHistoryRoundTrip() => SqliteHistoryRoundTripAsync().GetAwaiter().GetResult();
