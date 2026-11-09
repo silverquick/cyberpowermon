@@ -5,7 +5,7 @@
 
 本書は `docs/performance/*_analysis.md` と全 `docs/*/{implementation_plan,task,walkthrough}.md` を読み、walkthrough の記載だけでなく `UpsMonitor.*` の実コードと `git log` を照合して、提案済み施策の実装状況と積み残しを整理したものである。なお、依頼背景には .NET 8 とあるが、現コードの `UpsMonitor.App/UpsMonitor.App.csproj` は `net10.0-windows` を対象としているため、以下の設計は現行コードを正としている。
 
-## 実装状況（2026-09-17 更新）
+## 実装状況（2026-11-10 更新）
 
 Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Antigravity / 統合: Claude）で #1・#2・#4 を実装・main へ統合済み。
 #3 は Antigravity のワークスペース信頼確認でエージェント起動がブロックされたため Codex `gpt-5.6-terra`（medium）へ切り替え、Core/Infrastructure・UI統合の2waveで実装・main へ統合済み。
@@ -20,7 +20,31 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | 6 | 保存済みログのフィルタ | ⏳ 次ラウンド | — |
 | 7〜9 | （下記「見送り推奨」参照） | 見送り | — |
 
-既知の軽微な整理事項: #4 実装後、旧 `DailyEnergyReports`（7 日固定）コレクションは DataGrid 未バインドのまま毎リフレッシュで `QueryDailyEnergyReportsAsync` を呼んでいる。次回 #7 の `MainViewModel` 分割時に削除する。
+### その他の実装済み改修（#1〜#9 とは別枠、2026-09-17 以降）
+
+`git log --oneline 80044e9..HEAD` で確認した範囲（`80044e9` 以降のコミットはこの 5 件のみ）。
+
+| 種別 | 内容 | 関連コミット |
+|---|---|---|
+| fix(history) | SQLite 共有キャッシュ（`Cache=Shared`）を廃止し、読み取り中の書き込みで `telemetry_samples` が `SQLITE_LOCKED` になるエラーを解消。回帰テストを追加 | `d6d9f5d`、Merge `ec500d9` |
+| fix(ui) | シャットダウン自動化パネルの切替電圧範囲ラベルが、存在しないリソースキー参照で空欄になる問題を修正（既存キー `TransferRange` を参照） | `f7f1055` |
+| feat(health) | 公式アプリ（CyberPower BHI 等）の健全性を日時付きで記録し、その推移から現在値を推定する改善サイクルを追加（3 モデル並走・バックテスト選択・記録時の状況の自動保存など） | `a2e973b`、Merge `c2de3ce`（`f7f1055` と同一マージ） |
+
+#5・#6 は未着手のまま（「⏳ 次ラウンド」を維持）。
+
+既知の整理事項（2026-11-10 時点で再確認）: #4 実装後に残った旧 `DailyEnergyReports`（7 日固定）コレクションは、依然として削除されていない。`UpsMonitor.App/MainViewModel.cs:423` で宣言され、2165〜2176 行付近で毎リフレッシュ `QueryDailyEnergyReportsAsync` を呼んで差分更新しているが、`MainWindow.xaml` にバインドはない（grep で確認）。#7 の分割時、またはそれ以前の単独の小修正で削除できる。
+
+### 健全性推定（公式値推移）の運用上の注意
+
+コード（`UpsMonitor.Core/OfficialHealthEstimator.cs`・`BatteryHealth.cs`）と UI 文字列（`Strings.ja-JP.xaml` の `OfficialRecordHelp` / `OfficialModelHelp`）から確認できる範囲:
+
+- 記録は設定画面の「公式の健全性を記録」から行い、UPS が接続されていないと記録できない（`OfficialRecordRequiresUps`）。公式値は 0〜100 の数値、時刻は `HH:mm` 形式。
+- 購入（設置）日は推移の傾きを求める補助で、公式値の記録が 1 件以上必要。
+- 3 モデル（直近の傾き／購入日起点の直線／購入日起点の加速曲線）のうち、全モデルのバックテストが 3 件以上になるまでは、利用可能なら購入日起点の直線が使われる（`MinimumBacktestsForSelection = 3`）。したがって採用モデルが安定するまで記録を貯める必要がある。
+- 外挿は最後の記録からの経過日数で行うため、記録から時間が経つほど推定幅は広がる（信頼度は経過日数に依存。コード上 60 日以内が Medium、それ以降が Low）。公式値が更新・低下したタイミングで新しい値を記録すると予測精度の検証（誤差・平均絶対誤差）も蓄積される。「公式値が下がった日に記録する」運用は、この性質からの推奨であり、コード・UI 文言に明記された運用手順ではない。
+- 推定に使うランタイムは定常状態（60 秒・負荷差 3 ポイント以内）の値のみで、負荷のべき乗則で正規化した相対性能として扱われる。
+- 記録時の状況（負荷・電力・ランタイム・電圧・直前 10 分／24 時間の統計・最終放電からの日数）は履歴 DB から自動保存される。履歴 DB（`telemetry.db`）の保持期間（既定 14 日）を過ぎた過去の記録に後付けできるかは未確認。
+- 推定結果はあくまで公式値の再現を目的とした推定で、UPS が HID で直接公開する値ではない（README 参照）。
 
 ## 今回スコープ推奨
 
@@ -37,7 +61,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 | 番号 | 施策 | 領域 | 見送り理由 | 再検討条件 |
 |---:|---|---|---|---|
-| 7 | `MainViewModel` の責務分割 | アーキテクチャ | 明確な積み残しだが、現ファイルは約 2,700 行・118 KB で、今回推奨施策の大半と競合する。先に機能ギャップをテストで固定した方が安全 | 1〜6 の統合後、タブ単位の振る舞いテストを用意できた時点 |
+| 7 | `MainViewModel` の責務分割 | アーキテクチャ | 明確な積み残しだが、現ファイルは約 3,330 行（2026-11-10 時点で 3,331 行）で、今回推奨施策の大半と競合する。先に機能ギャップをテストで固定した方が安全（2026-11-10 の検討メモ参照） | #5・#6 の統合後、タブ単位の振る舞いテストを用意できた時点 |
 | 8 | ReadyToRun 発行設定の検証 | 起動 | 発行方式・配布サイズ上限・cold start 基準値が未定で、設定だけ有効化しても効果を判定できない | x64 配布形態と起動計測シナリオを確定した時点 |
 | 9 | 日次レポート DataGrid の差分更新 | UI | 現在は値が変わった場合だけ更新され、件数も固定 7 行で 10 秒周期。残る `Clear` + `Add` の通知コストは小さい | 4 により表示件数が増える、または UI 計測で再描画が顕在化した場合 |
 
@@ -173,10 +197,12 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 ## 7. `MainViewModel` の責務分割
 
+> **検討メモ（2026-11-10、決定ではない）**: 以前は約 2,700 行だった `MainViewModel.cs` は 3,331 行になった（#1・#4 の UI 統合と `a2e973b` の健全性推定で +約 570 行）。増加の根拠は次のとおり。`a2e973b` だけで `MainViewModel.cs` が +571 行、`MainWindow.xaml` が +112 行。見送りを維持する論拠は、#5・#6 が同じファイルと競合する点、および `Core.Tests`（58 件）が Core/Infrastructure 中心で ViewModel の振る舞いテストが無い点。優先度を上げる論拠は、機能追加のたびに同ファイルへ数百行が加わる傾向があり、将来の分割コストが増え続ける点。折衷案として、健全性記録まわり（設定・モデル比較表）だけを先に子 VM へ切り出す案もあるが、未検証。見送り維持か優先度引き上げかは別途判断する。
+
 - **対象領域**: アーキテクチャ
 - **出典**: `docs/architecture_and_ux_improvements/implementation_plan.md`「1-6. MainViewModel の責務分割・リファクタリング」
 - **現状と課題**:
-  `UpsMonitor.App/MainViewModel.cs` は約 2,700 行・118 KB で、監視 snapshot 表示、履歴 query、Analytics、Logs、設定保存、export、通知、シミュレータ、バッテリー基準管理を一括している。walkthrough には専用フィルタ機能の追加はあるが、責務分割そのものは実施されていない。
+  `UpsMonitor.App/MainViewModel.cs` は 3,331 行（2026-11-10 時点。調査時点では約 2,700 行・118 KB） で、監視 snapshot 表示、履歴 query、Analytics、Logs、設定保存、export、通知、シミュレータ、バッテリー基準管理を一括している。walkthrough には専用フィルタ機能の追加はあるが、責務分割そのものは実施されていない。
 - **提案する実装方針**:
   - `HistoryViewModel`（履歴 range、chart、period summary、energy report）、`AnalyticsViewModel`（指標、期間、weekly pattern）、`LogsViewModel`（6 の query/filter）、`SettingsViewModel`（設定編集・保存・通知テスト）、`BatteryHealthViewModel`（baseline 編集）へ段階的に抽出する。
   - `MainViewModel` は `UpsMonitorEngine` の lifecycle、最新 `UpsSnapshot`、タブ子 VM への snapshot/context 配布、tray/minimonitor 向け最小 projection だけを担当する。
