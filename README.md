@@ -2,7 +2,9 @@
 
 Windows 11 x64 向けの読み取り専用 UPS 監視アプリです。.NET 10 / C# / WPF / MVVM で構成し、PowerPanel やサードパーティ USB ライブラリを介さず、Windows 標準 HID / SetupAPI を P/Invoke して USB HID Power Device を読み取ります。
 
-Version 0.1 は監視・状態表示・イベント検出・ローカル履歴・データエクスポート・タスクトレイ常駐・OS通知・ファイルログまでを対象とし、UPS や Windows に対するシャットダウン操作は一切実行しません。HID Output report、`HidD_SetFeature`、電源制御 API も呼び出しません。
+Version 0.1 は監視・状態表示・イベント検出・ローカル履歴・分析・データエクスポート・タスクトレイ常駐・OS通知・ファイルログ・Webhook／外部コマンド連携までを対象とします。アプリ自身は UPS や Windows に対するシャットダウン操作を実行しません。HID Output report、`HidD_SetFeature`、電源制御 API も呼び出しません（HID 側で使うのは `HidD_GetFeature` などの読み取り系のみ）。
+
+画面上の「シャットダウン自動化」パネルと Actions タブ（シャットダウンシーケンス）は、UPS の設定値表示と将来のパイプラインのプレビューであり、無効（Not armed）固定で何も実行しません。なお「外部コマンド連携」は、ユーザーが設定した任意のコマンドを `cmd.exe /c` で実行するため、ユーザー自身が設定したコマンドの内容によっては OS 側の操作も可能です（既定は無効・コマンドは空）。
 
 ## 現在の機能
 
@@ -17,10 +19,15 @@ Version 0.1 は監視・状態表示・イベント検出・ローカル履歴�
 - **説明可能なバッテリー健全性 (SOH) 推定**:
   - 入力値の妥当性検証と、物理容量または同等負荷のランタイム基準によるSOH推定
   - 新品時の絶対基準、現在値からの相対推移、CyberPower BHI等の既知値アンカーを区別して保存
+  - PowerPanel等で確認した公式の健全性を日時付きで記録し（バッテリー購入日も設定可能）、その推移から現在値を推定。3種の推定モデルを並走させ、バックテストの平均絶対誤差で採用モデルを自動選択
   - 健全性の算出方法・信頼度・根拠と、BHIから独立した交換判定を表示
 - **電源状態・イベント判定**:
   - `Unknown / Online / OnBattery / LowBattery / Critical` の状態判定
   - `PowerLost`、`PowerRestored`、`BatteryLow`、`BatteryCritical`、`RuntimeLow`、`OverloadDetected`、`UpsDisconnected`、`UpsReconnected` イベント
+  - カスタムアラート: 高負荷（`HighLoadWarning`）と入力電圧異常（`VoltageAbnormal`）を、しきい値・ヒステリシス付きでイベントとして検出（設定画面で変更）。他のイベントと同じ経路で永続化・Logs・通知・Webhook・外部コマンドへ流れ、任意でシステム音も鳴らせます
+- **Webhook & 外部コマンド連携**（設定画面、既定は無効）:
+  - Discord / Slack / 汎用 JSON Webhook へイベントを非同期送信（停電・復電・バッテリー低下・高負荷を選択、テスト送信あり）
+  - 停電・復電・バッテリー低下・高負荷・電圧異常ごとに、指定したコマンド／バッチを実行（`{EVENT}` `{BATTERY}` 等のプレースホルダ対応、30秒でタイムアウト）
 - **タスクトレイ常駐 & Windows 通知**:
   - Win32 `Shell_NotifyIcon` による軽量なタスクトレイ常駐
   - トレイアイコンのダブルクリックで表示切替、右クリックメニュー（開く / 最小化 / 終了）
@@ -28,6 +35,11 @@ Version 0.1 は監視・状態表示・イベント検出・ローカル履歴�
   - 最小化時および閉じるボタン（`[X]`）押下時のトレイ格納動作（設定可能）
   - 停電・復電・残量低下・過負荷などのイベント発生時の Windows ネイティブトースト通知
   - Windows 起動時の自動起動（スタートアップ登録およびトレイ直接起動 `--tray`）
+- **Analytics（分析）**:
+  - 週間パターンの 7×24 ヒートマップ（有効電力・入力電圧・負荷率・力率 Power Factor）
+  - 電力量レポート（日次／月次の切替、推定電気料金、ピーク／平均W、停電回数）。観測時間に基づいて集計
+  - 負荷別の推定ランタイムを試算するロードシミュレーター
+  - ミニモニターウィンドウ
 - **ローカル履歴 & データエクスポート**:
   - ローカル SQLite (`telemetry.db`) へ1秒テレメトリ、HID数値、状態遷移、イベント、健全性履歴を保存
   - 1時間／6時間／24時間／7日／30日のグラフ、Dashboardの小型トレンド、状態タイムライン
@@ -155,8 +167,11 @@ PowerPanel Personal の Battery Health Indicator（例: 59%）は、このUPSが
 
 1. 制御ランタイム／放電エネルギー測定
 2. 物理単位を持つ `FullChargeCapacity / DesignCapacity`
-3. 満充電時かつ同等負荷における、保存済みランタイム基準との比較
-4. 比較可能な測定値がなければ `N/A / データ不足`
+3. 記録済みの公式値（BHI等）の推移からの推定（下記）
+4. 満充電時かつ同等負荷における、保存済みランタイム基準との比較
+5. 比較可能な測定値がなければ `N/A / データ不足`
+
+（順序は `UpsMonitor.Core/BatteryHealth.cs` の `Calculate` の分岐順に対応）
 
 CP1200PFCLCD JP が返す `DesignCapacity=100` と `FullChargeCapacity=100` は、物理容量ではなく0～100%の尺度なのでSOH計算から除外します。設定画面では、満充電時の現在ランタイムを次の3方式で記録できます。
 
@@ -175,11 +190,14 @@ SOC、負荷、ランタイム等は範囲検証し、例えば120%の残量は1
 以下は意図的に未実装です。
 
 - Windows Service / Named Pipe
-- SSH、ローカル shutdown、外部 command、webhook
+- SSH、ローカル shutdown（シャットダウン自動化パネルは表示のみ）
+- 組み込みのシャットダウン実行（外部コマンド連携でユーザーが任意コマンドを指定することは可能）
 - Rule Engine の評価・Action 実行
 - Windows Event Log 出力
 - 複数 UPS の選択 UI（現在は最初に開けた UPS を監視）
 - Installer、code signing
+
+Webhook と外部コマンド連携は実装済みで、設定画面から有効化できます（イベント発生時にアプリ内で直接実行します）。
 
 `RuleDefinition`、`RuleTriggerType`、`RuleConditionType`、`RuleActionType` は Core に契約だけ用意してあります。Service 化するときも WPF に特権を与えず、Action executor は Service 側だけに追加します。
 
