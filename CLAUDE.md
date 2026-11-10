@@ -64,7 +64,8 @@ git -c credential.helper= -c "credential.helper=!gh auth git-credential" push or
   - 既定パス（`UpsMonitor.Infrastructure/AppPaths.cs`、`Environment.SpecialFolder.CommonApplicationData` + `UpsMonitor`）:
     - 履歴 DB: `C:\ProgramData\UpsMonitor\telemetry.db`（WAL 用に `-wal` / `-shm` も同じ場所）
     - config: `C:\ProgramData\UpsMonitor\config.json`
-    - ほかに `devices.json`、`logs\` が同じディレクトリ。`AppPaths.UserDirectory`（`%LOCALAPPDATA%\UpsMonitor`）は定義のみで、現状コードからは使われていない
+    - ログ: `C:\ProgramData\UpsMonitor\logs\`
+    - `AppPaths.DevicesFile`（`devices.json`）と `AppPaths.UserDirectory`（`%LOCALAPPDATA%\UpsMonitor`）は初期コミット `342d350` から定義だけあり、読み書きするコードは一度も存在しない
   - 上記パスの中身は開かない。リポジトリ直下の `error.log` も開かない。
 - Antigravity など、非承認の外部エージェントには実 DB へアクセスさせない。
 - 動作確認が必要なときは、`AppPaths` のコンストラクタ引数や一時ディレクトリで合成データを作る（既存テストの方式に倣う）。
