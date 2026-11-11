@@ -1442,7 +1442,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
     }
 
-    // 起動時に1回、状況(Context)が無い既存記録へ履歴から補完する。試行済みの記録は再試行しない。
+    // 起動時に1回、履歴取得が未完了の記録を補完する。保存済みの現在値は維持する。
     private async Task BackfillOfficialContextsAsync()
     {
         if (_historyStore is null)
@@ -1455,7 +1455,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             var changed = false;
             foreach (var profile in _configuration.BatteryHealth.Profiles.ToArray())
             {
-                if (!profile.OfficialHealthRecords.Any(item => item.Context is null && !item.ContextBackfillAttempted))
+                if (!profile.OfficialHealthRecords.Any(item => !item.ContextBackfillAttempted))
                 {
                     continue;
                 }
@@ -1561,25 +1561,24 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             _configuration.BatteryHealth.Profiles.Add(profile);
         }
 
-        // 記録時の状況は履歴DBへの問い合わせ(この記録時のみ)と現在値から作る。
-        var context = await OfficialHealthContextService.CaptureAsync(
+        var newRecord = new OfficialHealthRecord
+        {
+            RecordedAt = recordedAt,
+            HealthPercent = percent,
+            Source = OfficialRecordSource,
+            Note = string.IsNullOrWhiteSpace(OfficialRecordNote) ? null : OfficialRecordNote.Trim(),
+        };
+        // 履歴取得が未完了なら、現在値を保存できても次回起動時の補完対象に残す。
+        await OfficialHealthContextService.CaptureForRecordAsync(
+            newRecord,
             _historyStore,
             profile.DeviceId,
-            recordedAt,
             DateTimeOffset.Now,
             CaptureLiveContext());
         var record = OfficialHealthEstimator.AddRecord(
             profile.OfficialHealthRecords,
             profile.BatteryInstalledAt,
-            new OfficialHealthRecord
-            {
-                RecordedAt = recordedAt,
-                HealthPercent = percent,
-                Source = OfficialRecordSource,
-                Note = string.IsNullOrWhiteSpace(OfficialRecordNote) ? null : OfficialRecordNote.Trim(),
-                Context = context,
-                ContextBackfillAttempted = true,
-            });
+            newRecord);
 
         await _configurationStore.SaveAsync(_configuration);
         RefreshOfficialEditor(profile);
