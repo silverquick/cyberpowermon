@@ -58,7 +58,7 @@ public sealed record OfficialHealthRecord
     public Dictionary<OfficialHealthModel, double>? ModelPredictions { get; set; }
     /// <summary>記録時の状況。旧記録や未取得は null。</summary>
     public OfficialHealthContext? Context { get; set; }
-    /// <summary>起動時の状況補完を試行済みか。true なら結果が null でも再試行しない。</summary>
+    /// <summary>記録時または起動時に履歴取得が正常完了したか。true なら結果が空でも再試行しない。</summary>
     public bool ContextBackfillAttempted { get; set; }
 }
 

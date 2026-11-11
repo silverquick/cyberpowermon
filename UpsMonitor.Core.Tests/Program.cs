@@ -64,6 +64,7 @@ var tests = new (string Name, Action Run)[]
     ("Official record context configuration compatibility", OfficialContextConfigurationCompatibility),
     ("Official record context query and idempotent backfill", OfficialContextQueryAndBackfill),
     ("Official record context capture failure recovers after reload", OfficialContextCaptureFailureRecovery),
+    ("Official record live context survives history recovery", OfficialLiveContextCaptureFailureRecovery),
 };
 
 var failures = new List<string>();
@@ -924,9 +925,10 @@ static async Task OfficialContextQueryAndBackfillAsync()
         Near(99, noDischarge.Load10MinuteMean);
         Equal((await store.QueryOfficialHealthContextAsync("nothing", at)).HistoryStartedAt, null);
 
-        // 後付け: Context が無い記録だけに補完し、試行済みは再試行しない(冪等)。
+        // 後付け: 履歴取得が未完了の記録に補完し、完了済みは再試行しない(冪等)。
         var existing = OfficialRecord(at.AddDays(-1), 50);
         existing.Context = new OfficialHealthContext { LoadPercent = 11 };
+        existing.ContextBackfillAttempted = true;
         var records = new List<OfficialHealthRecord>
         {
             OfficialRecord(at.AddDays(-40), 60),
@@ -939,7 +941,7 @@ static async Task OfficialContextQueryAndBackfillAsync()
         Near(34, records[1].Context!.LoadPercent);
         Equal(true, records[1].ContextBackfillAttempted);
         Near(11, existing.Context.LoadPercent);
-        Equal(false, existing.ContextBackfillAttempted);
+        Equal(true, existing.ContextBackfillAttempted);
 
         var snapshotJson = System.Text.Json.JsonSerializer.Serialize(records);
         Equal(0, await OfficialHealthContextService.BackfillAsync(records, "dev", store));
@@ -962,9 +964,11 @@ static async Task OfficialContextQueryAndBackfillAsync()
     }
 }
 
-static void OfficialContextCaptureFailureRecovery() => OfficialContextCaptureFailureRecoveryAsync().GetAwaiter().GetResult();
+static void OfficialContextCaptureFailureRecovery() => OfficialContextCaptureFailureRecoveryAsync(withLive: false).GetAwaiter().GetResult();
 
-static async Task OfficialContextCaptureFailureRecoveryAsync()
+static void OfficialLiveContextCaptureFailureRecovery() => OfficialContextCaptureFailureRecoveryAsync(withLive: true).GetAwaiter().GetResult();
+
+static async Task OfficialContextCaptureFailureRecoveryAsync(bool withLive)
 {
     var testRoot = Path.Combine(Path.GetTempPath(), $"UpsOfficialContextRecovery_{Guid.NewGuid():N}");
     Directory.CreateDirectory(testRoot);
@@ -980,18 +984,35 @@ static async Task OfficialContextCaptureFailureRecoveryAsync()
             await using var command = connection.CreateCommand();
             command.CommandText = """
                 INSERT INTO telemetry_samples (device_id, timestamp_utc_ms, is_connected, power_state,
-                    load_percent, active_power_watts, runtime_seconds, charging)
-                VALUES ('dev', $at, 1, 1, 34, 315, 1092, 1);
+                    load_percent, active_power_watts, runtime_seconds, battery_voltage, input_voltage, temperature_c, charging)
+                VALUES ('dev', $at, 1, 1, 34, 315, 1092, 26.7, 100, 25, 1);
+                INSERT INTO telemetry_rollups_1m (device_id, bucket_utc_ms, metric, minimum, maximum,
+                    value_sum, sample_count, last_value, last_timestamp_utc_ms)
+                VALUES ('dev', $at, $load, 35, 45, 80, 2, 40, $at),
+                    ('dev', $at, $voltage, 27, 27, 54, 2, 27, $at);
+                INSERT INTO ups_state_changes (device_id, timestamp_utc_ms, power_state)
+                VALUES ('dev', $discharge, $onBattery), ('dev', $restored, $online);
                 """;
             command.Parameters.AddWithValue("$at", at.ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("$load", (int)TelemetryMetric.LoadPercent);
+            command.Parameters.AddWithValue("$voltage", (int)TelemetryMetric.BatteryVoltage);
+            command.Parameters.AddWithValue("$discharge", at.AddDays(-3).ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("$restored", at.AddDays(-2).ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("$onBattery", (int)UpsPowerState.OnBattery);
+            command.Parameters.AddWithValue("$online", (int)UpsPowerState.Online);
             await command.ExecuteNonQueryAsync();
         }
 
-        // アプリと同じ取得処理で失敗させ、状況なしのまま保存・再読込する。
+        // live の有無に関係なく履歴取得失敗は未完了とし、保存・再読込する。
         var source = new FailingOfficialContextSource(history) { Fail = true };
         var record = OfficialRecord(at, 59);
-        await OfficialHealthContextService.CaptureForRecordAsync(record, source, "dev", at, null);
-        Equal(null, record.Context);
+        var live = withLive ? new OfficialHealthContext
+        {
+            LoadPercent = 50, ActivePowerWatts = 400, RuntimeSeconds = 1500,
+            BatteryVoltage = 28, InputVoltage = 110, TemperatureCelsius = 30, Charging = false,
+        } : null;
+        await OfficialHealthContextService.CaptureForRecordAsync(record, source, "dev", at, live);
+        Equal(live, record.Context);
         Equal(false, record.ContextBackfillAttempted);
         var configuration = new AppConfiguration();
         var profile = new BatteryHealthProfile { DeviceId = "dev" };
@@ -1001,46 +1022,58 @@ static async Task OfficialContextCaptureFailureRecoveryAsync()
         await configStore.SaveAsync(configuration);
         configuration = await configStore.LoadAsync();
         record = configuration.BatteryHealth.Profiles.Single().OfficialHealthRecords.Single();
-        Equal(null, record.Context);
+        Equal(live, record.Context);
         Equal(false, record.ContextBackfillAttempted);
 
         // 起動時補完も失敗したら未試行を維持し、復旧後の補完で履歴が入る。
         Equal(0, await OfficialHealthContextService.BackfillAsync([record], "dev", source));
         Equal(false, record.ContextBackfillAttempted);
+        Equal(live, record.Context);
         source.Fail = false;
         Equal(1, await OfficialHealthContextService.BackfillAsync([record], "dev", source));
-        Near(34, record.Context!.LoadPercent);
-        Near(315, record.Context.ActivePowerWatts);
-        Near(1092, record.Context.RuntimeSeconds);
-        Equal(true, record.Context.Charging);
+        void AssertRecovered(OfficialHealthContext context)
+        {
+            Near(withLive ? 50 : 34, context.LoadPercent);
+            Near(withLive ? 400 : 315, context.ActivePowerWatts);
+            Near(withLive ? 1500 : 1092, context.RuntimeSeconds);
+            Near(withLive ? 28 : 26.7, context.BatteryVoltage);
+            Near(withLive ? 110 : 100, context.InputVoltage);
+            Near(withLive ? 30 : 25, context.TemperatureCelsius);
+            Equal(!withLive, context.Charging);
+            Near(40, context.Load10MinuteMean);
+            Near(45, context.Load10MinuteMax);
+            Near(40, context.Load24HourMean);
+            Near(45, context.Load24HourMax);
+            Near(27, context.BatteryVoltage24HourMean);
+            Near(2, context.DaysSinceLastDischarge);
+            Equal(at.AddDays(-3), context.HistoryStartedAt);
+        }
+
+        AssertRecovered(record.Context!);
         Equal(true, record.ContextBackfillAttempted);
         await configStore.SaveAsync(configuration);
         record = (await configStore.LoadAsync()).BatteryHealth.Profiles.Single().OfficialHealthRecords.Single();
-        Near(34, record.Context!.LoadPercent);
+        AssertRecovered(record.Context!);
         Equal(true, record.ContextBackfillAttempted);
         var calls = source.Calls;
         Equal(0, await OfficialHealthContextService.BackfillAsync([record], "dev", source));
         Equal(calls, source.Calls);
 
-        // 正常な空結果は起動時に一度再確認し、その後は問い合わせない。
+        // 正常な空結果は記録時に完了とし、起動時には問い合わせない。
         var empty = OfficialRecord(at.AddYears(-1), 60);
         await OfficialHealthContextService.CaptureForRecordAsync(empty, source, "dev", at, null);
-        Equal(null, empty.Context);
-        Equal(false, empty.ContextBackfillAttempted);
-        Equal(1, await OfficialHealthContextService.BackfillAsync([empty], "dev", source));
         Equal(null, empty.Context);
         Equal(true, empty.ContextBackfillAttempted);
         calls = source.Calls;
         Equal(0, await OfficialHealthContextService.BackfillAsync([empty], "dev", source));
         Equal(calls, source.Calls);
 
-        // 現在値が使える場合は従来どおり保持する。
-        source.Fail = true;
-        var live = OfficialRecord(at, 59);
+        // source がない場合も履歴は未完了。live があればその値は残す。
+        var unavailable = OfficialRecord(at, 59);
         await OfficialHealthContextService.CaptureForRecordAsync(
-            live, source, "dev", at, new OfficialHealthContext { LoadPercent = 50 });
-        Near(50, live.Context!.LoadPercent);
-        Equal(true, live.ContextBackfillAttempted);
+            unavailable, null, "dev", at, live);
+        Equal(live, unavailable.Context);
+        Equal(false, unavailable.ContextBackfillAttempted);
     }
     finally
     {
