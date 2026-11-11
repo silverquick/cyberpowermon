@@ -1561,25 +1561,24 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             _configuration.BatteryHealth.Profiles.Add(profile);
         }
 
-        // 記録時の状況は履歴DBへの問い合わせ(この記録時のみ)と現在値から作る。
-        var context = await OfficialHealthContextService.CaptureAsync(
+        var newRecord = new OfficialHealthRecord
+        {
+            RecordedAt = recordedAt,
+            HealthPercent = percent,
+            Source = OfficialRecordSource,
+            Note = string.IsNullOrWhiteSpace(OfficialRecordNote) ? null : OfficialRecordNote.Trim(),
+        };
+        // 状況が得られなければ、次回起動時の補完対象に残す。
+        await OfficialHealthContextService.CaptureForRecordAsync(
+            newRecord,
             _historyStore,
             profile.DeviceId,
-            recordedAt,
             DateTimeOffset.Now,
             CaptureLiveContext());
         var record = OfficialHealthEstimator.AddRecord(
             profile.OfficialHealthRecords,
             profile.BatteryInstalledAt,
-            new OfficialHealthRecord
-            {
-                RecordedAt = recordedAt,
-                HealthPercent = percent,
-                Source = OfficialRecordSource,
-                Note = string.IsNullOrWhiteSpace(OfficialRecordNote) ? null : OfficialRecordNote.Trim(),
-                Context = context,
-                ContextBackfillAttempted = true,
-            });
+            newRecord);
 
         await _configurationStore.SaveAsync(_configuration);
         RefreshOfficialEditor(profile);

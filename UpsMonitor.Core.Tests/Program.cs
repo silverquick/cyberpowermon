@@ -63,6 +63,7 @@ var tests = new (string Name, Action Run)[]
     ("Official model predictions are stored and rounding is detected", OfficialModelPredictionsAndRounding),
     ("Official record context configuration compatibility", OfficialContextConfigurationCompatibility),
     ("Official record context query and idempotent backfill", OfficialContextQueryAndBackfill),
+    ("Official record context capture failure recovers after reload", OfficialContextCaptureFailureRecovery),
 };
 
 var failures = new List<string>();
@@ -953,6 +954,93 @@ static async Task OfficialContextQueryAndBackfillAsync()
         var distant = await OfficialHealthContextService.CaptureAsync(store, "dev", at, at.AddDays(2), live);
         Near(34, distant!.LoadPercent);
         Equal(null, await OfficialHealthContextService.CaptureAsync(null, "dev", at, at, null));
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        Directory.Delete(testRoot, recursive: true);
+    }
+}
+
+static void OfficialContextCaptureFailureRecovery() => OfficialContextCaptureFailureRecoveryAsync().GetAwaiter().GetResult();
+
+static async Task OfficialContextCaptureFailureRecoveryAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsOfficialContextRecovery_{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot, testRoot);
+        await using var history = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        await history.InitializeAsync();
+        var at = OfficialT0();
+        await using (var connection = new SqliteConnection($"Data Source={paths.TelemetryDatabaseFile};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO telemetry_samples (device_id, timestamp_utc_ms, is_connected, power_state,
+                    load_percent, active_power_watts, runtime_seconds, charging)
+                VALUES ('dev', $at, 1, 1, 34, 315, 1092, 1);
+                """;
+            command.Parameters.AddWithValue("$at", at.ToUnixTimeMilliseconds());
+            await command.ExecuteNonQueryAsync();
+        }
+
+        // アプリと同じ取得処理で失敗させ、状況なしのまま保存・再読込する。
+        var source = new FailingOfficialContextSource(history) { Fail = true };
+        var record = OfficialRecord(at, 59);
+        await OfficialHealthContextService.CaptureForRecordAsync(record, source, "dev", at, null);
+        Equal(null, record.Context);
+        Equal(false, record.ContextBackfillAttempted);
+        var configuration = new AppConfiguration();
+        var profile = new BatteryHealthProfile { DeviceId = "dev" };
+        OfficialHealthEstimator.AddRecord(profile.OfficialHealthRecords, null, record);
+        configuration.BatteryHealth.Profiles.Add(profile);
+        var configStore = new JsonConfigurationStore(paths);
+        await configStore.SaveAsync(configuration);
+        configuration = await configStore.LoadAsync();
+        record = configuration.BatteryHealth.Profiles.Single().OfficialHealthRecords.Single();
+        Equal(null, record.Context);
+        Equal(false, record.ContextBackfillAttempted);
+
+        // 起動時補完も失敗したら未試行を維持し、復旧後の補完で履歴が入る。
+        Equal(0, await OfficialHealthContextService.BackfillAsync([record], "dev", source));
+        Equal(false, record.ContextBackfillAttempted);
+        source.Fail = false;
+        Equal(1, await OfficialHealthContextService.BackfillAsync([record], "dev", source));
+        Near(34, record.Context!.LoadPercent);
+        Near(315, record.Context.ActivePowerWatts);
+        Near(1092, record.Context.RuntimeSeconds);
+        Equal(true, record.Context.Charging);
+        Equal(true, record.ContextBackfillAttempted);
+        await configStore.SaveAsync(configuration);
+        record = (await configStore.LoadAsync()).BatteryHealth.Profiles.Single().OfficialHealthRecords.Single();
+        Near(34, record.Context!.LoadPercent);
+        Equal(true, record.ContextBackfillAttempted);
+        var calls = source.Calls;
+        Equal(0, await OfficialHealthContextService.BackfillAsync([record], "dev", source));
+        Equal(calls, source.Calls);
+
+        // 正常な空結果は起動時に一度再確認し、その後は問い合わせない。
+        var empty = OfficialRecord(at.AddYears(-1), 60);
+        await OfficialHealthContextService.CaptureForRecordAsync(empty, source, "dev", at, null);
+        Equal(null, empty.Context);
+        Equal(false, empty.ContextBackfillAttempted);
+        Equal(1, await OfficialHealthContextService.BackfillAsync([empty], "dev", source));
+        Equal(null, empty.Context);
+        Equal(true, empty.ContextBackfillAttempted);
+        calls = source.Calls;
+        Equal(0, await OfficialHealthContextService.BackfillAsync([empty], "dev", source));
+        Equal(calls, source.Calls);
+
+        // 現在値が使える場合は従来どおり保持する。
+        source.Fail = true;
+        var live = OfficialRecord(at, 59);
+        await OfficialHealthContextService.CaptureForRecordAsync(
+            live, source, "dev", at, new OfficialHealthContext { LoadPercent = 50 });
+        Near(50, live.Context!.LoadPercent);
+        Equal(true, live.ContextBackfillAttempted);
     }
     finally
     {
@@ -2950,6 +3038,21 @@ sealed class TestAlertUpsProvider : IUpsProvider
     public Task<UpsSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken) => Task.FromResult(CurrentSnapshot);
     public void Disconnect() { }
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+sealed class FailingOfficialContextSource(IOfficialHealthContextSource inner) : IOfficialHealthContextSource
+{
+    public bool Fail { get; set; }
+    public int Calls { get; private set; }
+
+    public Task<OfficialHealthContext> QueryOfficialHealthContextAsync(
+        string deviceId, DateTimeOffset at, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Fail
+            ? Task.FromException<OfficialHealthContext>(new IOException("Synthetic temporary history failure"))
+            : inner.QueryOfficialHealthContextAsync(deviceId, at, cancellationToken);
+    }
 }
 
 sealed class RecordingEventSink(List<UpsEvent> list) : IUpsEventSink

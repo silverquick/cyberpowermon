@@ -15,6 +15,23 @@ public static class OfficialHealthContextService
     public static readonly TimeSpan LiveWindow = TimeSpan.FromMinutes(5);
 
     /// <summary>
+    /// 新規記録の状況を取得する。状況が空なら起動時補完の対象に残す。
+    /// 正常にデータなしと判定された場合も、起動時に一度だけ再確認する。
+    /// </summary>
+    public static async Task CaptureForRecordAsync(
+        OfficialHealthRecord record,
+        IOfficialHealthContextSource? source,
+        string deviceId,
+        DateTimeOffset now,
+        OfficialHealthContext? live,
+        CancellationToken cancellationToken = default)
+    {
+        record.Context = await CaptureAsync(source, deviceId, record.RecordedAt, now, live, cancellationToken)
+            .ConfigureAwait(false);
+        record.ContextBackfillAttempted = record.Context is not null;
+    }
+
+    /// <summary>
     /// 記録時の状況を作る。履歴から取得し、記録時刻が現在に近く live があれば
     /// 瞬間値(live の非 null 項目)で上書きする。履歴が使えない場合も live のみで返す。
     /// 何も得られなければ null。
