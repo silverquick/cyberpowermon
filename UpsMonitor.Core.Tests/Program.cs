@@ -6,6 +6,11 @@ using UpsMonitor.Infrastructure;
 var tests = new (string Name, Action Run)[]
 {
     ("Version display formatting", VersionDisplayFormatting),
+    ("Export ranges flush format and row counts", ExportTests.BoundariesAndFlush),
+    ("Export empty database", ExportTests.Empty),
+    ("Export EventQuery and Logs filter snapshots", ExportTests.EventConditions),
+    ("Export streaming 30000 synthetic rows", ExportTests.Large),
+    ("Export cancellation IO and publication failure cleanup", ExportTests.CancellationAndFailure),
     ("Saved events empty database", SavedEventTests.Empty),
     ("Saved events inclusive From exclusive To", SavedEventTests.Boundaries),
     ("Saved events type severity and combined conditions", SavedEventTests.TypeSeverity),

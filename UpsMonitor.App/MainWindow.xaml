@@ -724,10 +724,16 @@
                                 <TextBlock Text="{DynamicResource LocalHistoryStorage}" Style="{StaticResource CaptionStyle}" />
                                 <TextBlock Text="{Binding TelemetryDatabaseFile}" FontFamily="Cascadia Mono" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" />
                                 <TextBlock Text="{DynamicResource LocalHistoryStorageHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,12" />
-                                <StackPanel Orientation="Horizontal">
+                                <ComboBox SelectedIndex="{Binding HistoryExportRange, Mode=TwoWay}" HorizontalAlignment="Left" MinWidth="180" Margin="0,0,0,8">
+                                    <ComboBoxItem Content="{DynamicResource ExportCurrentRange}" />
+                                    <ComboBoxItem Content="{DynamicResource ExportAllRange}" />
+                                </ComboBox>
+                                <StackPanel Orientation="Horizontal" IsEnabled="{Binding CanStartExport}">
                                     <Button Content="{DynamicResource ExportTelemetryCsv}" Command="{Binding ExportTelemetryCsvCommand}" Margin="0,0,8,0" />
                                     <Button Content="{DynamicResource ExportTelemetryJson}" Command="{Binding ExportTelemetryJsonCommand}" Margin="0,0,8,0" />
                                 </StackPanel>
+                                <Button Content="{DynamicResource ExportCancel}" Command="{Binding CancelExportCommand}" IsEnabled="{Binding IsExporting}" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                                <TextBlock Text="{Binding ExportStatus}" TextWrapping="Wrap" Margin="0,8,0,0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -951,7 +957,18 @@
                             <TextBlock Text="{DynamicResource Logs}" Style="{StaticResource PageTitleStyle}" />
                             <TextBlock Text="{DynamicResource LogsSubtitle}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,0" />
                         </StackPanel>
-                        <Button Grid.Column="1" Content="{DynamicResource ExportEventsCsv}" Command="{Binding ExportEventsCsvCommand}" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" MaxWidth="410">
+                            <ComboBox SelectedIndex="{Binding Logs.ExportRange, Mode=TwoWay}" Margin="0,0,0,8">
+                                <ComboBoxItem Content="{DynamicResource ExportCurrentFilters}" />
+                                <ComboBoxItem Content="{DynamicResource ExportAllRange}" />
+                            </ComboBox>
+                            <WrapPanel>
+                                <Button Content="{DynamicResource ExportEventsCsv}" Command="{Binding ExportEventsCsvCommand}" IsEnabled="{Binding CanStartExport}" Margin="0,0,8,0" />
+                                <Button Content="{DynamicResource ExportCancel}" Command="{Binding CancelExportCommand}" IsEnabled="{Binding IsExporting}" />
+                            </WrapPanel>
+                            <TextBlock Text="{DynamicResource ExportSearchHelp}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding ExportStatus}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                        </StackPanel>
                     </Grid>
                     <StackPanel Grid.Row="1" Margin="0,0,0,12">
                         <WrapPanel>

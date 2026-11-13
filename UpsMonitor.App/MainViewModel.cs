@@ -218,6 +218,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         ExportTelemetryCsvCommand = new AsyncRelayCommand(ExportTelemetryCsvAsync, SetCommandError);
         ExportTelemetryJsonCommand = new AsyncRelayCommand(ExportTelemetryJsonAsync, SetCommandError);
         ExportEventsCsvCommand = new AsyncRelayCommand(ExportEventsCsvAsync, SetCommandError);
+        CancelExportCommand = new AsyncRelayCommand(() => { _exportCancellation?.Cancel(); return Task.CompletedTask; }, SetCommandError);
         TestNotificationCommand = new AsyncRelayCommand(() =>
         {
             TestNotificationRequested?.Invoke(UpsEventSeverity.Warning);
@@ -945,6 +946,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _exportCancellation?.Cancel();
         Logs.Dispose();
         _historyRefreshCancellation?.Cancel();
         _historyRefreshCancellation?.Dispose();
@@ -1938,90 +1940,62 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
     }
 
-    private async Task ExportTelemetryCsvAsync()
+    private CancellationTokenSource? _exportCancellation;
+    private string _exportStatus = string.Empty;
+    public string ExportStatus { get => _exportStatus; private set { _exportStatus = value; OnPropertyChanged(); } }
+    public bool IsExporting => _exportCancellation is not null;
+    public bool CanStartExport => _historyStore is not null && !IsExporting;
+    public int HistoryExportRange { get; set; }
+    public ICommand CancelExportCommand { get; }
+
+    private Task ExportTelemetryCsvAsync() => ExportAsync(events: false, json: false);
+    private Task ExportTelemetryJsonAsync() => ExportAsync(events: false, json: true);
+    private Task ExportEventsCsvAsync() => ExportAsync(events: true, json: false);
+
+    private async Task ExportAsync(bool events, bool json)
     {
+        if (!CanStartExport) return;
+        var extension = json ? "json" : "csv";
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
-            FileName = $"ups-telemetry-{DateTime.Now:yyyyMMdd-HHmmss}.csv",
-            DefaultExt = ".csv",
+            Filter = json ? "JSON files (*.json)|*.json|All files (*.*)|*.*" : "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            FileName = $"ups-{(events ? "events" : "telemetry")}-{DateTime.Now:yyyyMMdd-HHmmss}.{extension}",
+            DefaultExt = "." + extension,
         };
-
-        if (dialog.ShowDialog() != true)
-        {
-            return;
-        }
-
+        if (dialog.ShowDialog() != true || !CanStartExport) return;
+        var to = DateTimeOffset.Now;
+        var from = HistoryExportRange == 1 ? DateTimeOffset.MinValue : to - (SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(7));
+        var telemetryTo = HistoryExportRange == 1 ? DateTimeOffset.MaxValue : to;
+        var query = events ? Logs.CreateExportQuery() : null;
+        using var cancellation = new CancellationTokenSource();
+        _exportCancellation = cancellation;
+        OnPropertyChanged(nameof(IsExporting)); OnPropertyChanged(nameof(CanStartExport));
+        ExportStatus = LocalizationManager.Get("ExportRunning");
         try
         {
-            var range = SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(7);
-            var from = DateTimeOffset.Now - range;
-            var to = DateTimeOffset.Now;
-            await TelemetryExporter.ExportTelemetryCsvAsync(TelemetryDatabaseFile, dialog.FileName, from, to);
-            SettingsStatus = LocalizationManager.Format("ExportSuccess", System.IO.Path.GetFileName(dialog.FileName));
+            await Task.Run(async () =>
+            {
+                if (events)
+                    await ExportOperation.EventsAsync(_historyStore!, dialog.FileName, query!, cancellation.Token);
+                else
+                    await ExportOperation.TelemetryAsync(_historyStore!, dialog.FileName,
+                        json ? TelemetryExportFormat.Json : TelemetryExportFormat.Csv, from, telemetryTo, cancellation.Token);
+            }, cancellation.Token);
+            ExportStatus = LocalizationManager.Format("ExportSuccess", System.IO.Path.GetFileName(dialog.FileName));
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            ExportStatus = LocalizationManager.Get("ExportCancelled");
         }
         catch (Exception ex)
         {
-            SettingsStatus = LocalizationManager.Format("ExportFailed", ex.Message);
+            ExportStatus = LocalizationManager.Format("ExportFailed", ex.Message);
             LastError = ex.Message;
         }
-    }
-
-    private async Task ExportTelemetryJsonAsync()
-    {
-        var dialog = new Microsoft.Win32.SaveFileDialog
+        finally
         {
-            Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
-            FileName = $"ups-telemetry-{DateTime.Now:yyyyMMdd-HHmmss}.json",
-            DefaultExt = ".json",
-        };
-
-        if (dialog.ShowDialog() != true)
-        {
-            return;
-        }
-
-        try
-        {
-            var range = SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(7);
-            var from = DateTimeOffset.Now - range;
-            var to = DateTimeOffset.Now;
-            await TelemetryExporter.ExportTelemetryJsonAsync(TelemetryDatabaseFile, dialog.FileName, from, to);
-            SettingsStatus = LocalizationManager.Format("ExportSuccess", System.IO.Path.GetFileName(dialog.FileName));
-        }
-        catch (Exception ex)
-        {
-            SettingsStatus = LocalizationManager.Format("ExportFailed", ex.Message);
-            LastError = ex.Message;
-        }
-    }
-
-    private async Task ExportEventsCsvAsync()
-    {
-        var dialog = new Microsoft.Win32.SaveFileDialog
-        {
-            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
-            FileName = $"ups-events-{DateTime.Now:yyyyMMdd-HHmmss}.csv",
-            DefaultExt = ".csv",
-        };
-
-        if (dialog.ShowDialog() != true)
-        {
-            return;
-        }
-
-        try
-        {
-            var range = SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(30);
-            var from = DateTimeOffset.Now - range;
-            var to = DateTimeOffset.Now;
-            await TelemetryExporter.ExportEventsCsvAsync(TelemetryDatabaseFile, dialog.FileName, from, to);
-            SettingsStatus = LocalizationManager.Format("ExportSuccess", System.IO.Path.GetFileName(dialog.FileName));
-        }
-        catch (Exception ex)
-        {
-            SettingsStatus = LocalizationManager.Format("ExportFailed", ex.Message);
-            LastError = ex.Message;
+            _exportCancellation = null;
+            OnPropertyChanged(nameof(IsExporting)); OnPropertyChanged(nameof(CanStartExport));
         }
     }
 

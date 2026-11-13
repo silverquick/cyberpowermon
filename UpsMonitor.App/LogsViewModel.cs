@@ -41,6 +41,11 @@ public sealed class LogsViewModel : INotifyPropertyChanged, IDisposable
     public string LimitText => _hasMore || _events.Count >= 500 ? LocalizationManager.Get("LogsLimitReached") : string.Empty;
     public string Status => _status;
     public bool IsLoading => _loading;
+    public int ExportRange { get; set; }
+
+    // Export shares the saved filters, without the display limit or localized text search.
+    public EventQuery CreateExportQuery() =>
+        (ExportRange == 1 ? new EventQuery() : CurrentQuery()).Snapshot();
 
     public int RangeHours { get => _rangeHours; set { if (Set(ref _rangeHours, value)) Reload(); } }
     public UpsEventType? EventType { get => _eventType; set { if (Set(ref _eventType, value)) Reload(); } }
