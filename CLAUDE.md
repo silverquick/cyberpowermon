@@ -49,8 +49,8 @@ dotnet run --project .\UpsMonitor.App\UpsMonitor.App.csproj
 ## git 運用
 
 - main で直接作業しない。`feature/...` や `fix/...` のブランチを切ってコミットし、main へ `--no-ff` でマージする。
-- docs だけの変更も `docs/...` ブランチで作業し、`--no-ff` でマージする。バージョン番号は上げない。
   マージコミットのメッセージは `Merge: <日本語の要約>`。
+- docs だけの変更も `docs/...` ブランチで作業し、`--no-ff` でマージする。バージョン番号は上げない。
 - コミットメッセージは Conventional Commits 形式で、本文は日本語（例: `fix(ui): ...`、`feat(health): ...`）。
 - 実態の確認（`git log --graph --oneline -30`）: 近年の変更は feature/fix ブランチ → `--no-ff` マージ（`Merge: ...`）になっている。
   古いマージは `Merge #1: ...` や `Merge branch '...'` 形式、docs のみの更新は main へ直接コミットされた例（`80044e9`）がある。上記の運用に従う。

@@ -23,7 +23,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 ### その他の実装済み改修（#1〜#9 とは別枠、2026-09-17 以降）
 
-`git log --first-parent --oneline 80044e9..HEAD` で確認した範囲（first-parent のマージは 7 件。docs のみのマージは表から除外）。
+`git log --first-parent --oneline 80044e9..6cef449` で確認した範囲（first-parent のマージは 6 件。docs のみのマージは表から除外）。
 
 | 種別 | 内容 | 関連コミット |
 |---|---|---|
