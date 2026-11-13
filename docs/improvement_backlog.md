@@ -1,11 +1,12 @@
 # 改善施策バックログ
 
-最終調査日: 2026-08-29
-調査基準: `330ff76` (`main` / `origin/main`)
+最終調査日: 2026-11-13
+調査基準: `6cef449` (`main`)
+初回調査は 2026-08-29、`330ff76` 時点。
 
 本書は `docs/performance/*_analysis.md` と全 `docs/*/{implementation_plan,task,walkthrough}.md` を読み、walkthrough の記載だけでなく `UpsMonitor.*` の実コードと `git log` を照合して、提案済み施策の実装状況と積み残しを整理したものである。なお、依頼背景には .NET 8 とあるが、現コードの `UpsMonitor.App/UpsMonitor.App.csproj` は `net10.0-windows` を対象としているため、以下の設計は現行コードを正としている。
 
-## 実装状況（2026-11-10 更新）
+## 実装状況（2026-11-13 更新）
 
 Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Antigravity / 統合: Claude）で #1・#2・#4 を実装・main へ統合済み。
 #3 は Antigravity のワークスペース信頼確認でエージェント起動がブロックされたため Codex `gpt-5.6-terra`（medium）へ切り替え、Core/Infrastructure・UI統合の2waveで実装・main へ統合済み。
@@ -22,17 +23,19 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 ### その他の実装済み改修（#1〜#9 とは別枠、2026-09-17 以降）
 
-`git log --oneline 80044e9..HEAD` で確認した範囲（`80044e9` 以降のコミットはこの 5 件のみ）。
+`git log --first-parent --oneline 80044e9..6cef449` で確認した範囲（first-parent のマージは 6 件。docs のみのマージは表から除外）。
 
 | 種別 | 内容 | 関連コミット |
 |---|---|---|
 | fix(history) | SQLite 共有キャッシュ（`Cache=Shared`）を廃止し、読み取り中の書き込みで `telemetry_samples` が `SQLITE_LOCKED` になるエラーを解消。回帰テストを追加 | `d6d9f5d`、Merge `ec500d9` |
 | fix(ui) | シャットダウン自動化パネルの切替電圧範囲ラベルが、存在しないリソースキー参照で空欄になる問題を修正（既存キー `TransferRange` を参照） | `f7f1055` |
 | feat(health) | 公式アプリ（CyberPower BHI 等）の健全性を日時付きで記録し、その推移から現在値を推定する改善サイクルを追加（3 モデル並走・バックテスト選択・記録時の状況の自動保存など） | `a2e973b`、Merge `c2de3ce`（`f7f1055` と同一マージ） |
+| fix(health) | 健全性記録で履歴状況取得に失敗しても、起動後の履歴問い合わせ成功時に不足状況を補完（既存の記録時現在値は維持） | `9cff017` ほか、Merge `1624cbf` |
+| build(version) | パッチ番号の一元管理、`0.1.XXX` 表示、CHANGELOG とバージョン運用を導入し、現在値を 0.1.016 に確定 | Merge `6cef449`、タグ `v0.1.016` |
 
 #5・#6 は未着手のまま（「⏳ 次ラウンド」を維持）。
 
-既知の整理事項（2026-11-10 時点で再確認）: #4 実装後に残った旧 `DailyEnergyReports`（7 日固定）コレクションは、依然として削除されていない。`UpsMonitor.App/MainViewModel.cs:423` で宣言され、2165〜2176 行付近で毎リフレッシュ `QueryDailyEnergyReportsAsync` を呼んで差分更新しているが、`MainWindow.xaml` にバインドはない（grep で確認）。#7 の分割時、またはそれ以前の単独の小修正で削除できる。
+既知の整理事項（2026-11-13 時点で再確認）: #4 実装後に残った旧 `DailyEnergyReports`（7 日固定）コレクションは、依然として削除されていない。`UpsMonitor.App/MainViewModel.cs:423` で宣言され、2164〜2176 行付近で毎リフレッシュ `QueryDailyEnergyReportsAsync` を呼んで差分更新しているが、`MainWindow.xaml` にバインドはない（grep で確認）。#7 の分割時、またはそれ以前の単独の小修正で削除できる。
 
 ### 健全性推定（公式値推移）の運用上の注意
 
@@ -78,6 +81,8 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 - 推定結果はあくまで公式値の再現を目的とした推定で、UPS が HID で直接公開する値ではない（README 参照）。
 
 ## 今回スコープ推奨
+
+#1〜#4 は実装済み。未着手の推奨施策は #5・#6。
 
 | 番号 | 施策 | 領域 | 推奨理由 | 難易度 |
 |---:|---|---|---|---|
@@ -233,7 +238,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 - **対象領域**: アーキテクチャ
 - **出典**: `docs/architecture_and_ux_improvements/implementation_plan.md`「1-6. MainViewModel の責務分割・リファクタリング」
 - **現状と課題**:
-  `UpsMonitor.App/MainViewModel.cs` は 3,331 行（2026-11-10 時点。調査時点では約 2,700 行・118 KB） で、監視 snapshot 表示、履歴 query、Analytics、Logs、設定保存、export、通知、シミュレータ、バッテリー基準管理を一括している。walkthrough には専用フィルタ機能の追加はあるが、責務分割そのものは実施されていない。
+  `UpsMonitor.App/MainViewModel.cs` は約 3,300 行（2026-11-13 時点。調査時点では約 2,700 行・118 KB）で、監視 snapshot 表示、履歴 query、Analytics、Logs、設定保存、export、通知、シミュレータ、バッテリー基準管理を一括している。walkthrough には専用フィルタ機能の追加はあるが、責務分割そのものは実施されていない。
 - **提案する実装方針**:
   - `HistoryViewModel`（履歴 range、chart、period summary、energy report）、`AnalyticsViewModel`（指標、期間、weekly pattern）、`LogsViewModel`（6 の query/filter）、`SettingsViewModel`（設定編集・保存・通知テスト）、`BatteryHealthViewModel`（baseline 編集）へ段階的に抽出する。
   - `MainViewModel` は `UpsMonitorEngine` の lifecycle、最新 `UpsSnapshot`、タブ子 VM への snapshot/context 配布、tray/minimonitor 向け最小 projection だけを担当する。
