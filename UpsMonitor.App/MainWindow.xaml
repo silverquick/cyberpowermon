@@ -953,34 +953,27 @@
                         </StackPanel>
                         <Button Grid.Column="1" Content="{DynamicResource ExportEventsCsv}" Command="{Binding ExportEventsCsvCommand}" VerticalAlignment="Center" />
                     </Grid>
-                    <Grid Grid.Row="1" Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="140" />
-                            <ColumnDefinition Width="220" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="{DynamicResource LogSeverityFilter}" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource MutedTextBrush}" />
-                        <ComboBox Grid.Column="1"
-                                  ItemsSource="{Binding LogSeverityFilterOptions}"
-                                  SelectedValuePath="Kind"
-                                  SelectedValue="{Binding SelectedLogSeverityFilter, Mode=TwoWay}"
-                                  Margin="0,0,14,0">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource TextBrush}" />
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                        <TextBox Grid.Column="2"
-                                 Text="{Binding LogSearchText, UpdateSourceTrigger=PropertyChanged}"
-                                 VerticalContentAlignment="Center"
-                                 Padding="6,3" />
-                        <TextBlock Grid.Column="4" Text="{Binding LogCountText}" VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}" FontSize="12" />
-                    </Grid>
+                    <StackPanel Grid.Row="1" Margin="0,0,0,12">
+                        <WrapPanel>
+                            <TextBlock Text="{DynamicResource LogsRange}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                            <ComboBox ItemsSource="{Binding Logs.RangeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Hours"
+                                      SelectedValue="{Binding Logs.RangeHours, Mode=TwoWay}" Width="140" Margin="0,0,14,8" />
+                            <TextBlock Text="{DynamicResource LogsEventType}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                            <ComboBox ItemsSource="{Binding Logs.TypeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Type"
+                                      SelectedValue="{Binding Logs.EventType, Mode=TwoWay}" Width="175" Margin="0,0,14,8" />
+                            <TextBlock Text="{DynamicResource LogSeverityFilter}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                            <ComboBox ItemsSource="{Binding Logs.SeverityOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Severity"
+                                      SelectedValue="{Binding Logs.Severity, Mode=TwoWay}" Width="120" Margin="0,0,14,8" />
+                            <TextBlock Text="{DynamicResource LogsSearch}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                            <TextBox Text="{Binding Logs.SearchText, UpdateSourceTrigger=PropertyChanged}" Width="200" Padding="6,3" Margin="0,0,14,8" />
+                        </WrapPanel>
+                        <TextBlock Text="{DynamicResource LogsSearchHelp}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Logs.CountText}" Foreground="{DynamicResource MutedTextBrush}" />
+                        <TextBlock Text="{Binding Logs.LimitText}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Logs.Status}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
                     <Border Grid.Row="2" Style="{StaticResource CardStyle}">
-                        <ListView ItemsSource="{Binding FilteredEvents}" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextBrush}" ItemContainerStyle="{StaticResource EventItemStyle}">
+                        <ListView ItemsSource="{Binding Logs.FilteredEvents}" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextBrush}" ItemContainerStyle="{StaticResource EventItemStyle}">
                             <ListView.View><GridView ColumnHeaderContainerStyle="{StaticResource EventHeaderStyle}"><GridViewColumn Header="{DynamicResource ColumnTime}" Width="175" DisplayMemberBinding="{Binding Timestamp}" /><GridViewColumn Header="{DynamicResource ColumnEvent}" Width="175" DisplayMemberBinding="{Binding Type}" /><GridViewColumn Header="{DynamicResource ColumnDetails}" Width="480" DisplayMemberBinding="{Binding Message}" /><GridViewColumn Header="{DynamicResource ColumnState}" Width="170" DisplayMemberBinding="{Binding StateTransition}" /></GridView></ListView.View>
                         </ListView>
                     </Border>

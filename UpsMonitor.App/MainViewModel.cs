@@ -3,7 +3,6 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using UpsMonitor.Core;
@@ -94,9 +93,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private int _selectedNavigationIndex;
     private UpsSnapshot? _pendingSnapshot;
     private List<UpsTelemetryViewModel> _telemetryItemsList = [];
-    private string _logSearchText = string.Empty;
-    private LogSeverityFilterKind _selectedLogSeverityFilter = LogSeverityFilterKind.All;
-    private IReadOnlyList<LogSeverityFilterOption> _logSeverityFilterOptions = [];
     private IReadOnlyList<ThemeOption> _themeOptions = [];
     private string _webhookStatus = string.Empty;
     private double _loadSimulationTargetWatts = 200.0;
@@ -208,10 +204,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         TelemetryDatabaseFile = paths.TelemetryDatabaseFile;
         LogsDirectory = paths.LogsDirectory;
         _dispatcher = Application.Current.Dispatcher;
-        FilteredEvents = CollectionViewSource.GetDefaultView(Events);
-        FilteredEvents.Filter = FilterEventItem;
+        Logs = new LogsViewModel(historyStore);
         RefreshThemeOptions();
-        RefreshLogSeverityOptions();
         RefreshBaselineModeOptions();
         RefreshVendorHealthCategoryOptions();
         RefreshHistoryRangeOptions();
@@ -278,9 +272,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public event Action? ShowMiniMonitorRequested;
 
-    public ObservableCollection<UpsEventViewModel> Events { get; } = [];
-
-    public ICollectionView FilteredEvents { get; }
+    public LogsViewModel Logs { get; }
 
     public ICommand OpenMiniMonitorCommand { get; }
 
@@ -465,40 +457,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     }
     public PowerTroubleSummary? TroubleSummary { get => _troubleSummary; private set => SetField(ref _troubleSummary, value); }
     public string TroubleSummaryText { get => _troubleSummaryText; private set => SetField(ref _troubleSummaryText, value); }
-
-    public string LogSearchText
-    {
-        get => _logSearchText;
-        set
-        {
-            if (SetField(ref _logSearchText, value))
-            {
-                FilteredEvents.Refresh();
-                OnPropertyChanged(nameof(LogCountText));
-            }
-        }
-    }
-
-    public LogSeverityFilterKind SelectedLogSeverityFilter
-    {
-        get => _selectedLogSeverityFilter;
-        set
-        {
-            if (SetField(ref _selectedLogSeverityFilter, value))
-            {
-                FilteredEvents.Refresh();
-                OnPropertyChanged(nameof(LogCountText));
-            }
-        }
-    }
-
-    public IReadOnlyList<LogSeverityFilterOption> LogSeverityFilterOptions
-    {
-        get => _logSeverityFilterOptions;
-        private set => SetField(ref _logSeverityFilterOptions, value);
-    }
-
-    public string LogCountText => LocalizationManager.Format("LogCountFormat", FilteredEvents.Cast<object>().Count(), Events.Count);
 
     public IReadOnlyList<LanguageOption> LanguageOptions { get; } =
     [
@@ -772,6 +730,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             if (SetField(ref _isWindowVisible, value))
             {
+                Logs.SetActive(value && _selectedNavigationIndex == LogsIndex);
                 if (value)
                 {
                     if (_pendingSnapshot is { } pending)
@@ -800,6 +759,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             if (SetField(ref _selectedNavigationIndex, value))
             {
+                Logs.SetActive(_isWindowVisible && value == LogsIndex);
                 if (IsHistoryRefreshTarget(value) && _isWindowVisible && _lastSnapshot is not null && DateTimeOffset.Now - _lastHistoryRefresh >= TimeSpan.FromSeconds(5))
                 {
                     _ = RefreshHistoryAsync();
@@ -985,6 +945,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Logs.Dispose();
         _historyRefreshCancellation?.Cancel();
         _historyRefreshCancellation?.Dispose();
         _engine.SnapshotUpdated -= OnSnapshotUpdated;
@@ -1006,13 +967,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         _ = _dispatcher.InvokeAsync(() =>
         {
             var eventVm = new UpsEventViewModel(upsEvent);
-            Events.Insert(0, eventVm);
-            while (Events.Count > 500)
-            {
-                Events.RemoveAt(Events.Count - 1);
-            }
-
-            OnPropertyChanged(nameof(LogCountText));
+            Logs.AddLive(upsEvent);
             NotificationRequested?.Invoke(eventVm.Type, eventVm.Message, upsEvent.Severity);
 
             if (EnableSoundAlerts)
@@ -1084,9 +1039,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         RefreshVendorHealthCategoryOptions();
         RefreshHistoryRangeOptions();
         RefreshAnalyticsOptions();
-        RefreshLogSeverityOptions();
         OnPropertyChanged(nameof(BaselineInstructionText));
-        OnPropertyChanged(nameof(LogCountText));
+        Logs.RefreshLanguage();
         _telemetryItemsList.Clear();
         TelemetryItems = [];
         SettingsStatus = string.Empty;
@@ -1098,11 +1052,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         else
         {
             ApplyWaitingState();
-        }
-
-        foreach (var upsEvent in Events)
-        {
-            upsEvent.RefreshLanguage();
         }
 
         if (_lastSnapshot is not null && IsHistoryRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
@@ -3063,125 +3012,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         return true;
     }
 
-    private void RefreshLogSeverityOptions()
-    {
-        LogSeverityFilterOptions =
-        [
-            new(LogSeverityFilterKind.All, L("FilterAll")),
-            new(LogSeverityFilterKind.Information, L("FilterInformation")),
-            new(LogSeverityFilterKind.Warning, L("FilterWarning")),
-            new(LogSeverityFilterKind.Critical, L("FilterCritical")),
-        ];
-    }
-
-    private bool FilterEventItem(object obj)
-    {
-        if (obj is not UpsEventViewModel evt)
-        {
-            return false;
-        }
-
-        if (SelectedLogSeverityFilter != LogSeverityFilterKind.All)
-        {
-            var matchesSeverity = SelectedLogSeverityFilter switch
-            {
-                LogSeverityFilterKind.Information => evt.Severity == UpsEventSeverity.Information,
-                LogSeverityFilterKind.Warning => evt.Severity == UpsEventSeverity.Warning,
-                LogSeverityFilterKind.Critical => evt.Severity == UpsEventSeverity.Critical,
-                _ => true,
-            };
-
-            if (!matchesSeverity)
-            {
-                return false;
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(_logSearchText))
-        {
-            return true;
-        }
-
-        var query = _logSearchText.Trim();
-        return evt.Message.Contains(query, StringComparison.CurrentCultureIgnoreCase)
-            || evt.Type.Contains(query, StringComparison.CurrentCultureIgnoreCase)
-            || evt.StateTransition.Contains(query, StringComparison.CurrentCultureIgnoreCase)
-            || evt.Timestamp.Contains(query, StringComparison.CurrentCultureIgnoreCase);
-    }
-
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-}
-
-public enum LogSeverityFilterKind
-{
-    All,
-    Information,
-    Warning,
-    Critical,
-}
-
-public sealed record LogSeverityFilterOption(LogSeverityFilterKind Kind, string DisplayName);
-
-public sealed class UpsEventViewModel : INotifyPropertyChanged
-{
-    private readonly UpsEvent _source;
-
-    public UpsEventViewModel(UpsEvent upsEvent)
-    {
-        _source = upsEvent;
-    }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    public UpsEventSeverity Severity => _source.Severity;
-
-    public string Timestamp => _source.Timestamp.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
-
-    public string Type => _source.Type switch
-    {
-        UpsEventType.PowerLost => LocalizationManager.Get("EventPowerLost"),
-        UpsEventType.PowerRestored => LocalizationManager.Get("EventPowerRestored"),
-        UpsEventType.BatteryLow => LocalizationManager.Get("EventBatteryLow"),
-        UpsEventType.BatteryCritical => LocalizationManager.Get("EventBatteryCritical"),
-        UpsEventType.RuntimeLow => LocalizationManager.Get("EventRuntimeLow"),
-        UpsEventType.OverloadDetected => LocalizationManager.Get("EventOverload"),
-        UpsEventType.UpsDisconnected => LocalizationManager.Get("EventUpsDisconnected"),
-        UpsEventType.UpsReconnected => LocalizationManager.Get("EventUpsReconnected"),
-        _ => _source.Type.ToString(),
-    };
-
-    public string Message => LocalizationManager.Get(_source.Type switch
-    {
-        UpsEventType.PowerLost => "EventMessagePowerLost",
-        UpsEventType.PowerRestored => "EventMessagePowerRestored",
-        UpsEventType.BatteryLow => "EventMessageBatteryLow",
-        UpsEventType.BatteryCritical => "EventMessageBatteryCritical",
-        UpsEventType.RuntimeLow => "EventMessageRuntimeLow",
-        UpsEventType.OverloadDetected => "EventMessageOverload",
-        UpsEventType.UpsDisconnected => "EventMessageUpsDisconnected",
-        UpsEventType.UpsReconnected => "EventMessageUpsReconnected",
-        _ => _source.Message,
-    });
-
-    public string StateTransition => $"{LocalizeState(_source.PreviousState)} → {LocalizeState(_source.CurrentState)}";
-
-    public void RefreshLanguage()
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Timestamp)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Type)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Message)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StateTransition)));
-    }
-
-    private static string LocalizeState(UpsPowerState state) => state switch
-    {
-        UpsPowerState.Online => LocalizationManager.Get("StateOnline"),
-        UpsPowerState.OnBattery => LocalizationManager.Get("StateOnBattery"),
-        UpsPowerState.LowBattery => LocalizationManager.Get("StateLowBattery"),
-        UpsPowerState.Critical => LocalizationManager.Get("StateCritical"),
-        _ => LocalizationManager.Get("StateUnknown"),
-    };
 }
 
 public sealed class UpsTelemetryViewModel : INotifyPropertyChanged

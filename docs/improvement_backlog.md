@@ -18,7 +18,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | 3 | 力率ヒートマップ | ✅ 実装済み | `0026e20`（Core/Infra + UI 統合）、Merge `148d362` |
 | 4 | 日次電力量の正確化＋月次集計 | ✅ 実装済み | Core/SQLite `96e2879`（正確化は旧 API ラッパー経由で既存 UI にも反映）、月次 UI `727c9c7` |
 | 5 | エクスポート全期間＋ストリーミング | ⏳ 次ラウンド | — |
-| 6 | 保存済みログのフィルタ | ⏳ 次ラウンド | — |
+| 6 | 保存済みログのフィルタ | ✅ 実装済み（0.1.017） | `feature/logs-saved-event-filter` |
 | 7〜9 | （下記「見送り推奨」参照） | 見送り | — |
 
 ### その他の実装済み改修（#1〜#9 とは別枠、2026-09-17 以降）
@@ -33,7 +33,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | fix(health) | 健全性記録で履歴状況取得に失敗しても、起動後の履歴問い合わせ成功時に不足状況を補完（既存の記録時現在値は維持） | `9cff017` ほか、Merge `1624cbf` |
 | build(version) | パッチ番号の一元管理、`0.1.XXX` 表示、CHANGELOG とバージョン運用を導入し、現在値を 0.1.016 に確定 | Merge `6cef449`、タグ `v0.1.016` |
 
-#5・#6 は未着手のまま（「⏳ 次ラウンド」を維持）。
+#6 は 0.1.017 で実装済み。#5 は未着手のまま（「⏳ 次ラウンド」を維持）。
 
 既知の整理事項（2026-11-13 時点で再確認）: #4 実装後に残った旧 `DailyEnergyReports`（7 日固定）コレクションは、依然として削除されていない。`UpsMonitor.App/MainViewModel.cs:423` で宣言され、2164〜2176 行付近で毎リフレッシュ `QueryDailyEnergyReportsAsync` を呼んで差分更新しているが、`MainWindow.xaml` にバインドはない（grep で確認）。#7 の分割時、またはそれ以前の単独の小修正で削除できる。
 
@@ -82,7 +82,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 ## 今回スコープ推奨
 
-#1〜#4 は実装済み。未着手の推奨施策は #5・#6。
+#1〜#4・#6 は実装済み。未着手の推奨施策は #5。
 
 | 番号 | 施策 | 領域 | 推奨理由 | 難易度 |
 |---:|---|---|---|---|
@@ -91,7 +91,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | 3 | Analytics の力率ヒートマップ追加 | UI・SQLite・機能 | 計画・リソース文字列には力率があるが、選択肢と集計ロジックがない。既存データから派生計算できる | 中 |
 | 4 | 日次電力量の正確化と月次集計の追加 | SQLite・UI・機能 | 月次レポートが未実装で、現行の日次 kWh は観測時間によらず `平均W × 24h` のため当日・欠測日の値が過大になる | 中 |
 | 5 | エクスポートの「全期間」選択と大容量 JSON ストリーミング | UI・SQLite・機能 | Infrastructure には全期間 API があるが UI から到達不能。現行 JSON は全行をメモリ保持するため、そのまま公開すると長期データで危険 | 中 |
-| 6 | 保存済みログの日付範囲・イベント種別フィルタ | UI・SQLite・機能 | Logs は現セッション最大 500 件だけで、計画された日付範囲・種別検索がない。SQLite にはイベント履歴と索引が既にある | 中 |
+| 6 | 保存済みログの日付範囲・イベント種別フィルタ | UI・SQLite・機能 | ✅ 0.1.017 で実装済み。保存済みログの読込、期間・種別・重大度、上限表示に対応 | 中 |
 
 ## 見送り推奨
 
@@ -110,7 +110,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | SQLite: 日次 N+1 解消、複数メトリック一括取得、サグ／サージ単一走査、cleanup 索引、PRAGMA 調整 | 実装済み（機能精度の残件は 4） | `SqliteTelemetryQueries` と `SqliteTelemetryStore.ExecuteSchemaAsync` を確認。`8018f3c`、`330ff76` に履歴あり |
 | バックグラウンド: ポーリング待機、イベント定常時割当、HID バッファ／Parser／Mapper、Webhook retry、CommandRunner の drain／kill | 実装済み | `Monitoring.WaitForNextPollAsync`、`UpsEventDetector.Observe`、`HidDeviceSession`、`HidReportParser`、`UpsHidMapper`、`WebhookNotifier`、`CommandRunner` を確認 |
 | 機能: 日付・種別ログ、日次／月次レポート、力率 Analytics、全期間 export、カスタムアラート通知 | 一部のみ実装 | それぞれ 1、3〜6 に分解。walkthrough の完了表現より実コードを優先した |
-| `MainViewModel` 責務分割 | 提案のみ | サブ ViewModel は存在せず、設定・履歴・Analytics・Logs・監視表示が単一クラスに残る（7） |
+| `MainViewModel` 責務分割 | 提案のみ | Logs は 0.1.017 で `LogsViewModel` へ抽出済み。設定・履歴・Analytics・監視表示は単一クラスに残る（7） |
 | ReadyToRun | 提案のみ | `Directory.Build.props` と `UpsMonitor.App.csproj` に `PublishReadyToRun` および publish profile はない（8） |
 | `docs/ui_responsiveness_optimization/task.md` の未チェック 2 件 | 管理上の古い記載 | 「git commit」は `72c6e85` として実施・マージ済み。「`TASK.md` 末尾への完了報告」はコード施策ではなく、ルート `TASK.md` 自体が後続コミットで削除済み。実装バックログにはしない |
 
@@ -213,23 +213,17 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 ## 6. 保存済みログの日付範囲・イベント種別フィルタ
 
-- **対象領域**: UI・SQLite・機能
-- **出典**:
-  - `docs/feature_enhancements/implementation_plan.md`「2. イベントログの高度な検索・フィルタ」（From / To、イベント種別、重大度、フリーテキスト）
-  - `docs/architecture_and_ux_improvements/implementation_plan.md`「1-3. ログ画面のフィルタリング & 検索機能」
-- **現状と課題**:
-  重大度とフリーテキストは実装済みだが、`Events` は起動後に検知した最大 500 件だけで、SQLite の保存済み `ups_events` を Logs に読み戻さない。日付範囲とイベント種別の UI・query もないため、アプリ再起動後に過去障害を Logs から調査できない。
-- **提案する実装方針**:
-  - `TelemetryHistory.cs` に `EventQuery`（DeviceId、From、To、`IReadOnlySet<UpsEventType>`、severity、limit）と page/result 型を追加する。
-  - `SqliteTelemetryQueries.QueryEventsAsync` を public store API として分離し、`device_id + timestamp` index を使って期間を絞る。event type は parameterized `IN`、severity は event type の集合へ変換する。新しい複合 index は実測で必要な場合のみ schema v3 migration として追加する。
-  - 新規 `UpsMonitor.App/LogsViewModel.cs`（7 の全面分割を待たず、Logs だけ先行抽出可）に From / To preset、event type、severity、search、loading/cancellation、最大表示件数を持たせる。filter 変更は 250〜300ms debounce し、最新 request だけを反映する。
-  - live event は DB 書き込み完了後に同一 identity（timestamp/type/message）で upsert し、query 再読込との重複を除く。Logs タブ（現 index 6）を開いた時に即時 query する。
-  - `MainWindow.xaml` の Logs filter row に期間 preset と type ComboBox を追加する。5 の event export は同じ `EventQuery` を使用する。
-- **影響範囲・リスク**: live collection と DB query の競合、重複、最大件数、古い DB の enum 値が主リスク。message のローカライズは DB 保存原文ではなく event type を優先して表示する。
-- **必要なテスト**: 再起動相当の DB 読み戻し、期間境界、type/severity/search の組合せ、latest-wins cancellation、live/query 重複排除、500 件超の page/limit、未接続・device 未確定、export 条件一致。
-- **難易度**: 中
-- **確証度**: コード確認済み
-- **依存・競合**: 3、4 と `SqliteTelemetryQueries.cs` が競合。5 と query model を共有。先行して `LogsViewModel.cs` を作る場合、7 の分割先としてそのまま利用できる。
+- **状態**: ✅ 実装済み（0.1.017、2026-11-13、`feature/logs-saved-event-filter`）。
+- **出典**: `docs/feature_enhancements/implementation_plan.md`「2. イベントログの高度な検索・フィルタ」、`docs/architecture_and_ux_improvements/implementation_plan.md`「1-3. ログ画面のフィルタリング & 検索機能」。
+- **調査時の課題**: 起動後最大 500 件の live イベントだけが対象で、保存済み `ups_events` の読み戻し・期間・種別検索がなかった。
+- **実装**:
+  - Core の `EventQuery` は DeviceId（null は全デバイス）、From（包含）/ To（除外、UTC ミリ秒精度）、イベント種別集合（null は全種別、空集合は該当なし）、重大度、Limit を保持。検索開始時に集合を immutable snapshot 化する。結果は `EventQueryResult`（Events / HasMore）。#5 の export で再利用可能。
+  - `SqliteTelemetryStore.QueryEventsAsync` はキューの Flush 後にパラメータ化 SQL で検索し、新しい順に Limit + 1 件から超過を判定。種別集合は JSON パラメータと SQLite 組込み `json_each` の IN で扱い、重大度は Core の分類から種別集合へ変換。未知の enum は Core と同様 Information。既存 `ix_events_device_time` の期間検索を EXPLAIN で確認し、スキーマ・索引は変更しない。
+  - `LogsViewModel` を先行抽出し、24 時間 / 7 日 / 30 日 / 全期間、種別 ComboBox、重大度、検索、読込状態、キャンセルと 500 件上限を所有。Logs 表示時は即時、期間・種別・重大度変更は 300ms debounce で DB 読込し、キャンセルを無視する古い要求も反映しない。非表示・破棄時はキャンセル。
+  - 再起動後・未接続時にも調査できるよう UI は全デバイス対象。live は即時表示し、DB 読込結果と `UTC timestamp（ミリ秒）/ type / 保存原文 message / previous_state / current_state` で重複除去する。保存精度未満の差・ローカライズの差は二重表示しない。live バッファも 500 件に制限する。
+  - フリーテキストは従来と同様、読み込んだ行の日時・種別・翻訳メッセージ・状態遷移を対象。上限案内で絞り込みを促す。日英リソースを追加し、高負荷・電圧異常の種別を翻訳表示し、メッセージは実測値・しきい値を含む原文を維持する。日時の表示・文字列検索はローカル時刻に統一する。
+- **当初案との差・後続**: 独立した `EventQuery.cs` / `SqliteEventQueries.cs` に配置。既存 History 用の非公開検索は従来の上端包含を維持し、新 API は [From, To) とする。live 通知は実コードでは永続化キュー投入より先なので、DB 完了を待たず bounded live バッファと検索結果を統合する。ページ送り・自由入力の日付範囲は追加せずプリセットと上限表示を採用。CSV export の条件共有は #5 で行う（現行の期間指定は維持）。
+- **検証**: 合成 SQLite で空 DB、再オープン、期間境界・UTC offset、全種別／重大度／未知 enum／上限の組合せ、500 件超、デバイス分離、パラメータ化、索引利用、重複排除を確認。実 VM をソースリンクし debounce・latest-wins・非表示時停止・dispose・エラー表示・検索・日英切替を検証。保存済み UTC 行と +09:00 live の統合前後での日時表示・検索一致、アラート原文の維持も確認。全 74 件。WPF 実画面での配置・操作確認は別途必要。
 
 ## 7. `MainViewModel` の責務分割
 
@@ -238,7 +232,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 - **対象領域**: アーキテクチャ
 - **出典**: `docs/architecture_and_ux_improvements/implementation_plan.md`「1-6. MainViewModel の責務分割・リファクタリング」
 - **現状と課題**:
-  `UpsMonitor.App/MainViewModel.cs` は約 3,300 行（2026-11-13 時点。調査時点では約 2,700 行・118 KB）で、監視 snapshot 表示、履歴 query、Analytics、Logs、設定保存、export、通知、シミュレータ、バッテリー基準管理を一括している。walkthrough には専用フィルタ機能の追加はあるが、責務分割そのものは実施されていない。
+  `UpsMonitor.App/MainViewModel.cs` は約 3,300 行（2026-11-13 時点。調査時点では約 2,700 行・118 KB）で、監視 snapshot 表示、履歴 query、Analytics、設定保存、export、通知、シミュレータ、バッテリー基準管理を一括している。walkthrough には専用フィルタ機能の追加はあるが、責務分割そのものは実施されていない。
 - **提案する実装方針**:
   - `HistoryViewModel`（履歴 range、chart、period summary、energy report）、`AnalyticsViewModel`（指標、期間、weekly pattern）、`LogsViewModel`（6 の query/filter）、`SettingsViewModel`（設定編集・保存・通知テスト）、`BatteryHealthViewModel`（baseline 編集）へ段階的に抽出する。
   - `MainViewModel` は `UpsMonitorEngine` の lifecycle、最新 `UpsSnapshot`、タブ子 VM への snapshot/context 配布、tray/minimonitor 向け最小 projection だけを担当する。

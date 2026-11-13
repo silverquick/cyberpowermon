@@ -529,4 +529,17 @@
     <sys:String x:Key="OfficialContextLoad24h">24h平均負荷 {0:0}%</sys:String>
     <sys:String x:Key="OfficialContextLastDischarge">最終放電から{0:0.#}日</sys:String>
     <sys:String x:Key="OfficialContextNoDischarge">放電記録なし({0}以降)</sys:String>
+    <sys:String x:Key="LogsRange">期間</sys:String>
+    <sys:String x:Key="LogsEventType">イベント種別</sys:String>
+    <sys:String x:Key="LogsRange24Hours">24 時間</sys:String>
+    <sys:String x:Key="LogsRange7Days">7 日</sys:String>
+    <sys:String x:Key="LogsRange30Days">30 日</sys:String>
+    <sys:String x:Key="LogsRangeAll">全期間</sys:String>
+    <sys:String x:Key="LogsSearch">検索</sys:String>
+    <sys:String x:Key="LogsSearchHelp">全デバイスの保存済みイベントを新しい順に最大 500 件表示。検索は読み込んだ行が対象です。CSV は従来の期間指定で出力します。</sys:String>
+    <sys:String x:Key="LogsLimitReached">表示上限の 500 件に達しました。期間・種別・重大度を絞り込んでください。</sys:String>
+    <sys:String x:Key="LogsLoading">保存済みイベントを読み込み中…</sys:String>
+    <sys:String x:Key="LogsHistoryDisabled">履歴保存が無効のため、起動中のイベントのみ表示します。</sys:String>
+    <sys:String x:Key="EventVoltageAbnormal">入力電圧異常</sys:String>
+    <sys:String x:Key="EventHighLoadWarning">高負荷警告</sys:String>
 </ResourceDictionary>

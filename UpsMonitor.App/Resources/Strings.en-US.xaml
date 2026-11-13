@@ -529,4 +529,17 @@
     <sys:String x:Key="OfficialContextLoad24h">24h avg load {0:0}%</sys:String>
     <sys:String x:Key="OfficialContextLastDischarge">{0:0.#} days since last discharge</sys:String>
     <sys:String x:Key="OfficialContextNoDischarge">No discharge on record (since {0})</sys:String>
+    <sys:String x:Key="LogsRange">Period</sys:String>
+    <sys:String x:Key="LogsEventType">Event type</sys:String>
+    <sys:String x:Key="LogsRange24Hours">24 hours</sys:String>
+    <sys:String x:Key="LogsRange7Days">7 days</sys:String>
+    <sys:String x:Key="LogsRange30Days">30 days</sys:String>
+    <sys:String x:Key="LogsRangeAll">All time</sys:String>
+    <sys:String x:Key="LogsSearch">Search</sys:String>
+    <sys:String x:Key="LogsSearchHelp">Shows up to 500 newest saved events across all devices. Search applies to loaded rows. CSV uses the existing export period.</sys:String>
+    <sys:String x:Key="LogsLimitReached">The 500-event display limit was reached. Narrow the period, event type or severity.</sys:String>
+    <sys:String x:Key="LogsLoading">Loading saved events…</sys:String>
+    <sys:String x:Key="LogsHistoryDisabled">History is disabled; only events from this session are shown.</sys:String>
+    <sys:String x:Key="EventVoltageAbnormal">Abnormal input voltage</sys:String>
+    <sys:String x:Key="EventHighLoadWarning">High load warning</sys:String>
 </ResourceDictionary>
