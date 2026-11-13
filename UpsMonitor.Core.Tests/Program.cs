@@ -6,6 +6,17 @@ using UpsMonitor.Infrastructure;
 var tests = new (string Name, Action Run)[]
 {
     ("Version display formatting", VersionDisplayFormatting),
+    ("Saved events empty database", SavedEventTests.Empty),
+    ("Saved events inclusive From exclusive To", SavedEventTests.Boundaries),
+    ("Saved events type severity and combined conditions", SavedEventTests.TypeSeverity),
+    ("Saved events display limit and overflow", SavedEventTests.Limit),
+    ("Saved events use existing device timestamp index", SavedEventTests.IndexUsage),
+    ("Saved events reopen and device isolation", SavedEventTests.ReopenDevices),
+    ("Saved events and live identity deduplication", SavedEventTests.Deduplication),
+    ("Saved events validation snapshot and cancellation", SavedEventTests.ValidationCancellation),
+    ("Logs VM debounce cancellation latest wins", SavedEventTests.ViewModelLatestWins),
+    ("Logs VM live text search and language", SavedEventTests.ViewModelLiveSearchLanguage),
+    ("Logs VM query error and disposal", SavedEventTests.ViewModelFailureDisposal),
     ("Power state priority", PowerStatePriority),
     ("Power loss and restore events", PowerLossAndRestore),
     ("Alarm edge events", AlarmEdges),

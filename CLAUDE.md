@@ -12,9 +12,9 @@ Windows 標準の HID / SetupAPI を P/Invoke して UPS を読み取り、状�
 
 | プロジェクト | 役割 |
 | --- | --- |
-| `UpsMonitor.App` | WPF UI（`MainWindow.xaml`、`MainViewModel.cs`、`TrayIconManager.cs`、`MiniMonitorWindow`）。多言語リソースは `Resources/Strings.*.xaml` |
+| `UpsMonitor.App` | WPF UI（`MainWindow.xaml`、`MainViewModel.cs`、`LogsViewModel.cs`、`TrayIconManager.cs`、`MiniMonitorWindow`）。多言語リソースは `Resources/Strings.*.xaml` |
 | `UpsMonitor.Core` | Snapshot・状態・イベント検出・監視エンジン（`Monitoring.cs`）、バッテリー健全性（`BatteryHealth.cs`、`OfficialHealthEstimator.cs`）、履歴の型（`TelemetryHistory.cs`） |
-| `UpsMonitor.Core.Tests` | 独自ランナーのテスト（`Program.cs` 1 本）。NuGet のテストフレームワークは使わない |
+| `UpsMonitor.Core.Tests` | 独自ランナーのテスト（`Program.cs` と保存済みログのテスト（`SavedEventTests.cs`、日英リソース用 adapter）。Logs VM はソースリンクで検証）。NuGet のテストフレームワークは使わない |
 | `UpsMonitor.Hid` | HID / SetupAPI の P/Invoke（`HidNative.cs`）、descriptor・report の解析、UPS へのマッピング（`WindowsHidUpsProvider.cs`） |
 | `UpsMonitor.Infrastructure` | 設定（`AppConfiguration.cs`、`JsonConfigurationStore.cs`）、パス解決（`AppPaths.cs`）、SQLite 履歴（`SqliteTelemetry*.cs`）、エクスポート、Webhook、外部コマンド、ファイルログ、スタートアップ登録 |
 | `UpsMonitor.Probe` | 実機の descriptor と現在値を表示するコンソールツール |
@@ -23,7 +23,7 @@ Windows 標準の HID / SetupAPI を P/Invoke して UPS を読み取り、状�
 
 ```powershell
 dotnet build UpsMonitor.sln                              # Debug ビルド
-dotnet run --project UpsMonitor.Core.Tests               # 独自ランナー。現在 61/61 件通過（2026-11-13 確認）
+dotnet run --project UpsMonitor.Core.Tests               # 独自ランナー。現在 72/72 件通過（2026-11-13 確認）
 dotnet run --project .\UpsMonitor.App\UpsMonitor.App.csproj
 ```
 
