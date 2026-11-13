@@ -143,7 +143,9 @@ public partial class App : Application
                 }
             });
 
-            cleanupTask.Wait(TimeSpan.FromSeconds(1.5));
+            // The UI dispatcher is blocked here, so export shutdown waits only for its
+            // independent worker. Allow its bounded cleanup plus the existing service grace.
+            cleanupTask.Wait(ExportShutdown.WaitTimeout + TimeSpan.FromSeconds(1.5));
         }
         catch
         {

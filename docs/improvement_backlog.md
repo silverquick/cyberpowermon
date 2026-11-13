@@ -17,7 +17,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | 2 | Analytics タブのアクティブ判定修正 | ✅ 実装済み | `8dffed8` |
 | 3 | 力率ヒートマップ | ✅ 実装済み | `0026e20`（Core/Infra + UI 統合）、Merge `148d362` |
 | 4 | 日次電力量の正確化＋月次集計 | ✅ 実装済み | Core/SQLite `96e2879`（正確化は旧 API ラッパー経由で既存 UI にも反映）、月次 UI `727c9c7` |
-| 5 | エクスポート全期間＋ストリーミング | ⏳ 次ラウンド | — |
+| 5 | エクスポート全期間＋ストリーミング | ✅ 実装済み（0.1.018） | `feature/export-all-range-streaming` |
 | 6 | 保存済みログのフィルタ | ✅ 実装済み（0.1.017） | `feature/logs-saved-event-filter` |
 | 7〜9 | （下記「見送り推奨」参照） | 見送り | — |
 
@@ -194,22 +194,18 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 ## 5. エクスポートの「全期間」選択と大容量 JSON ストリーミング
 
-- **対象領域**: UI・SQLite・機能
-- **出典**:
-  - `docs/architecture_and_ux_improvements/implementation_plan.md`「1-5. データエクスポートの期間指定」（選択期間または全期間）
-  - `docs/architecture_and_ux_improvements/walkthrough.md`「5. データエクスポート機能の拡張」
-- **現状と課題**:
-  `TelemetryExporter.ExportAll*` の 3 API は存在するが参照箇所がなく、UI は History の選択期間（イベントは既定 30 日）しか出力できない。また JSON export は全レコードを `List<Dictionary<string, object?>>` に積んでから serialize するため、全期間を UI へ出すとメモリ使用量が DB 件数に比例する。
-- **提案する実装方針**:
-  - `MainViewModel` に `ExportRangeMode`（CurrentHistoryRange / All）を追加し、History と Logs の export カードで明示選択させる。選択期間時は現行 API、全期間時は `ExportAllTelemetryCsvAsync` / `ExportAllTelemetryJsonAsync` / `ExportAllEventsCsvAsync` を呼ぶ。
-  - export 開始前に `_historyStore.FlushAsync` を待ち、直前までの queue を含める。SaveFileDialog の後に status と cancellation を管理し、二重実行を抑止する。
-  - `TelemetryExporter.ExportTelemetryJsonAsync` は `Utf8JsonWriter` で配列開始→reader の各行を直接書き込み→配列終了とし、`List<Dictionary<...>>` を廃止する。CSV は既に streaming なので維持する。
-  - 6 のログ filter を先に実装する場合は、Logs の export に「現在の filter 範囲」と「全期間」を用意し、filter 条件を exporter/query model と共有する。
-- **影響範囲・リスク**: 全期間 export は長時間 I/O と大きな出力ファイルを生む。キャンセル時の中途ファイル、DB read lock、空き容量不足が主リスク。失敗・キャンセル時は一時ファイルへ書き、成功時に move するのが安全。
-- **必要なテスト**: 全期間／選択期間の境界、最新 queue の flush、大量 JSON の一定メモリ、JSON 妥当性、キャンセル時 temp cleanup、CSV/JSON 行数一致、空 DB。
-- **難易度**: 中
-- **確証度**: コード確認済み
-- **依存・競合**: 6 の filter model と連携可能。`MainViewModel.cs` / `MainWindow.xaml` は 1〜4、6、7 と競合する。`TelemetryExporter.cs` は他施策と競合しない。
+- **状態**: ✅ 実装済み（0.1.018、2026-11-13、`feature/export-all-range-streaming`）。
+- **出典**: `docs/architecture_and_ux_improvements/implementation_plan.md`「1-5. データエクスポートの期間指定」、同 `walkthrough.md`「5. データエクスポート機能の拡張」。
+- **調査時の課題**: 全期間 API が UI から呼べず、JSON は全行を List に保持。Logs CSV は History の期間（未選択時 30 日）を使い、#6 の検索条件と独立していた。
+- **実装**:
+  - History は「現在の履歴範囲」／「全期間」、Logs は「現在のフィルタ条件」／「全期間」を個別に選択。LogsViewModel が表示と同じ EventQuery の snapshot を生成し、現在条件では期間・種別・重大度を共有、全期間ではすべて解除する。
+  - SqliteEventQueries の SQL 条件とパラメータ設定を exporter と共有。新しい EventQuery overload は [From, To) で検索し、表示上限の Limit は適用しない。従来の期間引数 overload とテレメトリの上端包含は互換維持。保存済みの全デバイス／全物理行を対象に出力し、表示用の重複除去は適用しない。
+  - テキスト検索は翻訳済み表示行だけのクライアント側検索なので export へ適用しない。表示上限も適用せず、UI の日英ヘルプと README に明記した。
+  - ExportOperation が FlushAsync を待ってから出力。TelemetryExporter は JSON を Utf8JsonWriter で直接 1 行ずつ書き、各行でバッファを Flush する。全件 List／Dictionary の保持はなく、CSV も従来の逐次出力。列・キー順・日時・数値丸め・nullable 値・CSV の UTF-8 BOM／JSON の BOM なしは維持。
+  - 全 exporter entry point が出力先と同じディレクトリの一意な一時ファイルへ書き、ストリームを閉じた後にキャンセルを再確認して置換。失敗・キャンセル・置換失敗時は finally で一時ファイルを削除し、既存ファイルを保持する。
+  - UI は Task.Run で DB／出力処理を行い、MainViewModel の export 専用 CTS を共有して CSV／JSON／Events 間の二重実行を防止。各タブに実行状態とキャンセルボタンを表示し、dispose 時にもキャンセルし、dispatcher に依存しない worker の temp cleanup まで最大 5 秒待つ。OnExit の外側待機は 6.5 秒とし、上限超過時は temp が残る可能性を許容して終了する。
+- **当初案との差**: enum の追加はせず ComboBox の選択を使用し、Logs の条件は先行抽出済み LogsViewModel に置いた。UI は Flush 保証の共通 ExportOperation を通して既存の範囲 API を呼ぶ（全期間は非制限境界）。全期間 API 自体も引き続き利用可能。全期間は保存済み raw データの全期間であり、保持期限で削除済みの履歴の復元や rollup の出力は含めない。DB スキーマ・依存パッケージ・config・HID の変更なし。
+- **検証**: 一時ディレクトリの合成 SQLite で全期間／選択期間の境界と UTC offset、Flush による直前行、JSON パース・キー順・型・CSV/JSON 件数・文字コード、空 DB、種別／重大度／未知 enum／デバイスと半開区間、Logs の immutable snapshot と全期間解除、表示上限を超える export、30,000 行の完走、途中キャンセル・IO 失敗・DB 失敗・置換失敗時の既存ファイル保持と temp cleanup を確認。終了待機は合成 callback の後始末完了と非 pumping 同期コンテキストでの完了、待機上限も検証。全 80 件。WPF 実画面での日英表示・配置・長時間処理のキャンセルとタブを跨ぐ二重実行防止は手動確認が必要。
 
 ## 6. 保存済みログの日付範囲・イベント種別フィルタ
 
@@ -222,7 +218,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
   - `LogsViewModel` を先行抽出し、24 時間 / 7 日 / 30 日 / 全期間、種別 ComboBox、重大度、検索、読込状態、キャンセルと 500 件上限を所有。Logs 表示時は即時、期間・種別・重大度変更は 300ms debounce で DB 読込し、キャンセルを無視する古い要求も反映しない。非表示・破棄時はキャンセル。
   - 再起動後・未接続時にも調査できるよう UI は全デバイス対象。live は即時表示し、DB 読込結果と `UTC timestamp（ミリ秒）/ type / 保存原文 message / previous_state / current_state` で重複除去する。保存精度未満の差・ローカライズの差は二重表示しない。live バッファも 500 件に制限する。
   - フリーテキストは従来と同様、読み込んだ行の日時・種別・翻訳メッセージ・状態遷移を対象。上限案内で絞り込みを促す。日英リソースを追加し、高負荷・電圧異常の種別を翻訳表示し、メッセージは実測値・しきい値を含む原文を維持する。日時の表示・文字列検索はローカル時刻に統一する。
-- **当初案との差・後続**: 独立した `EventQuery.cs` / `SqliteEventQueries.cs` に配置。既存 History 用の非公開検索は従来の上端包含を維持し、新 API は [From, To) とする。live 通知は実コードでは永続化キュー投入より先なので、DB 完了を待たず bounded live バッファと検索結果を統合する。ページ送り・自由入力の日付範囲は追加せずプリセットと上限表示を採用。CSV export の条件共有は #5 で行う（現行の期間指定は維持）。
+- **当初案との差・後続**: 独立した `EventQuery.cs` / `SqliteEventQueries.cs` に配置。既存 History 用の非公開検索は従来の上端包含を維持し、新 API は [From, To) とする。live 通知は実コードでは永続化キュー投入より先なので、DB 完了を待たず bounded live バッファと検索結果を統合する。ページ送り・自由入力の日付範囲は追加せずプリセットと上限表示を採用。CSV export の条件共有は #5（0.1.018）で実装済み。
 - **検証**: 合成 SQLite で空 DB、再オープン、期間境界・UTC offset、全種別／重大度／未知 enum／上限の組合せ、500 件超、デバイス分離、パラメータ化、索引利用、重複排除を確認。実 VM をソースリンクし debounce・latest-wins・非表示時停止・dispose・エラー表示・検索・日英切替を検証。保存済み UTC 行と +09:00 live の統合前後での日時表示・検索一致、アラート原文の維持も確認。全 74 件。WPF 実画面での配置・操作確認は別途必要。
 
 ## 7. `MainViewModel` の責務分割

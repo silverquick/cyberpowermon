@@ -542,4 +542,11 @@
     <sys:String x:Key="LogsHistoryDisabled">History is disabled; only events from this session are shown.</sys:String>
     <sys:String x:Key="EventVoltageAbnormal">Abnormal input voltage</sys:String>
     <sys:String x:Key="EventHighLoadWarning">High load warning</sys:String>
+    <sys:String x:Key="ExportCurrentRange">Current history range</sys:String>
+    <sys:String x:Key="ExportSearchHelp">Text search and the display limit do not apply to exports. All time also clears type and severity filters.</sys:String>
+    <sys:String x:Key="ExportAllRange">All time (all saved data)</sys:String>
+    <sys:String x:Key="ExportCurrentFilters">Current filters</sys:String>
+    <sys:String x:Key="ExportCancel">Cancel export</sys:String>
+    <sys:String x:Key="ExportRunning">Exporting…</sys:String>
+    <sys:String x:Key="ExportCancelled">Export cancelled.</sys:String>
 </ResourceDictionary>

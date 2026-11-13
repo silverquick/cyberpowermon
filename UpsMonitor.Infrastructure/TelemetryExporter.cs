@@ -8,6 +8,45 @@ namespace UpsMonitor.Infrastructure;
 
 public static class TelemetryExporter
 {
+    // Same-directory staging keeps successful publication on the same volume.
+    internal static async Task WriteAtomicallyAsync(string destination, Func<string, Task> write, CancellationToken token)
+    {
+        var fullPath = Path.GetFullPath(destination);
+        var temporary = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            token.ThrowIfCancellationRequested();
+            await write(temporary).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            File.Move(temporary, fullPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    public static Task ExportTelemetryCsvAsync(string databasePath, string destinationFilePath,
+        DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default) =>
+        WriteAtomicallyAsync(destinationFilePath, path => WriteTelemetryCsvAsync(databasePath, path, from, to, cancellationToken), cancellationToken);
+
+    public static Task ExportTelemetryJsonAsync(string databasePath, string destinationFilePath,
+        DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default) =>
+        WriteAtomicallyAsync(destinationFilePath, path => WriteTelemetryJsonAsync(databasePath, path, from, to, cancellationToken), cancellationToken);
+
+    // Preserve the legacy inclusive upper bound on this overload.
+    public static Task ExportEventsCsvAsync(string databasePath, string destinationFilePath,
+        DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default) =>
+        WriteAtomicallyAsync(destinationFilePath, path => WriteEventsCsvAsync(databasePath, path, from, to, cancellationToken), cancellationToken);
+
+    public static Task ExportEventsCsvAsync(string databasePath, string destinationFilePath,
+        EventQuery query, CancellationToken cancellationToken = default)
+    {
+        query = query.Snapshot();
+        return WriteAtomicallyAsync(destinationFilePath, path => WriteEventsCsvAsync(databasePath, path,
+            DateTimeOffset.MinValue, DateTimeOffset.MaxValue, cancellationToken, query), cancellationToken);
+    }
+
     public static Task ExportAllTelemetryCsvAsync(
         string databasePath,
         string destinationFilePath,
@@ -26,7 +65,7 @@ public static class TelemetryExporter
         CancellationToken cancellationToken = default) =>
         ExportEventsCsvAsync(databasePath, destinationFilePath, DateTimeOffset.MinValue, DateTimeOffset.MaxValue, cancellationToken);
 
-    public static async Task ExportTelemetryCsvAsync(
+    private static async Task WriteTelemetryCsvAsync(
         string databasePath,
         string destinationFilePath,
         DateTimeOffset from,
@@ -104,7 +143,7 @@ public static class TelemetryExporter
         }
     }
 
-    public static async Task ExportTelemetryJsonAsync(
+    private static async Task WriteTelemetryJsonAsync(
         string databasePath,
         string destinationFilePath,
         DateTimeOffset from,
@@ -149,48 +188,62 @@ public static class TelemetryExporter
         command.Parameters.AddWithValue("$to", to.ToUniversalTime().ToUnixTimeMilliseconds());
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        var records = new List<Dictionary<string, object?>>();
+        await using var fileStream = File.Create(destinationFilePath);
+        using var jsonWriter = new Utf8JsonWriter(fileStream, new JsonWriterOptions { Indented = true });
+        jsonWriter.WriteStartArray();
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             var timestampMs = reader.GetInt64(0);
             var timestampUtc = DateTimeOffset.FromUnixTimeMilliseconds(timestampMs);
 
-            records.Add(new Dictionary<string, object?>
-            {
-                ["timestampUtc"] = timestampUtc.ToString("O"),
-                ["timestampLocal"] = timestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                ["deviceId"] = reader.GetString(1),
-                ["inputVoltage"] = reader.IsDBNull(2) ? null : reader.GetDouble(2),
-                ["outputVoltage"] = reader.IsDBNull(3) ? null : reader.GetDouble(3),
-                ["batteryVoltage"] = reader.IsDBNull(4) ? null : reader.GetDouble(4),
-                ["batteryPercent"] = reader.IsDBNull(5) ? null : reader.GetDouble(5),
-                ["runtimeSeconds"] = reader.IsDBNull(6) ? null : reader.GetDouble(6),
-                ["runtimeMinutes"] = reader.IsDBNull(6) ? null : Math.Round(reader.GetDouble(6) / 60.0, 1),
-                ["loadPercent"] = reader.IsDBNull(7) ? null : reader.GetDouble(7),
-                ["activePowerWatts"] = reader.IsDBNull(8) ? null : reader.GetDouble(8),
-                ["apparentPowerVa"] = reader.IsDBNull(9) ? null : reader.GetDouble(9),
-                ["frequencyHz"] = reader.IsDBNull(10) ? null : reader.GetDouble(10),
-                ["temperatureCelsius"] = reader.IsDBNull(11) ? null : reader.GetDouble(11),
-                ["acPresent"] = reader.IsDBNull(12) ? null : reader.GetInt64(12) == 1,
-                ["charging"] = reader.IsDBNull(13) ? null : reader.GetInt64(13) == 1,
-                ["discharging"] = reader.IsDBNull(14) ? null : reader.GetInt64(14) == 1,
-                ["lowBattery"] = reader.IsDBNull(15) ? null : reader.GetInt64(15) == 1,
-                ["overload"] = reader.IsDBNull(16) ? null : reader.GetInt64(16) == 1,
-            });
+            jsonWriter.WriteStartObject();
+            jsonWriter.WriteString("timestampUtc", timestampUtc.ToString("O"));
+            jsonWriter.WriteString("timestampLocal", timestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+            jsonWriter.WriteString("deviceId", reader.GetString(1));
+            WriteNumber("inputVoltage", 2);
+            WriteNumber("outputVoltage", 3);
+            WriteNumber("batteryVoltage", 4);
+            WriteNumber("batteryPercent", 5);
+            WriteNumber("runtimeSeconds", 6);
+            if (reader.IsDBNull(6)) jsonWriter.WriteNull("runtimeMinutes");
+            else jsonWriter.WriteNumber("runtimeMinutes", Math.Round(reader.GetDouble(6) / 60.0, 1));
+            WriteNumber("loadPercent", 7);
+            WriteNumber("activePowerWatts", 8);
+            WriteNumber("apparentPowerVa", 9);
+            WriteNumber("frequencyHz", 10);
+            WriteNumber("temperatureCelsius", 11);
+            WriteBoolean("acPresent", 12);
+            WriteBoolean("charging", 13);
+            WriteBoolean("discharging", 14);
+            WriteBoolean("lowBattery", 15);
+            WriteBoolean("overload", 16);
+            jsonWriter.WriteEndObject();
+            // Keep the writer buffer bounded independently of the exported row count.
+            await jsonWriter.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
-        await using var fileStream = File.Create(destinationFilePath);
-        await JsonSerializer.SerializeAsync(fileStream, records, jsonOptions, cancellationToken).ConfigureAwait(false);
+        void WriteNumber(string name, int ordinal)
+        {
+            if (reader.IsDBNull(ordinal)) jsonWriter.WriteNull(name);
+            else jsonWriter.WriteNumber(name, reader.GetDouble(ordinal));
+        }
+        void WriteBoolean(string name, int ordinal)
+        {
+            if (reader.IsDBNull(ordinal)) jsonWriter.WriteNull(name);
+            else jsonWriter.WriteBoolean(name, reader.GetInt64(ordinal) == 1);
+        }
+        jsonWriter.WriteEndArray();
+        await jsonWriter.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public static async Task ExportEventsCsvAsync(
+    private static async Task WriteEventsCsvAsync(
         string databasePath,
         string destinationFilePath,
         DateTimeOffset from,
         DateTimeOffset to,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        EventQuery? query = null)
     {
         var connectionString = new SqliteConnectionStringBuilder
         {
@@ -215,8 +268,17 @@ public static class TelemetryExporter
             WHERE timestamp_utc_ms >= $from AND timestamp_utc_ms <= $to
             ORDER BY timestamp_utc_ms ASC;
             """;
-        command.Parameters.AddWithValue("$from", from.ToUniversalTime().ToUnixTimeMilliseconds());
-        command.Parameters.AddWithValue("$to", to.ToUniversalTime().ToUnixTimeMilliseconds());
+        if (query is null)
+        {
+            command.Parameters.AddWithValue("$from", from.ToUniversalTime().ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("$to", to.ToUniversalTime().ToUnixTimeMilliseconds());
+        }
+        else
+        {
+            command.CommandText = "SELECT timestamp_utc_ms, device_id, event_type, previous_state, current_state, message FROM ups_events WHERE "
+                + SqliteTelemetryStore.EventFilterSql + " ORDER BY timestamp_utc_ms ASC;";
+            SqliteTelemetryStore.BindEventQuery(command, query);
+        }
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await using var writer = new StreamWriter(destinationFilePath, append: false, Encoding.UTF8);
