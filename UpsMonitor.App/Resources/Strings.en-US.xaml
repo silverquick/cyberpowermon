@@ -497,10 +497,11 @@
     <sys:String x:Key="OfficialRecordMaeLabel">Mean absolute prediction error</sys:String>
     <sys:String x:Key="OfficialRecordMaeFormat">{0:0.0} points</sys:String>
     <sys:String x:Key="OfficialRecordInstalledLabel">Battery purchase (install) date</sys:String>
-    <sys:String x:Key="OfficialRecordHelp">Record the official health shown by PowerPanel or similar over time and the current health is estimated from the trend. The purchase date helps estimate the trend slope (at least one official value is required). Error is official value minus the prediction at record time.</sys:String>
+    <sys:String x:Key="OfficialRecordHelp">Record the official health shown by PowerPanel or similar over time and the current health is estimated from the trend. The purchase date helps estimate the trend slope (at least one official value is required). Error is official value minus the prediction at record time. Leave date and time blank to use now. With only a date, today uses the current time; past dates use 00:00. Future times cannot be recorded (up to 5 minutes of clock drift is allowed).</sys:String>
     <sys:String x:Key="OfficialRecordRequiresUps">Cannot record or change this because no UPS is connected.</sys:String>
     <sys:String x:Key="OfficialRecordValueInvalid">Enter the official health as a number from 0 to 100.</sys:String>
     <sys:String x:Key="OfficialRecordTimeInvalid">Enter the time in HH:mm format.</sys:String>
+    <sys:String x:Key="OfficialRecordFutureInvalid">Future times cannot be recorded. Clock drift of up to 5 minutes ahead of now is allowed.</sys:String>
     <sys:String x:Key="OfficialRecordSavedFormat">Recorded official value {0:0.#}% ({1}).</sys:String>
     <sys:String x:Key="OfficialRecordDeleted">Official record deleted.</sys:String>
     <sys:String x:Key="OfficialInstalledSaved">Battery install date saved.</sys:String>

@@ -497,10 +497,11 @@
     <sys:String x:Key="OfficialRecordMaeLabel">予測の平均絶対誤差</sys:String>
     <sys:String x:Key="OfficialRecordMaeFormat">{0:0.0} ポイント</sys:String>
     <sys:String x:Key="OfficialRecordInstalledLabel">バッテリー購入(設置)日</sys:String>
-    <sys:String x:Key="OfficialRecordHelp">PowerPanel等で確認した公式の健全性を時系列で記録すると、その推移から現在の健全性を推定します。購入日は推移の傾きを求める補助として使います(公式値の記録が1件以上必要です)。誤差は(公式値 - 記録時の予測)です。</sys:String>
+    <sys:String x:Key="OfficialRecordHelp">PowerPanel等で確認した公式の健全性を時系列で記録すると、その推移から現在の健全性を推定します。購入日は推移の傾きを求める補助として使います(公式値の記録が1件以上必要です)。誤差は(公式値 - 記録時の予測)です。日付と時刻が空なら現在日時。日付だけなら、今日は現在時刻・過去の日付は 00:00。未来の日時は記録できません(時計のずれは5分まで許容)。</sys:String>
     <sys:String x:Key="OfficialRecordRequiresUps">UPSが接続されていないため、公式値を記録できません。</sys:String>
     <sys:String x:Key="OfficialRecordValueInvalid">公式の健全性は 0〜100 の数値で入力してください。</sys:String>
     <sys:String x:Key="OfficialRecordTimeInvalid">時刻は HH:mm 形式で入力してください。</sys:String>
+    <sys:String x:Key="OfficialRecordFutureInvalid">未来の日時は記録できません。現在から5分以内の時計のずれは許容されます。</sys:String>
     <sys:String x:Key="OfficialRecordSavedFormat">公式値 {0:0.#}%({1})を記録しました。</sys:String>
     <sys:String x:Key="OfficialRecordDeleted">公式値の記録を削除しました。</sys:String>
     <sys:String x:Key="OfficialInstalledSaved">バッテリー設置日を保存しました。</sys:String>

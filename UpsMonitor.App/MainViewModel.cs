@@ -489,6 +489,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         set => SetField(ref _officialRecordPercent, value);
     }
 
+    public DateTime OfficialRecordDateEnd => DateTime.Today;
+
     public DateTime? OfficialRecordDate
     {
         get => _officialRecordDate;
@@ -1092,6 +1094,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private void ApplySnapshot(UpsSnapshot snapshot)
     {
+        // 日付をまたいだ後も、記録欄のカレンダー上限を今日に更新する。
+        OnPropertyChanged(nameof(OfficialRecordDateEnd));
         _lastSnapshot = snapshot;
         var telemetry = UpsTelemetryValidator.Normalize(snapshot);
         _lastTelemetry = telemetry;
@@ -1482,30 +1486,16 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             return;
         }
 
-        var date = (OfficialRecordDate ?? DateTime.Today).Date;
-        var time = TimeSpan.Zero;
-        if (OfficialRecordDate is null && string.IsNullOrWhiteSpace(OfficialRecordTime))
+        var resolvedTime = OfficialRecordTimeResolver.Resolve(
+            OfficialRecordDate, OfficialRecordTime, DateTimeOffset.Now);
+        if (resolvedTime.RecordedAt is not { } recordedAt)
         {
-            date = DateTime.Today;
-            time = DateTime.Now.TimeOfDay;
-        }
-        else if (!string.IsNullOrWhiteSpace(OfficialRecordTime))
-        {
-            if (!DateTime.TryParseExact(
-                    OfficialRecordTime.Trim(),
-                    ["H:mm", "HH:mm"],
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.None,
-                    out var parsed))
-            {
-                SettingsStatus = L("OfficialRecordTimeInvalid");
-                return;
-            }
-
-            time = parsed.TimeOfDay;
+            SettingsStatus = L(resolvedTime.Error == OfficialRecordTimeError.InvalidTimeFormat
+                ? "OfficialRecordTimeInvalid"
+                : "OfficialRecordFutureInvalid");
+            return;
         }
 
-        var recordedAt = new DateTimeOffset(date + time);
         var profile = FindHealthProfile(device);
         if (profile is null)
         {

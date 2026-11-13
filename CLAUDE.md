@@ -23,7 +23,7 @@ Windows 標準の HID / SetupAPI を P/Invoke して UPS を読み取り、状�
 
 ```powershell
 dotnet build UpsMonitor.sln                              # Debug ビルド
-dotnet run --project UpsMonitor.Core.Tests               # 独自ランナー。現在 80/80 件通過（2026-11-13 確認）
+dotnet run --project UpsMonitor.Core.Tests               # 独自ランナー。現在 89/89 件通過（2026-11-13 確認）
 dotnet run --project .\UpsMonitor.App\UpsMonitor.App.csproj
 ```
 
