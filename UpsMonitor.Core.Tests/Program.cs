@@ -6,6 +6,15 @@ using UpsMonitor.Infrastructure;
 var tests = new (string Name, Action Run)[]
 {
     ("Version display formatting", VersionDisplayFormatting),
+    ("Official record empty input uses now", OfficialRecordEmptyInput),
+    ("Official record today without time uses now", OfficialRecordTodayOnly),
+    ("Official record past date uses midnight", OfficialRecordPastDateOnly),
+    ("Official record time only uses today", OfficialRecordTimeOnly),
+    ("Official record explicit date and time", OfficialRecordExplicitDateTime),
+    ("Official record rejects invalid time formats", OfficialRecordInvalidTime),
+    ("Official record future tolerance boundary", OfficialRecordFutureTolerance),
+    ("Official record midnight boundaries", OfficialRecordMidnightBoundaries),
+    ("Official record uses supplied offset", OfficialRecordSuppliedOffset),
     ("Export ranges flush format and row counts", ExportTests.BoundariesAndFlush),
     ("Export empty database", ExportTests.Empty),
     ("Export EventQuery and Logs filter snapshots", ExportTests.EventConditions),
@@ -92,6 +101,101 @@ static void VersionDisplayFormatting()
     Equal("0.1.016", VersionFormatter.Format(new Version(0, 1, 16, 0)));
     Equal("0.1.001", VersionFormatter.Format(new Version(0, 1, 1)));
     Equal("0.1.999", VersionFormatter.Format(new Version(0, 1, 999)));
+}
+
+static void OfficialRecordEmptyInput()
+{
+    var now = new DateTimeOffset(2026, 11, 13, 10, 20, 37, TimeSpan.FromHours(9)).AddTicks(1234);
+    foreach (var text in new string?[] { null, "", " \t " })
+        Equal(new OfficialRecordTimeResult(now, OfficialRecordTimeError.None),
+            OfficialRecordTimeResolver.Resolve(null, text, now));
+}
+
+static void OfficialRecordTodayOnly()
+{
+    var now = new DateTimeOffset(2026, 11, 13, 10, 20, 37, TimeSpan.FromHours(9)).AddTicks(1234);
+    foreach (var text in new string?[] { null, "", " \t " })
+        Equal(new OfficialRecordTimeResult(now, OfficialRecordTimeError.None),
+            OfficialRecordTimeResolver.Resolve(now.Date, text, now));
+}
+
+static void OfficialRecordPastDateOnly()
+{
+    var now = new DateTimeOffset(2026, 11, 13, 10, 20, 37, TimeSpan.FromHours(9));
+    Equal(new OfficialRecordTimeResult(new DateTimeOffset(2026, 11, 12, 0, 0, 0, now.Offset), OfficialRecordTimeError.None),
+        OfficialRecordTimeResolver.Resolve(new DateTime(2026, 11, 12, 18, 30, 0), null, now));
+}
+
+static void OfficialRecordTimeOnly()
+{
+    var now = new DateTimeOffset(2026, 11, 13, 10, 20, 37, TimeSpan.FromHours(9));
+    foreach (var text in new[] { "9:05", "09:05", " 09:05 " })
+        Equal(new OfficialRecordTimeResult(new DateTimeOffset(2026, 11, 13, 9, 5, 0, now.Offset), OfficialRecordTimeError.None),
+            OfficialRecordTimeResolver.Resolve(null, text, now));
+}
+
+static void OfficialRecordExplicitDateTime()
+{
+    var now = new DateTimeOffset(2026, 11, 13, 10, 20, 37, TimeSpan.FromHours(9));
+    foreach (var day in new[] { now.Date, now.Date.AddDays(-1) })
+        Equal(new OfficialRecordTimeResult(new DateTimeOffset(day.AddHours(9).AddMinutes(5), now.Offset), OfficialRecordTimeError.None),
+            OfficialRecordTimeResolver.Resolve(day, "9:05", now));
+}
+
+static void OfficialRecordInvalidTime()
+{
+    var now = new DateTimeOffset(2026, 11, 13, 10, 20, 37, TimeSpan.Zero);
+    foreach (var text in new[] { "24:00", "12:60", "9:5", "09:05:00", "noon", "2026-11-13 09:05", "-1:00" })
+        Equal(new OfficialRecordTimeResult(null, OfficialRecordTimeError.InvalidTimeFormat),
+            OfficialRecordTimeResolver.Resolve(null, text, now));
+}
+
+static void OfficialRecordFutureTolerance()
+{
+    var now = new DateTimeOffset(2026, 11, 13, 10, 0, 0, TimeSpan.Zero);
+    Equal(new OfficialRecordTimeResult(now.AddMinutes(5), OfficialRecordTimeError.None),
+        OfficialRecordTimeResolver.Resolve(null, "10:05", now));
+    Equal(new OfficialRecordTimeResult(null, OfficialRecordTimeError.Future),
+        OfficialRecordTimeResolver.Resolve(null, "10:05", now.AddTicks(-1)));
+    Equal(new OfficialRecordTimeResult(null, OfficialRecordTimeError.Future),
+        OfficialRecordTimeResolver.Resolve(now.Date, "10:06", now));
+    Equal(new OfficialRecordTimeResult(null, OfficialRecordTimeError.Future),
+        OfficialRecordTimeResolver.Resolve(now.Date.AddDays(1), null, now));
+    Equal(new OfficialRecordTimeResult(null, OfficialRecordTimeError.Future),
+        OfficialRecordTimeResolver.Resolve(now.Date.AddDays(1), "10:00", now));
+}
+
+static void OfficialRecordMidnightBoundaries()
+{
+    var now = new DateTimeOffset(2026, 12, 31, 23, 59, 0, TimeSpan.FromHours(9));
+    Equal(new OfficialRecordTimeResult(now, OfficialRecordTimeError.None),
+        OfficialRecordTimeResolver.Resolve(now.Date, null, now));
+    Equal(new OfficialRecordTimeResult(new DateTimeOffset(now.Date, now.Offset), OfficialRecordTimeError.None),
+        OfficialRecordTimeResolver.Resolve(null, "0:00", now));
+    Equal(new OfficialRecordTimeResult(now.AddMinutes(5), OfficialRecordTimeError.None),
+        OfficialRecordTimeResolver.Resolve(now.Date.AddDays(1), "0:04", now));
+    Equal(new OfficialRecordTimeResult(null, OfficialRecordTimeError.Future),
+        OfficialRecordTimeResolver.Resolve(now.Date.AddDays(1), "0:05", now));
+    var afterMidnight = now.AddMinutes(1).AddTicks(1);
+    Equal(new OfficialRecordTimeResult(new DateTimeOffset(now.Date, now.Offset), OfficialRecordTimeError.None),
+        OfficialRecordTimeResolver.Resolve(now.Date, null, afterMidnight));
+    Equal(new OfficialRecordTimeResult(afterMidnight, OfficialRecordTimeError.None),
+        OfficialRecordTimeResolver.Resolve(afterMidnight.Date, null, afterMidnight));
+}
+
+static void OfficialRecordSuppliedOffset()
+{
+    foreach (var offset in new[] { TimeSpan.FromHours(-7), TimeSpan.Zero, TimeSpan.FromHours(14) })
+    {
+        var now = new DateTimeOffset(2026, 11, 13, 0, 2, 37, offset);
+        // DatePicker の DateTime.Kind や実行マシンのタイムゾーンに依存しない。
+        foreach (var kind in new[] { DateTimeKind.Local, DateTimeKind.Utc, DateTimeKind.Unspecified })
+        {
+            var result = OfficialRecordTimeResolver.Resolve(DateTime.SpecifyKind(now.Date, kind), "0:01", now);
+            Equal(new OfficialRecordTimeResult(new DateTimeOffset(2026, 11, 13, 0, 1, 0, offset), OfficialRecordTimeError.None), result);
+            Equal(offset, result.RecordedAt!.Value.Offset);
+        }
+    }
 }
 
 var failures = new List<string>();
