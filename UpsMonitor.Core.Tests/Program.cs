@@ -11,6 +11,7 @@ var tests = new (string Name, Action Run)[]
     ("Export EventQuery and Logs filter snapshots", ExportTests.EventConditions),
     ("Export streaming 30000 synthetic rows", ExportTests.Large),
     ("Export cancellation IO and publication failure cleanup", ExportTests.CancellationAndFailure),
+    ("Export shutdown waits for cleanup without dispatcher and bounds wait", ExportTests.ShutdownCleanup),
     ("Saved events empty database", SavedEventTests.Empty),
     ("Saved events inclusive From exclusive To", SavedEventTests.Boundaries),
     ("Saved events type severity and combined conditions", SavedEventTests.TypeSeverity),

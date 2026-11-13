@@ -947,6 +947,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _exportCancellation?.Cancel();
+        await ExportShutdown.WaitForWorkerAsync(_exportWorker, ExportShutdown.WaitTimeout).ConfigureAwait(false);
         Logs.Dispose();
         _historyRefreshCancellation?.Cancel();
         _historyRefreshCancellation?.Dispose();
@@ -1941,6 +1942,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     }
 
     private CancellationTokenSource? _exportCancellation;
+    private Task? _exportWorker;
     private string _exportStatus = string.Empty;
     public string ExportStatus { get => _exportStatus; private set { _exportStatus = value; OnPropertyChanged(); } }
     public bool IsExporting => _exportCancellation is not null;
@@ -1973,7 +1975,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         ExportStatus = LocalizationManager.Get("ExportRunning");
         try
         {
-            await Task.Run(async () =>
+            _exportWorker = Task.Run(async () =>
             {
                 if (events)
                     await ExportOperation.EventsAsync(_historyStore!, dialog.FileName, query!, cancellation.Token);
@@ -1981,6 +1983,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                     await ExportOperation.TelemetryAsync(_historyStore!, dialog.FileName,
                         json ? TelemetryExportFormat.Json : TelemetryExportFormat.Csv, from, telemetryTo, cancellation.Token);
             }, cancellation.Token);
+            await _exportWorker;
             ExportStatus = LocalizationManager.Format("ExportSuccess", System.IO.Path.GetFileName(dialog.FileName));
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)

@@ -203,9 +203,9 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
   - テキスト検索は翻訳済み表示行だけのクライアント側検索なので export へ適用しない。表示上限も適用せず、UI の日英ヘルプと README に明記した。
   - ExportOperation が FlushAsync を待ってから出力。TelemetryExporter は JSON を Utf8JsonWriter で直接 1 行ずつ書き、各行でバッファを Flush する。全件 List／Dictionary の保持はなく、CSV も従来の逐次出力。列・キー順・日時・数値丸め・nullable 値・CSV の UTF-8 BOM／JSON の BOM なしは維持。
   - 全 exporter entry point が出力先と同じディレクトリの一意な一時ファイルへ書き、ストリームを閉じた後にキャンセルを再確認して置換。失敗・キャンセル・置換失敗時は finally で一時ファイルを削除し、既存ファイルを保持する。
-  - UI は Task.Run で DB／出力処理を行い、MainViewModel の export 専用 CTS を共有して CSV／JSON／Events 間の二重実行を防止。各タブに実行状態とキャンセルボタンを表示し、dispose 時にもキャンセルする。
+  - UI は Task.Run で DB／出力処理を行い、MainViewModel の export 専用 CTS を共有して CSV／JSON／Events 間の二重実行を防止。各タブに実行状態とキャンセルボタンを表示し、dispose 時にもキャンセルし、dispatcher に依存しない worker の temp cleanup まで最大 5 秒待つ。OnExit の外側待機は 6.5 秒とし、上限超過時は temp が残る可能性を許容して終了する。
 - **当初案との差**: enum の追加はせず ComboBox の選択を使用し、Logs の条件は先行抽出済み LogsViewModel に置いた。UI は Flush 保証の共通 ExportOperation を通して既存の範囲 API を呼ぶ（全期間は非制限境界）。全期間 API 自体も引き続き利用可能。全期間は保存済み raw データの全期間であり、保持期限で削除済みの履歴の復元や rollup の出力は含めない。DB スキーマ・依存パッケージ・config・HID の変更なし。
-- **検証**: 一時ディレクトリの合成 SQLite で全期間／選択期間の境界と UTC offset、Flush による直前行、JSON パース・キー順・型・CSV/JSON 件数・文字コード、空 DB、種別／重大度／未知 enum／デバイスと半開区間、Logs の immutable snapshot と全期間解除、表示上限を超える export、30,000 行の完走、途中キャンセル・IO 失敗・DB 失敗・置換失敗時の既存ファイル保持と temp cleanup を確認。全 79 件。WPF 実画面での日英表示・配置・長時間処理のキャンセルとタブを跨ぐ二重実行防止は手動確認が必要。
+- **検証**: 一時ディレクトリの合成 SQLite で全期間／選択期間の境界と UTC offset、Flush による直前行、JSON パース・キー順・型・CSV/JSON 件数・文字コード、空 DB、種別／重大度／未知 enum／デバイスと半開区間、Logs の immutable snapshot と全期間解除、表示上限を超える export、30,000 行の完走、途中キャンセル・IO 失敗・DB 失敗・置換失敗時の既存ファイル保持と temp cleanup を確認。終了待機は合成 callback の後始末完了と非 pumping 同期コンテキストでの完了、待機上限も検証。全 80 件。WPF 実画面での日英表示・配置・長時間処理のキャンセルとタブを跨ぐ二重実行防止は手動確認が必要。
 
 ## 6. 保存済みログの日付範囲・イベント種別フィルタ
 

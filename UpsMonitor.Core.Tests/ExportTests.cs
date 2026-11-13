@@ -147,6 +147,68 @@ internal static class ExportTests
         Check(document.RootElement.GetArrayLength() == 30000 && File.ReadLines(csv).Count() == 30001, "30000 rows parsed and CSV count matches");
     });
 
+    public static void ShutdownCleanup() => Run(async (_, root) =>
+    {
+        var file = Path.Combine(root, "shutdown.json");
+        await File.WriteAllTextAsync(file, "original");
+        using var cancellation = new CancellationTokenSource();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanupStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var worker = Task.Run(() => TelemetryExporter.WriteAtomicallyAsync(file, async temporary =>
+        {
+            await File.WriteAllTextAsync(temporary, "partial").ConfigureAwait(false);
+            started.SetResult();
+            try { await Task.Delay(Timeout.InfiniteTimeSpan, cancellation.Token).ConfigureAwait(false); }
+            finally
+            {
+                cleanupStarted.SetResult();
+                await releaseCleanup.Task.ConfigureAwait(false);
+            }
+        }, cancellation.Token));
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+            await cleanupStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var previousContext = SynchronizationContext.Current;
+            var blockedDispatcher = new NonPumpingContext();
+            SynchronizationContext.SetSynchronizationContext(blockedDispatcher);
+            try
+            {
+                var shutdown = ExportShutdown.WaitForWorkerAsync(worker, ExportShutdown.WaitTimeout);
+                Check(!shutdown.IsCompleted && Directory.EnumerateFiles(root, "*.tmp").Any(), "shutdown must wait while temp cleanup is pending");
+                releaseCleanup.SetResult();
+                // Like OnExit, synchronously block the caller without pumping dispatcher work.
+                Check(shutdown.Wait(TimeSpan.FromSeconds(5)), "shutdown completes without a dispatcher continuation");
+                Check(worker.IsCompleted && !Directory.EnumerateFiles(root, "*.tmp").Any(), "wait finishes only after atomic helper cleanup");
+                Check(blockedDispatcher.PostCount == 0, "shutdown wait never captures the dispatcher");
+            }
+            finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
+            Check(await File.ReadAllTextAsync(file) == "original", "shutdown cancellation preserves existing destination");
+
+            var stalledWorker = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await ExportShutdown.WaitForWorkerAsync(stalledWorker.Task, TimeSpan.Zero);
+            Check(!stalledWorker.Task.IsCompleted, "shutdown returns when its bounded wait expires");
+            stalledWorker.SetResult();
+            await ExportShutdown.WaitForWorkerAsync(Task.FromException(new IOException("synthetic worker failure")), ExportShutdown.WaitTimeout);
+            await ExportShutdown.WaitForWorkerAsync(null, ExportShutdown.WaitTimeout);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            releaseCleanup.TrySetResult();
+            await ExportShutdown.WaitForWorkerAsync(worker, ExportShutdown.WaitTimeout);
+        }
+    });
+
+    private sealed class NonPumpingContext : SynchronizationContext
+    {
+        private int _postCount;
+        public int PostCount => Volatile.Read(ref _postCount);
+        public override void Post(SendOrPostCallback callback, object? state) => Interlocked.Increment(ref _postCount);
+    }
+
     public static void CancellationAndFailure() => Run(async (store, root) =>
     {
         var file = Path.Combine(root, "keep.json");
