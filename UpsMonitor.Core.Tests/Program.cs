@@ -5,6 +5,7 @@ using UpsMonitor.Infrastructure;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("Version display formatting", VersionDisplayFormatting),
     ("Power state priority", PowerStatePriority),
     ("Power loss and restore events", PowerLossAndRestore),
     ("Alarm edge events", AlarmEdges),
@@ -66,6 +67,13 @@ var tests = new (string Name, Action Run)[]
     ("Official record context capture failure recovers after reload", OfficialContextCaptureFailureRecovery),
     ("Official record live context survives history recovery", OfficialLiveContextCaptureFailureRecovery),
 };
+
+static void VersionDisplayFormatting()
+{
+    Equal("0.1.016", VersionFormatter.Format(new Version(0, 1, 16, 0)));
+    Equal("0.1.001", VersionFormatter.Format(new Version(0, 1, 1)));
+    Equal("0.1.999", VersionFormatter.Format(new Version(0, 1, 999)));
+}
 
 var failures = new List<string>();
 foreach (var test in tests)

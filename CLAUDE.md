@@ -23,7 +23,7 @@ Windows 標準の HID / SetupAPI を P/Invoke して UPS を読み取り、状�
 
 ```powershell
 dotnet build UpsMonitor.sln                              # Debug ビルド
-dotnet run --project UpsMonitor.Core.Tests               # 独自ランナー。現在 58/58 件通過（2026-11-10 確認）
+dotnet run --project UpsMonitor.Core.Tests               # 独自ランナー。現在 61/61 件通過（2026-11-13 確認）
 dotnet run --project .\UpsMonitor.App\UpsMonitor.App.csproj
 ```
 
@@ -46,7 +46,6 @@ dotnet run --project .\UpsMonitor.App\UpsMonitor.App.csproj
 - 設計・作業の過去記録は `docs/` 配下。改善施策の正本は `docs/improvement_backlog.md`。
 
 ## git 運用
-
 - main で直接作業しない。`feature/...` や `fix/...` のブランチを切ってコミットし、main へ `--no-ff` でマージする。
   マージコミットのメッセージは `Merge: <日本語の要約>`。
 - コミットメッセージは Conventional Commits 形式で、本文は日本語（例: `fix(ui): ...`、`feat(health): ...`）。
@@ -57,6 +56,13 @@ dotnet run --project .\UpsMonitor.App\UpsMonitor.App.csproj
 ```powershell
 git -c credential.helper= -c "credential.helper=!gh auth git-credential" push origin main
 ```
+
+## バージョン管理
+
+- 番号は `Directory.Build.props` の `PowerGuardPatch` で一元管理する。表示形式は `0.1.XXX`（3 桁ゼロ埋め）。
+- feature/fix ブランチを main にマージするたびに +1 する。ブランチ内でマージ前に番号を上げ、`CHANGELOG.md` に追記する。
+- docs だけの変更では番号を上げない。999 を超える場合は、その時点でユーザーに確認する。
+- タグ付けと push はユーザー承認事項。
 
 ## データの扱い（重要）
 
