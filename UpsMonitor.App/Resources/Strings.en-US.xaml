@@ -542,6 +542,4 @@
     <sys:String x:Key="LogsHistoryDisabled">History is disabled; only events from this session are shown.</sys:String>
     <sys:String x:Key="EventVoltageAbnormal">Abnormal input voltage</sys:String>
     <sys:String x:Key="EventHighLoadWarning">High load warning</sys:String>
-    <sys:String x:Key="EventMessageVoltageAbnormal">Input voltage is outside the configured range.</sys:String>
-    <sys:String x:Key="EventMessageHighLoadWarning">Load exceeded the configured threshold.</sys:String>
 </ResourceDictionary>

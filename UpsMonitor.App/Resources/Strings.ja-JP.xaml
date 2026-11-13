@@ -542,6 +542,4 @@
     <sys:String x:Key="LogsHistoryDisabled">履歴保存が無効のため、起動中のイベントのみ表示します。</sys:String>
     <sys:String x:Key="EventVoltageAbnormal">入力電圧異常</sys:String>
     <sys:String x:Key="EventHighLoadWarning">高負荷警告</sys:String>
-    <sys:String x:Key="EventMessageVoltageAbnormal">入力電圧が設定範囲を外れました。</sys:String>
-    <sys:String x:Key="EventMessageHighLoadWarning">負荷率が設定したしきい値を超えました。</sys:String>
 </ResourceDictionary>

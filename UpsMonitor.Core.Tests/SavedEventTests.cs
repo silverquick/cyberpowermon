@@ -197,6 +197,57 @@ internal static class SavedEventTests
         Check(pending.FilteredEvents.Count == 0, "disposed VM ignores late completion");
     });
 
+    public static void LocalTimestampDisplaySearch() => RunStore(async (store, _) =>
+    {
+        var live = Event(0) with { Timestamp = Start.ToOffset(TimeSpan.FromHours(9)) };
+        await Seed(store, new[] { live });
+        var saved = await store.QueryEventsAsync(new());
+        Check(saved.Events.Single().Timestamp.Offset == TimeSpan.Zero, "DB row is UTC");
+        var expected = live.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.CurrentCulture);
+        Check(new UpsEventViewModel(live).Timestamp == expected && new UpsEventViewModel(saved.Events.Single()).Timestamp == expected,
+            "live and saved rows use the same local timestamp on any host timezone");
+        Check(EventQueryResults.Merge(new(), saved, new[] { live }).Events.Single().Timestamp.Offset == TimeSpan.Zero,
+            "merge exercises saved-row priority");
+        UiRun(async () =>
+        {
+            using var vm = new LogsViewModel((_, _) => Task.FromResult(saved));
+            vm.RangeHours = 0;
+            vm.AddLive(live);
+            vm.SearchText = expected;
+            Check(vm.FilteredEvents.Single().Timestamp == expected, "live display and timestamp search");
+            vm.SetActive(true); await Until(() => !vm.IsLoading);
+            Check(vm.FilteredEvents.Single().Timestamp == expected, "display and search unchanged after DB merge");
+            vm.SetActive(false);
+        });
+    }).GetAwaiter().GetResult();
+
+    public static void AlertMessagesPreserveDetails()
+    {
+        var language = LocalizationManager.Language;
+        try
+        {
+            foreach (var currentLanguage in new[] { "ja-JP", "en-US" })
+            {
+                LocalizationManager.Language = currentLanguage;
+                foreach (var (type, message, typeKey) in new[]
+                {
+                    (UpsEventType.HighLoadWarning, "UPS load is high: 91% (threshold: 80%)", "EventHighLoadWarning"),
+                    (UpsEventType.VoltageAbnormal, "Input voltage is abnormal: 89V (normal: 92V - 108V)", "EventVoltageAbnormal"),
+                })
+                {
+                    var value = new UpsEventViewModel(Event(0, type, message));
+                    Check(value.Message == message, "alert message retains readings and thresholds in both languages");
+                    Check(value.Type == LocalizationManager.Get(typeKey), "alert type remains translated");
+                    using var vm = new LogsViewModel((SqliteTelemetryStore?)null);
+                    vm.RangeHours = 0; vm.AddLive(Event(0, type, message));
+                    vm.SearchText = message;
+                    Check(vm.FilteredEvents.Single().Message == message, "original details remain searchable");
+                }
+            }
+        }
+        finally { LocalizationManager.Language = language; }
+    }
+
     private static async Task Until(Func<bool> predicate)
     {
         var deadline = DateTime.UtcNow.AddSeconds(5);

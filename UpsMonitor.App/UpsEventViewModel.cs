@@ -17,7 +17,7 @@ public sealed class UpsEventViewModel : INotifyPropertyChanged
 
     public UpsEventSeverity Severity => _source.Severity;
 
-    public string Timestamp => _source.Timestamp.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
+    public string Timestamp => _source.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
 
     public string Type => _source.Type switch
     {
@@ -44,8 +44,6 @@ public sealed class UpsEventViewModel : INotifyPropertyChanged
         UpsEventType.OverloadDetected => "EventMessageOverload",
         UpsEventType.UpsDisconnected => "EventMessageUpsDisconnected",
         UpsEventType.UpsReconnected => "EventMessageUpsReconnected",
-        UpsEventType.VoltageAbnormal => "EventMessageVoltageAbnormal",
-        UpsEventType.HighLoadWarning => "EventMessageHighLoadWarning",
         _ => _source.Message,
     });
 
