@@ -218,7 +218,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 - **実装**:
   - Core の `EventQuery` は DeviceId（null は全デバイス）、From（包含）/ To（除外、UTC ミリ秒精度）、イベント種別集合（null は全種別、空集合は該当なし）、重大度、Limit を保持。検索開始時に集合を immutable snapshot 化する。結果は `EventQueryResult`（Events / HasMore）。#5 の export で再利用可能。
   - `SqliteTelemetryStore.QueryEventsAsync` はキューの Flush 後にパラメータ化 SQL で検索し、新しい順に Limit + 1 件から超過を判定。種別集合は JSON パラメータと SQLite 組込み `json_each` の IN で扱い、重大度は Core の分類から種別集合へ変換。未知の enum は Core と同様 Information。既存 `ix_events_device_time` の期間検索を EXPLAIN で確認し、スキーマ・索引は変更しない。
-  - `LogsViewModel` を先行抽出し、24 時間 / 7 日 / 30 日 / 全期間、種別 ComboBox、重大度、検索、読込状態、キャンセルと 500 件上限を所有。Logs 表示時は即時、期間・種別・重大度変更は 300ms debounce で DB 読込し、キャンセルを無視する古い要求も反映しない。非表示・破棄時はキャンセル。
+  - `LogsViewModel` を先行抽出し、24 時間 / 7 日 / 30 日 / 全期間、種別 ComboBox、重大度、検索、読込状態、キャンセルと 500 件上限を所有。期間の初期値は全期間（0.1.020 で変更）。Logs 表示時は即時、期間・種別・重大度変更は 300ms debounce で DB 読込し、キャンセルを無視する古い要求も反映しない。非表示・破棄時はキャンセル。
   - 再起動後・未接続時にも調査できるよう UI は全デバイス対象。live は即時表示し、DB 読込結果と `UTC timestamp（ミリ秒）/ type / 保存原文 message / previous_state / current_state` で重複除去する。保存精度未満の差・ローカライズの差は二重表示しない。live バッファも 500 件に制限する。
   - フリーテキストは従来と同様、読み込んだ行の日時・種別・翻訳メッセージ・状態遷移を対象。上限案内で絞り込みを促す。日英リソースを追加し、高負荷・電圧異常の種別を翻訳表示し、メッセージは実測値・しきい値を含む原文を維持する。日時の表示・文字列検索はローカル時刻に統一する。
 - **当初案との差・後続**: 独立した `EventQuery.cs` / `SqliteEventQueries.cs` に配置。既存 History 用の非公開検索は従来の上端包含を維持し、新 API は [From, To) とする。live 通知は実コードでは永続化キュー投入より先なので、DB 完了を待たず bounded live バッファと検索結果を統合する。ページ送り・自由入力の日付範囲は追加せずプリセットと上限表示を採用。CSV export の条件共有は #5（0.1.018）で実装済み。

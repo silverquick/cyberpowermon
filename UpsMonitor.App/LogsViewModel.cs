@@ -15,7 +15,7 @@ public sealed class LogsViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<UpsEventViewModel> _events = [];
     private bool _active;
     private bool _disposed;
-    private int _rangeHours = 24;
+    private int _rangeHours = 0;
     private UpsEventType? _eventType;
     private UpsEventSeverity? _severity;
     private string _search = string.Empty;
