@@ -537,7 +537,7 @@
     <sys:String x:Key="LogsRange30Days">30 days</sys:String>
     <sys:String x:Key="LogsRangeAll">All time</sys:String>
     <sys:String x:Key="LogsSearch">Search</sys:String>
-    <sys:String x:Key="LogsSearchHelp">Shows up to 500 newest saved events across all devices. Search applies to loaded rows. CSV uses the existing export period.</sys:String>
+    <sys:String x:Key="LogsSearchHelp">Shows up to 500 newest saved events across all devices. Search applies to loaded rows. For CSV export, choose Current filters or All time.</sys:String>
     <sys:String x:Key="LogsLimitReached">The 500-event display limit was reached. Narrow the period, event type or severity.</sys:String>
     <sys:String x:Key="LogsLoading">Loading saved events…</sys:String>
     <sys:String x:Key="LogsHistoryDisabled">History is disabled; only events from this session are shown.</sys:String>

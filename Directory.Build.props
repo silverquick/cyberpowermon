@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <PowerGuardPatch>20</PowerGuardPatch>
+    <PowerGuardPatch>21</PowerGuardPatch>
     <Version>0.1.$(PowerGuardPatch)</Version>
     <AssemblyVersion>0.1.$(PowerGuardPatch).0</AssemblyVersion>
     <FileVersion>0.1.$(PowerGuardPatch).0</FileVersion>

@@ -203,6 +203,54 @@ internal static class SavedEventTests
         Check(vm.FilteredEvents.Count == 500 && vm.LimitText.Length > 0, "live cap and hint");
     });
 
+    public static void ViewModelLanguagePreservesFilters()
+    {
+        var previousLanguage = LocalizationManager.Language;
+        try
+        {
+            using var vm = new LogsViewModel((SqliteTelemetryStore?)null);
+            var ranges = vm.RangeOptions;
+            var types = vm.TypeOptions;
+            var severities = vm.SeverityOptions;
+            foreach (var (hours, type, severity) in new (int, UpsEventType?, UpsEventSeverity?)[]
+            {
+                (0, null, null), (168, UpsEventType.HighLoadWarning, UpsEventSeverity.Warning),
+            })
+            {
+                vm.RangeHours = hours; vm.EventType = type; vm.Severity = severity;
+                var selectedRange = ranges.Single(o => o.Hours == hours);
+                var selectedType = types.Single(o => o.Type == type);
+                var selectedSeverity = severities.Single(o => o.Severity == severity);
+                var notifications = 0;
+                System.ComponentModel.PropertyChangedEventHandler changed = (_, e) =>
+                {
+                    if (e.PropertyName == nameof(LogOption.DisplayName)) notifications++;
+                };
+                selectedRange.PropertyChanged += changed;
+                selectedType.PropertyChanged += changed;
+                selectedSeverity.PropertyChanged += changed;
+                foreach (var language in new[] { "en-US", "ja-JP", "en-US" })
+                {
+                    LocalizationManager.Language = language; vm.RefreshLanguage();
+                    Check(vm.RangeHours == hours && vm.EventType == type && vm.Severity == severity, "language switch preserves filter values");
+                    Check(ReferenceEquals(ranges, vm.RangeOptions) && ReferenceEquals(types, vm.TypeOptions) && ReferenceEquals(severities, vm.SeverityOptions),
+                        "language switch keeps ItemsSource stable");
+                    Check(ReferenceEquals(selectedRange, vm.RangeOptions.Single(o => o.Hours == hours)) &&
+                        ReferenceEquals(selectedType, vm.TypeOptions.Single(o => o.Type == type)) &&
+                        ReferenceEquals(selectedSeverity, vm.SeverityOptions.Single(o => o.Severity == severity)), "selected options stay in their lists");
+                    Check(selectedRange.DisplayName == LocalizationManager.Get(hours == 0 ? "LogsRangeAll" : "LogsRange7Days") &&
+                        selectedType.DisplayName == LocalizationManager.Get(type is null ? "FilterAll" : "EventHighLoadWarning") &&
+                        selectedSeverity.DisplayName == LocalizationManager.Get(severity is null ? "FilterAll" : "FilterWarning"), "selected labels are translated");
+                }
+                Check(notifications >= 6, "label changes notify the UI without replacing selected options");
+                selectedRange.PropertyChanged -= changed;
+                selectedType.PropertyChanged -= changed;
+                selectedSeverity.PropertyChanged -= changed;
+            }
+        }
+        finally { LocalizationManager.Language = previousLanguage; }
+    }
+
     public static void ViewModelFailureDisposal() => UiRun(async () =>
     {
         using var vm = new LogsViewModel((_, _) => Task.FromException<EventQueryResult>(new IOException("synthetic failure")));

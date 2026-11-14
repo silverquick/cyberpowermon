@@ -1190,7 +1190,7 @@
                                             </StackPanel>
                                             <TextBlock Grid.Row="1" Text="{DynamicResource OfficialRecordDateLabel}" VerticalAlignment="Center" />
                                             <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
-                                                <DatePicker Width="150" SelectedDate="{Binding OfficialRecordDate, Mode=TwoWay}" DisplayDateEnd="{Binding OfficialRecordDateEnd}" />
+                                                <DatePicker Width="150" SelectedDate="{Binding OfficialRecordDate, Mode=TwoWay}" DisplayDateEnd="{Binding OfficialRecordDateEnd, Mode=OneWay}" />
                                                 <TextBox Width="70" Margin="8,0,0,0" Text="{Binding OfficialRecordTime, UpdateSourceTrigger=LostFocus}" />
                                             </StackPanel>
                                             <TextBlock Grid.Row="2" Text="{DynamicResource OfficialRecordSourceLabel}" VerticalAlignment="Center" />

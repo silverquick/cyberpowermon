@@ -33,9 +33,11 @@ public sealed class LogsViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    public IReadOnlyList<LogRangeOption> RangeOptions { get; private set; } = [];
-    public IReadOnlyList<LogTypeOption> TypeOptions { get; private set; } = [];
-    public IReadOnlyList<LogSeverityOption> SeverityOptions { get; private set; } = [];
+    public IReadOnlyList<LogRangeOption> RangeOptions { get; } = [new(24, ""), new(168, ""), new(720, ""), new(0, "")];
+    public IReadOnlyList<LogTypeOption> TypeOptions { get; } = new[] { new LogTypeOption(null, "") }
+        .Concat(Enum.GetValues<UpsEventType>().Select(t => new LogTypeOption(t, ""))).ToArray();
+    public IReadOnlyList<LogSeverityOption> SeverityOptions { get; } = [new(null, ""), new(UpsEventSeverity.Information, ""),
+        new(UpsEventSeverity.Warning, ""), new(UpsEventSeverity.Critical, "")];
     public IReadOnlyList<UpsEventViewModel> FilteredEvents => _events.Where(MatchesSearch).ToArray();
     public string CountText => LocalizationManager.Format("LogCountFormat", FilteredEvents.Count, _events.Count);
     public string LimitText => _hasMore || _events.Count >= 500 ? LocalizationManager.Get("LogsLimitReached") : string.Empty;
@@ -150,16 +152,24 @@ public sealed class LogsViewModel : INotifyPropertyChanged, IDisposable
     public void RefreshLanguage()
     {
         string L(string key) => LocalizationManager.Get(key);
-        RangeOptions = [new(24, L("LogsRange24Hours")), new(168, L("LogsRange7Days")),
-            new(720, L("LogsRange30Days")), new(0, L("LogsRangeAll"))];
-        TypeOptions = new[] { new LogTypeOption(null, L("FilterAll")) }
-            .Concat(Enum.GetValues<UpsEventType>().Select(t => new LogTypeOption(t,
-                new UpsEventViewModel(new(DateTimeOffset.UnixEpoch, t, string.Empty,
-                    UpsPowerState.Unknown, UpsPowerState.Unknown)).Type))).ToArray();
-        SeverityOptions = [new(null, L("FilterAll")), new(UpsEventSeverity.Information, L("FilterInformation")),
-            new(UpsEventSeverity.Warning, L("FilterWarning")), new(UpsEventSeverity.Critical, L("FilterCritical"))];
+        // Keep the ItemsSource and selected objects stable: replacing them clears WPF's
+        // SelectedValue and can write null back to the non-nullable RangeHours binding.
+        foreach (var option in RangeOptions)
+            option.UpdateDisplayName(L(option.Hours switch
+            {
+                24 => "LogsRange24Hours", 168 => "LogsRange7Days", 720 => "LogsRange30Days", _ => "LogsRangeAll",
+            }));
+        foreach (var option in TypeOptions)
+            option.UpdateDisplayName(option.Type is { } type
+                ? new UpsEventViewModel(new(DateTimeOffset.UnixEpoch, type, string.Empty,
+                    UpsPowerState.Unknown, UpsPowerState.Unknown)).Type : L("FilterAll"));
+        foreach (var option in SeverityOptions)
+            option.UpdateDisplayName(L(option.Severity switch
+            {
+                UpsEventSeverity.Information => "FilterInformation", UpsEventSeverity.Warning => "FilterWarning",
+                UpsEventSeverity.Critical => "FilterCritical", _ => "FilterAll",
+            }));
         foreach (var value in _events) value.RefreshLanguage();
-        Changed(nameof(RangeOptions)); Changed(nameof(TypeOptions)); Changed(nameof(SeverityOptions));
         Changed(nameof(FilteredEvents)); Changed(nameof(CountText)); Changed(nameof(LimitText));
         Reload(immediate: true);
     }
@@ -179,6 +189,28 @@ public sealed class LogsViewModel : INotifyPropertyChanged, IDisposable
     private void Changed([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
 }
 
-public sealed record LogRangeOption(int Hours, string DisplayName);
-public sealed record LogTypeOption(UpsEventType? Type, string DisplayName);
-public sealed record LogSeverityOption(UpsEventSeverity? Severity, string DisplayName);
+public abstract class LogOption(string displayName) : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public string DisplayName { get; private set; } = displayName;
+
+    internal void UpdateDisplayName(string value)
+    {
+        if (DisplayName == value) return;
+        DisplayName = value;
+        PropertyChanged?.Invoke(this, new(nameof(DisplayName)));
+    }
+}
+
+public sealed class LogRangeOption(int hours, string displayName) : LogOption(displayName)
+{
+    public int Hours { get; } = hours;
+}
+public sealed class LogTypeOption(UpsEventType? type, string displayName) : LogOption(displayName)
+{
+    public UpsEventType? Type { get; } = type;
+}
+public sealed class LogSeverityOption(UpsEventSeverity? severity, string displayName) : LogOption(displayName)
+{
+    public UpsEventSeverity? Severity { get; } = severity;
+}
