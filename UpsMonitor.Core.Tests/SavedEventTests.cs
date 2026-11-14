@@ -141,6 +141,28 @@ internal static class SavedEventTests
         catch (OperationCanceledException) { }
     }).GetAwaiter().GetResult();
 
+    public static void ViewModelDefaultAllRange() => RunStore(async (store, _) =>
+    {
+        await Seed(store, Enumerable.Range(0, 501).Select(i => Event(i, UpsEventType.HighLoadWarning)));
+        UiRun(async () =>
+        {
+            EventQuery? initialQuery = null;
+            using var vm = new LogsViewModel((query, token) =>
+            {
+                initialQuery = query;
+                return store.QueryEventsAsync(query, token);
+            });
+            Check(vm.RangeHours == 0 && vm.RangeOptions.Single(o => o.Hours == vm.RangeHours).DisplayName == LocalizationManager.Get("LogsRangeAll"),
+                "default range selects all time");
+            vm.SetActive(true); await Until(() => !vm.IsLoading);
+            Check(initialQuery is { From: null, Limit: 500 }, "initial query is all time with a 500-event limit");
+            Check(vm.FilteredEvents.Count == 500 && vm.FilteredEvents[0].Message == "synthetic-500",
+                "initial load includes old saved events and keeps the latest 500");
+            Check(vm.LimitText == LocalizationManager.Get("LogsLimitReached") && vm.LimitText.Length > 0,
+                "saved event overflow shows the existing limit hint");
+        });
+    }).GetAwaiter().GetResult();
+
     public static void ViewModelLatestWins() => UiRun(async () =>
     {
         var calls = new ConcurrentQueue<(EventQuery Query, CancellationToken Token, TaskCompletionSource<EventQueryResult> Completion)>();

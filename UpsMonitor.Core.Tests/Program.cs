@@ -29,6 +29,7 @@ var tests = new (string Name, Action Run)[]
     ("Saved events reopen and device isolation", SavedEventTests.ReopenDevices),
     ("Saved events and live identity deduplication", SavedEventTests.Deduplication),
     ("Saved events validation snapshot and cancellation", SavedEventTests.ValidationCancellation),
+    ("Logs VM defaults to all time with display limit and hint", SavedEventTests.ViewModelDefaultAllRange),
     ("Logs VM debounce cancellation latest wins", SavedEventTests.ViewModelLatestWins),
     ("Logs VM live text search and language", SavedEventTests.ViewModelLiveSearchLanguage),
     ("Logs VM query error and disposal", SavedEventTests.ViewModelFailureDisposal),
