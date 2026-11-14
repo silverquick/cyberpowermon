@@ -70,15 +70,18 @@ git -c credential.helper= -c "credential.helper=!gh auth git-credential" push or
 
 ## データの扱い（重要）
 
-- 実運用の履歴 DB（UPS テレメトリの SQLite）と実 config は**機密扱い**。エージェントは読み取りも変更もしない。
+- 実運用の履歴 DB（UPS テレメトリの SQLite）・実 config・ログ（`C:\ProgramData\UpsMonitor\logs\`、リポジトリ直下の `error.log`）は**機密（Restricted）**。2026-11-14 のユーザー許可により、承認済みエージェント（Claude、Codex Sol / Luna / Terra）は、直接開く・SQL で読む、画面確認のために実データでアプリを起動する、必要なら編集することができる。
   - 既定パス（`UpsMonitor.Infrastructure/AppPaths.cs`、`Environment.SpecialFolder.CommonApplicationData` + `UpsMonitor`）:
     - 履歴 DB: `C:\ProgramData\UpsMonitor\telemetry.db`（WAL 用に `-wal` / `-shm` も同じ場所）
     - config: `C:\ProgramData\UpsMonitor\config.json`
     - ログ: `C:\ProgramData\UpsMonitor\logs\`
     - `AppPaths.DevicesFile`（`devices.json`）と `AppPaths.UserDirectory`（`%LOCALAPPDATA%\UpsMonitor`）は初期コミット `342d350` から定義だけあり、読み書きするコードは一度も存在しない
-  - 上記パスの中身は開かない。リポジトリ直下の `error.log` も開かない。
-- Antigravity など、非承認の外部エージェントには実 DB へアクセスさせない。
-- 動作確認が必要なときは、`AppPaths` のコンストラクタ引数や一時ディレクトリで合成データを作る（既存テストの方式に倣う）。
+- 読むとき: アプリ起動中は読み取り専用で接続する（例: SQLite URI `?mode=ro`）。PRAGMA の変更、VACUUM、checkpoint はしない。
+- 編集するとき: 編集前にバックアップを取る（DB は `-wal` / `-shm` も含める。アプリ停止中にコピーするか、SQLite backup API を使う）。アプリ起動中は書き込まず、何を変えたか報告する。
+- アプリはシングルインスタンス。ユーザーが起動中のときは2つ目を起動しない。終了や再起動はユーザーに確認してから行う。
+- 報告やコミットに DB・config・ログの大量のダンプやシリアル番号などの識別子を貼らない。集計と必要最小限の行だけにする。
+- Antigravity、Codex Astra、Fable など未承認のエージェントには実データを渡さず、実 DB にアクセスできる作業場所でも起動しない。
+- 動作確認は合成データを基本とし、画面確認では実データでの起動もできる。合成データは `AppPaths` のコンストラクター引数や一時ディレクトリで作る（既存テストの方式に倣う）。
 - 設定の例は `config.example.json` を使う。
 
 ## ドキュメント
