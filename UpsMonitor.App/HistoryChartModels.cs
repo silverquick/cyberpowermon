@@ -33,11 +33,3 @@ public sealed record HistoryStateTimelineData
     public required IReadOnlyList<UpsStateChange> StateChanges { get; init; }
     public IReadOnlyList<HistoryEventMarker> Events { get; init; } = [];
 }
-
-public sealed record HistoryRangeOption(
-    string Key,
-    TimeSpan Duration,
-    string DisplayName)
-{
-    public override string ToString() => DisplayName;
-}

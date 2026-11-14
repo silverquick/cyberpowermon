@@ -1071,12 +1071,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private void RefreshThemeOptions()
     {
-        ThemeOptions =
+        ThemeOptions = LocalizedOption.UpdateLabels(ThemeOptions,
         [
             new("system", L("ThemeSystem")),
             new("dark", L("ThemeDark")),
             new("light", L("ThemeLight")),
-        ];
+        ]);
     }
 
     private void ApplyWaitingState()
@@ -2762,49 +2762,49 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private void RefreshBaselineModeOptions()
     {
-        BaselineModeOptions =
+        BaselineModeOptions = LocalizedOption.UpdateLabels(BaselineModeOptions,
         [
             new(BatteryRuntimeBaselineKind.CurrentRelative, L("BaselineModeRelative")),
             new(BatteryRuntimeBaselineKind.KnownHealthAnchor, L("BaselineModeKnown")),
             new(BatteryRuntimeBaselineKind.NewBattery, L("BaselineModeNew")),
-        ];
+        ]);
     }
 
     private void RefreshHistoryRangeOptions()
     {
         var selectedKey = SelectedHistoryRange?.Key ?? "1h";
-        HistoryRangeOptions =
+        HistoryRangeOptions = LocalizedOption.UpdateLabels(HistoryRangeOptions,
         [
             new("1h", TimeSpan.FromHours(1), L("HistoryRange1Hour")),
             new("6h", TimeSpan.FromHours(6), L("HistoryRange6Hours")),
             new("24h", TimeSpan.FromHours(24), L("HistoryRange24Hours")),
             new("7d", TimeSpan.FromDays(7), L("HistoryRange7Days")),
             new("30d", TimeSpan.FromDays(30), L("HistoryRange30Days")),
-        ];
+        ]);
         SelectedHistoryRange = HistoryRangeOptions.First(item => item.Key == selectedKey);
     }
 
     private void RefreshAnalyticsOptions()
     {
         var currentMetric = SelectedAnalyticsMetric?.Metric ?? WeeklyPatternMetric.ActivePower;
-        AnalyticsMetricOptions =
+        AnalyticsMetricOptions = LocalizedOption.UpdateLabels(AnalyticsMetricOptions,
         [
             new(WeeklyPatternMetric.ActivePower, L("AnalyticsMetricPower"), "W"),
             new(WeeklyPatternMetric.InputVoltage, L("AnalyticsMetricVoltage"), "V"),
             new(WeeklyPatternMetric.LoadPercent, L("AnalyticsMetricLoad"), "%"),
             new(WeeklyPatternMetric.PowerFactor, L("AnalyticsMetricPowerFactor"), "%"),
-        ];
+        ]);
         SelectedAnalyticsMetric = AnalyticsMetricOptions.FirstOrDefault(item => item.Metric == currentMetric) ?? AnalyticsMetricOptions[0];
 
-        var currentDuration = SelectedAnalyticsRange?.Duration ?? TimeSpan.FromDays(30);
-        AnalyticsRangeOptions =
+        var currentRange = SelectedAnalyticsRange;
+        AnalyticsRangeOptions = LocalizedOption.UpdateLabels(AnalyticsRangeOptions,
         [
             new(TimeSpan.FromDays(7), L("AnalyticsRange7D")),
             new(TimeSpan.FromDays(30), L("AnalyticsRange30D")),
             new(TimeSpan.FromDays(90), L("AnalyticsRange90D")),
             new(null, L("AnalyticsRangeAll")),
-        ];
-        SelectedAnalyticsRange = AnalyticsRangeOptions.FirstOrDefault(item => item.Duration == currentDuration) ?? AnalyticsRangeOptions[1];
+        ]);
+        SelectedAnalyticsRange = currentRange ?? AnalyticsRangeOptions[1];
     }
 
     private async Task RefreshAnalyticsAsync()
@@ -2895,14 +2895,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private void RefreshVendorHealthCategoryOptions()
     {
-        VendorHealthCategoryOptions =
+        VendorHealthCategoryOptions = LocalizedOption.UpdateLabels(VendorHealthCategoryOptions,
         [
             new(VendorBatteryHealthCategory.Unknown, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Unknown)),
             new(VendorBatteryHealthCategory.Good, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Good)),
             new(VendorBatteryHealthCategory.Average, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Average)),
             new(VendorBatteryHealthCategory.BelowAverage, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.BelowAverage)),
             new(VendorBatteryHealthCategory.Poor, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Poor)),
-        ];
+        ]);
     }
 
     private void InitializeBaselineEditor(BatteryHealthProfile? profile)
@@ -3075,13 +3075,6 @@ public sealed record LanguageOption(string Code, string DisplayName)
     public override string ToString() => DisplayName;
 }
 
-public sealed record BatteryBaselineModeOption(
-    BatteryRuntimeBaselineKind Kind,
-    string DisplayName)
-{
-    public override string ToString() => DisplayName;
-}
-
 public sealed record OfficialRecordRow(
     OfficialHealthRecord Record,
     string DateText,
@@ -3100,30 +3093,3 @@ public sealed record OfficialModelRow(
     string CountText,
     string MaeText,
     string SelectedText);
-
-public sealed record VendorHealthCategoryOption(
-    VendorBatteryHealthCategory Category,
-    string DisplayName)
-{
-    public override string ToString() => DisplayName;
-}
-
-public sealed record AnalyticsMetricOption(
-    WeeklyPatternMetric Metric,
-    string DisplayName,
-    string Unit)
-{
-    public override string ToString() => DisplayName;
-}
-
-public sealed record AnalyticsRangeOption(
-    TimeSpan? Duration,
-    string DisplayName)
-{
-    public override string ToString() => DisplayName;
-}
-
-public sealed record ThemeOption(string Code, string DisplayName)
-{
-    public override string ToString() => DisplayName;
-}

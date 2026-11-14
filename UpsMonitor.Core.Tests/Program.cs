@@ -33,6 +33,7 @@ var tests = new (string Name, Action Run)[]
     ("Logs VM debounce cancellation latest wins", SavedEventTests.ViewModelLatestWins),
     ("Logs VM live text search and language", SavedEventTests.ViewModelLiveSearchLanguage),
     ("Logs VM language switch preserves filter selections and updates labels", SavedEventTests.ViewModelLanguagePreservesFilters),
+    ("Settings History and Analytics choices preserve selection while translating", LocalizedOptionTests.LanguageKeepsSelections),
     ("Logs VM query error and disposal", SavedEventTests.ViewModelFailureDisposal),
     ("Logs local timestamp survives saved/live merge and search", SavedEventTests.LocalTimestampDisplaySearch),
     ("Logs alert messages preserve measured values and thresholds", SavedEventTests.AlertMessagesPreserveDetails),
