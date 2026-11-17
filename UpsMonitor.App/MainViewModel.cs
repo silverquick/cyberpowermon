@@ -700,6 +700,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             if (SetField(ref _selectedAnalyticsMetric, value) && value is not null && _lastSnapshot is not null)
             {
                 OnPropertyChanged(nameof(AnalyticsUnit));
+                OnPropertyChanged(nameof(AnalyticsHeatmapTitle));
                 _ = RefreshAnalyticsAsync();
             }
         }
@@ -731,6 +732,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public string AnalyticsOverallAvgText { get => _analyticsOverallAvgText; private set => SetField(ref _analyticsOverallAvgText, value); }
     public string AnalyticsSampleCountText { get => _analyticsSampleCountText; private set => SetField(ref _analyticsSampleCountText, value); }
     public string AnalyticsUnit => SelectedAnalyticsMetric?.Unit ?? string.Empty;
+    public string AnalyticsHeatmapTitle => LocalizationManager.Format("AnalyticsHeatmapTitleFormat", SelectedAnalyticsMetric?.DisplayName);
 
     public bool IsWindowVisible
     {
@@ -2800,6 +2802,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             new(null, L("AnalyticsRangeAll")),
         ]);
         SelectedAnalyticsRange = currentRange ?? AnalyticsRangeOptions[1];
+        OnPropertyChanged(nameof(AnalyticsHeatmapTitle));
     }
 
     private async Task RefreshAnalyticsAsync()
@@ -2864,7 +2867,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             }
 
             AnalyticsOverallAvgText = result.TotalSamples > 0 ? $"{result.OverallAvg:0.#} {unit}" : "-";
-            AnalyticsSampleCountText = $"{result.TotalSamples:N0} 分 ({result.TotalSamples / 60.0 / 24.0:0.1} 日分)";
+            AnalyticsSampleCountText = LocalizationManager.Format("AnalyticsSampleCountFormat", result.TotalSamples, result.EquivalentDays);
 
             AnalyticsStatus = LocalizationManager.Format(
                 "AnalyticsStatusFormat",

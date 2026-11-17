@@ -551,4 +551,9 @@
     <sys:String x:Key="ExportCancel">エクスポートをキャンセル</sys:String>
     <sys:String x:Key="ExportRunning">エクスポート中…</sys:String>
     <sys:String x:Key="ExportCancelled">エクスポートをキャンセルしました。</sys:String>
+    <sys:String x:Key="AnalyticsHeatmapTitleFormat">24時間 × 7曜日 ヒートマップ - {0}</sys:String>
+    <sys:String x:Key="AnalyticsSampleCountFormat">{0:N0} 分（24時間換算 {1:0.0} 日）</sys:String>
+    <sys:String x:Key="AnalyticsAverageFormat">平均: {0} {1}</sys:String>
+    <sys:String x:Key="AnalyticsValueRangeFormat">範囲: {0:0.#} ～ {1:0.#} {2}</sys:String>
+    <sys:String x:Key="AnalyticsTooltipSamplesFormat">サンプル数: {0:N0} 分</sys:String>
 </ResourceDictionary>

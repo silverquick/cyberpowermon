@@ -551,4 +551,9 @@
     <sys:String x:Key="ExportCancel">Cancel export</sys:String>
     <sys:String x:Key="ExportRunning">Exporting…</sys:String>
     <sys:String x:Key="ExportCancelled">Export cancelled.</sys:String>
+    <sys:String x:Key="AnalyticsHeatmapTitleFormat">24 Hours × 7 Weekdays Heatmap - {0}</sys:String>
+    <sys:String x:Key="AnalyticsSampleCountFormat">{0:N0} min ({1:0.0} days at 24 h/day)</sys:String>
+    <sys:String x:Key="AnalyticsAverageFormat">Average: {0} {1}</sys:String>
+    <sys:String x:Key="AnalyticsValueRangeFormat">Range: {0:0.#} – {1:0.#} {2}</sys:String>
+    <sys:String x:Key="AnalyticsTooltipSamplesFormat">Samples: {0:N0} min</sys:String>
 </ResourceDictionary>

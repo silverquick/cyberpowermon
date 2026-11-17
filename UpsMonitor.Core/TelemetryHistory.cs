@@ -145,5 +145,7 @@ public sealed record WeeklyPatternResult
     public HourlyPatternPoint? PeakHour { get; init; }
     public HourlyPatternPoint? LowestHour { get; init; }
     public required long TotalSamples { get; init; }
+    // Each sample represents one populated minute bucket, not elapsed calendar days.
+    public double EquivalentDays => TotalSamples / 1440.0;
 }
 
