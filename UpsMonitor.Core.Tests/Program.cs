@@ -5,6 +5,11 @@ using UpsMonitor.Infrastructure;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("Official grouping elapsed boundaries and fixed window", OfficialGroupingTests.Boundaries),
+    ("Official grouping stable order duplicates and confidence", OfficialGroupingTests.OrderAndDuplicates),
+    ("Official grouping past prediction backtest and saved snapshots", OfficialGroupingTests.PastPredictionAndSnapshots),
+    ("Official grouping sparse exact regression", OfficialGroupingTests.SparseExactRegression),
+    ("Official grouping dense L/P series", OfficialGroupingTests.DenseSeries),
     ("Version display formatting", VersionDisplayFormatting),
     ("Official record empty input uses now", OfficialRecordEmptyInput),
     ("Official record today without time uses now", OfficialRecordTodayOnly),

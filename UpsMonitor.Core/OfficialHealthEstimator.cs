@@ -81,7 +81,10 @@ public sealed record OfficialHealthEstimate
     public double SlopePointsPerYear { get; init; }
     public OfficialHealthRecord? LastRecord { get; init; }
     public OfficialHealthRecord? PreviousRecord { get; init; }
+    /// <summary>保存記録のうち有限値を持つ件数（まとめる前の従来の件数）。</summary>
     public int RecordCount { get; init; }
+    /// <summary>24 時間の固定先頭窓でまとめた、推定・検証・信頼度に使う件数。</summary>
+    public int EffectiveRecordCount { get; init; }
     public OfficialHealthModel Model { get; init; }
     /// <summary>全モデル(利用不可は Percent が null)。</summary>
     public IReadOnlyList<OfficialHealthModelResult> Models { get; init; } = [];
@@ -97,6 +100,7 @@ public static class OfficialHealthEstimator
     public const double SlopeWindowDays = 365;
     public const double RoundingToleranceUnits = 0.5;
     public const int MinimumBacktestsForSelection = 3;
+    public const double RecordGroupingHours = 24;
     private const double DaysPerYear = 365;
     private const double PowerExponentMinimum = 1.0;
     private const double PowerExponentMaximum = 3.0;
@@ -125,7 +129,8 @@ public static class OfficialHealthEstimator
         DateTimeOffset? installedAt,
         DateTimeOffset at)
     {
-        var valid = SortedValid(records);
+        var raw = SortedValid(records);
+        var valid = GroupRecords(raw);
         var values = new Dictionary<OfficialHealthModel, ModelValue>();
         foreach (var model in AllModels)
         {
@@ -176,7 +181,8 @@ public static class OfficialHealthEstimator
             SlopePointsPerYear = selectedValue.SlopePerYear,
             LastRecord = valid.Length > 0 ? valid[^1] : null,
             PreviousRecord = valid.Length > 1 ? valid[^2] : null,
-            RecordCount = valid.Length,
+            RecordCount = raw.Length,
+            EffectiveRecordCount = valid.Length,
             Model = selected,
             Models = results,
             MinPercent = available.Min(),
@@ -192,14 +198,14 @@ public static class OfficialHealthEstimator
         Estimate(records.Where(item => item.RecordedAt < at).ToArray(), installedAt, at);
 
     /// <summary>
-    /// 各記録 i(i≥1)を、それ以前の記録(+購入日)だけで各モデルが予測した場合の件数と MAE。
+    /// 24時間の各代表点 i(i≥1)を、確定済みの先行グループ(+購入日)だけで予測した件数と MAE。
     /// 予測できなかったモデルは含まれない。
     /// </summary>
     public static IReadOnlyList<OfficialHealthModelResult> BacktestModels(
         IReadOnlyList<OfficialHealthRecord> records,
         DateTimeOffset? installedAt)
     {
-        var stats = Backtest(SortedValid(records), installedAt);
+        var stats = Backtest(GroupRecords(records), installedAt);
         return AllModels
             .Select(model => stats.TryGetValue(model, out var stat)
                 ? new OfficialHealthModelResult(model, null, stat.Count, stat.Mae)
@@ -258,6 +264,29 @@ public static class OfficialHealthEstimator
             .OrderBy(item => item.RecordedAt)
             .ToArray();
 
+    /// <summary>
+    /// 有限値を時刻の安定順に並べ、先頭から24時間以内（境界含む）を最新の1件にする。
+    /// 先頭窓は延長しない。同時刻は入力順の最後を採用し、保存記録自体は変更しない。
+    /// </summary>
+    public static OfficialHealthRecord[] GroupRecords(IReadOnlyList<OfficialHealthRecord> records)
+    {
+        var result = new List<OfficialHealthRecord>();
+        DateTimeOffset start = default;
+        foreach (var record in SortedValid(records))
+        {
+            if (result.Count == 0 || record.RecordedAt - start > TimeSpan.FromHours(RecordGroupingHours))
+            {
+                start = record.RecordedAt;
+                result.Add(record);
+            }
+            else
+            {
+                result[^1] = record;
+            }
+        }
+        return result.ToArray();
+    }
+
     private static readonly object BacktestCacheLock = new();
     private static (string Key, Dictionary<OfficialHealthModel, BacktestStat> Value)? _backtestCache;
 
@@ -294,6 +323,7 @@ public static class OfficialHealthEstimator
         var sums = new Dictionary<OfficialHealthModel, (int Count, double Sum)>();
         for (var i = 1; i < valid.Length; i++)
         {
+            // 代表点を検証し、確定した先行グループだけを学習する（再グループ化しない）。
             var prior = valid[..i];
             foreach (var model in AllModels)
             {
