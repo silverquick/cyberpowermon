@@ -61,6 +61,7 @@ var tests = new (string Name, Action Run)[]
     ("Event severity classification", EventSeverityClassification),
     ("Telemetry and event export to CSV/JSON", TelemetryExportRoundTrip),
     ("Dynamic runtime-low threshold update", DynamicRuntimeLowThreshold),
+    ("Weekly heatmap equivalent-day and localized formats", WeeklyEquivalentDays),
     ("Weekly heatmap pattern aggregation", WeeklyPatternAggregation),
     ("Weekly heatmap power-factor aggregation", WeeklyPatternPowerFactorAggregation),
     ("Runtime estimator load calculation", RuntimeEstimatorCalculation),
@@ -1663,6 +1664,28 @@ static void DynamicRuntimeLowThreshold()
     HasType(events2, UpsEventType.RuntimeLow);
 }
 
+static void WeeklyEquivalentDays()
+{
+    var result = new WeeklyPatternResult
+    {
+        Metric = WeeklyPatternMetric.PowerFactor, From = DateTimeOffset.UnixEpoch,
+        To = DateTimeOffset.UnixEpoch.AddDays(7), OverallMin = 0, OverallMax = 0,
+        OverallAvg = 0, Grid = [], TotalSamples = 5493,
+    };
+    Near(5493 / 1440.0, result.EquivalentDays);
+    Near(0, (result with { TotalSamples = 0 }).EquivalentDays);
+    Near(1, (result with { TotalSamples = 1440 }).EquivalentDays);
+    Near(result.EquivalentDays, (result with { From = result.From.AddHours(9), To = result.To.AddDays(23) }).EquivalentDays);
+    foreach (var language in new[] { "ja-JP", "en-US" })
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "../../../../UpsMonitor.App/Resources", $"Strings.{language}.xaml");
+        var doc = System.Xml.Linq.XDocument.Load(path);
+        var key = System.Xml.Linq.XName.Get("Key", "http://schemas.microsoft.com/winfx/2006/xaml");
+        var format = doc.Root!.Elements().Single(e => (string?)e.Attribute(key) == "AnalyticsSampleCountFormat").Value;
+        var text = string.Format(CultureInfo.InvariantCulture, format, result.TotalSamples, result.EquivalentDays);
+        if (!text.Contains("3.8")) throw new InvalidOperationException(text);
+    }
+}
 static void WeeklyPatternAggregation()
 {
     var testRoot = Path.Combine(Path.GetTempPath(), $"UpsPatternTests-{Guid.NewGuid():N}");
@@ -1693,6 +1716,7 @@ static void WeeklyPatternAggregation()
 
         store.WriteAsync(snapshot1, CancellationToken.None).GetAwaiter().GetResult();
         store.WriteAsync(snapshot2, CancellationToken.None).GetAwaiter().GetResult();
+        store.WriteAsync(snapshot2 with { Timestamp = targetTime.AddMinutes(15).AddSeconds(10) }, CancellationToken.None).GetAwaiter().GetResult();
         store.FlushAsync().GetAwaiter().GetResult();
 
         var result = store.QueryWeeklyPatternAsync(
@@ -1704,13 +1728,13 @@ static void WeeklyPatternAggregation()
         Equal(168, result.Grid.Count);
         Equal(WeeklyPatternMetric.ActivePower, result.Metric);
         Equal(2L, result.TotalSamples);
-        Near(400.0, result.OverallAvg);
+        Near(1250.0 / 3, result.OverallAvg);
         Near(350.0, result.OverallMin);
         Near(450.0, result.OverallMax);
 
         var mon14 = result.Grid.First(p => p.DayOfWeek == 1 && p.HourOfDay == 14);
         Equal(2L, mon14.SampleCount);
-        Near(400.0, mon14.Average);
+        Near(1250.0 / 3, mon14.Average);
 
         foreach (var metric in new[] { WeeklyPatternMetric.InputVoltage, WeeklyPatternMetric.LoadPercent })
         {
@@ -1789,6 +1813,18 @@ static void WeeklyPatternPowerFactorAggregation()
         Equal(1L, sunday.SampleCount);
         Near(25.0, sunday.Average);
 
+        foreach (var (from, to, expected) in new[]
+        {
+            (monday.AddMinutes(-45), monday, 2L),
+            (monday.AddDays(-7), monday.AddDays(-1), 0L),
+            (monday.AddDays(-7), monday.AddDays(7), 6L),
+        })
+        {
+            var range = store.QueryWeeklyPatternAsync(UpsDeviceIdentity.Create(device), from, to,
+                WeeklyPatternMetric.PowerFactor).GetAwaiter().GetResult();
+            Equal(expected, range.TotalSamples);
+            Near(expected / 1440.0, range.EquivalentDays);
+        }
         store.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
     finally

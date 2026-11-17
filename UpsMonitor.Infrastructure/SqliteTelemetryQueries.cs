@@ -684,7 +684,7 @@ public sealed partial class SqliteTelemetryStore
                 MIN(minimum),
                 SUM(value_sum) / SUM(sample_count),
                 MAX(maximum),
-                SUM(sample_count)
+                COUNT(*)
             FROM telemetry_rollups_1m
             WHERE device_id = $device
                 AND metric = $metric

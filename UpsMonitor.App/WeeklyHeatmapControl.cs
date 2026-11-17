@@ -33,7 +33,6 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
     private const double CellGap = 3.0;
     private const double CellCornerRadius = 3.0;
 
-    private static readonly string[] DayNames = ["月", "火", "水", "木", "金", "土", "日"];
     private static readonly int[] DayOrder = [1, 2, 3, 4, 5, 6, 0]; // 1=Mon, ..., 0=Sun
 
     private (int Row, int Col)? _hoveredCell;
@@ -42,6 +41,8 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
     public WeeklyHeatmapControl()
     {
         SnapsToDevicePixels = true;
+        Loaded += (_, _) => LocalizationManager.LanguageChanged += OnLanguageChanged;
+        Unloaded += (_, _) => LocalizationManager.LanguageChanged -= OnLanguageChanged;
         MouseMove += OnMouseMove;
         MouseLeave += OnMouseLeave;
     }
@@ -63,6 +64,8 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
         get => (string)GetValue(EmptyTextProperty);
         set => SetValue(EmptyTextProperty, value);
     }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => InvalidateVisual();
 
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
@@ -174,7 +177,7 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
             var rowY = TopMargin + row * cellHeight;
 
             // Day Label
-            var dayLabel = LocalizationManager.Get($"Day_{dow}") ?? DayNames[row];
+            var dayLabel = LocalizationManager.Get($"Day_{dow}");
             var dayText = FormatText(dayLabel, 11, ResolveBrush("TextBrush", "#E2E8F0"), TextAlignment.Right);
             dc.DrawText(dayText, new Point(LeftMargin - 12 - dayText.Width, rowY + cellHeight / 2.0 - dayText.Height / 2.0));
 
@@ -270,7 +273,7 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
 
         var unit = Unit;
         var minText = FormatText($"{data.OverallMin:0.#} {unit}", 10, ResolveBrush("MutedTextBrush", "#94A3B8"), TextAlignment.Left);
-        var avgText = FormatText($"平均: {data.OverallAvg:0.#} {unit}", 10, ResolveBrush("MutedTextBrush", "#94A3B8"), TextAlignment.Center);
+        var avgText = FormatText(LocalizationManager.Format("AnalyticsAverageFormat", data.OverallAvg.ToString("0.#"), unit), 10, ResolveBrush("MutedTextBrush", "#94A3B8"), TextAlignment.Center);
         var maxText = FormatText($"{data.OverallMax:0.#} {unit}", 10, ResolveBrush("MutedTextBrush", "#94A3B8"), TextAlignment.Right);
 
         dc.DrawText(minText, new Point(legendX, y + height + 2));
@@ -280,15 +283,14 @@ public sealed class WeeklyHeatmapControl : FrameworkElement
 
     private void RenderTooltip(DrawingContext dc, HourlyPatternPoint pt, WeeklyPatternResult data, Point mousePos)
     {
-        var dowName = DayNames[Array.IndexOf(DayOrder, pt.DayOfWeek)];
-        var dayFull = LocalizationManager.Get($"DayFull_{pt.DayOfWeek}") ?? $"{dowName}曜日";
+        var dayFull = LocalizationManager.Get($"DayFull_{pt.DayOfWeek}");
         var timeTitle = $"{dayFull} {pt.HourOfDay:D2}:00 - {pt.HourOfDay + 1:D2}:00";
         var unit = Unit;
 
         var line1 = timeTitle;
-        var line2 = $"平均: {pt.Average:0.##} {unit}";
-        var line3 = $"範囲: {pt.Minimum:0.#} ～ {pt.Maximum:0.#} {unit}";
-        var line4 = $"サンプル数: {pt.SampleCount:N0} 分";
+        var line2 = LocalizationManager.Format("AnalyticsAverageFormat", pt.Average.ToString("0.##"), unit);
+        var line3 = LocalizationManager.Format("AnalyticsValueRangeFormat", pt.Minimum, pt.Maximum, unit);
+        var line4 = LocalizationManager.Format("AnalyticsTooltipSamplesFormat", pt.SampleCount);
 
         var t1 = FormatText(line1, 12, Brushes.White, TextAlignment.Left);
         t1.SetFontWeight(FontWeights.Bold);
