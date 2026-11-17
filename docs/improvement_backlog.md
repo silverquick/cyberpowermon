@@ -1,12 +1,12 @@
 # 改善施策バックログ
 
-最終調査日: 2026-11-13
-調査基準: `6cef449` (`main`)
+最終調査日: 2026-11-17
+調査基準: `74ebc10` (`main`)
 初回調査は 2026-08-29、`330ff76` 時点。
 
 本書は `docs/performance/*_analysis.md` と全 `docs/*/{implementation_plan,task,walkthrough}.md` を読み、walkthrough の記載だけでなく `UpsMonitor.*` の実コードと `git log` を照合して、提案済み施策の実装状況と積み残しを整理したものである。なお、依頼背景には .NET 8 とあるが、現コードの `UpsMonitor.App/UpsMonitor.App.csproj` は `net10.0-windows` を対象としているため、以下の設計は現行コードを正としている。
 
-## 実装状況（2026-11-13 更新）
+## 実装状況（2026-11-17 更新）
 
 Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Antigravity / 統合: Claude）で #1・#2・#4 を実装・main へ統合済み。
 #3 は Antigravity のワークスペース信頼確認でエージェント起動がブロックされたため Codex `gpt-5.6-terra`（medium）へ切り替え、Core/Infrastructure・UI統合の2waveで実装・main へ統合済み。
@@ -31,7 +31,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 ### その他の実装済み改修（#1〜#9 とは別枠、2026-09-17 以降）
 
-`git log --first-parent --oneline 80044e9..6cef449` で確認した範囲（first-parent のマージは 6 件。docs のみのマージは表から除外）。
+`git log --first-parent --oneline 80044e9..6cef449` と `git log --first-parent --oneline 6cef449..74ebc10` で確認した範囲。docs のみのマージは表から除外。#5・#6 も含め、0.1.017〜0.1.026 の履歴を以下にまとめる。
 
 | 種別 | 内容 | 関連コミット |
 |---|---|---|
@@ -40,10 +40,19 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | feat(health) | 公式アプリ（CyberPower BHI 等）の健全性を日時付きで記録し、その推移から現在値を推定する改善サイクルを追加（3 モデル並走・バックテスト選択・記録時の状況の自動保存など） | `a2e973b`、Merge `c2de3ce`（`f7f1055` と同一マージ） |
 | fix(health) | 健全性記録で履歴状況取得に失敗しても、起動後の履歴問い合わせ成功時に不足状況を補完（既存の記録時現在値は維持） | `9cff017` ほか、Merge `1624cbf` |
 | build(version) | パッチ番号の一元管理、`0.1.XXX` 表示、CHANGELOG とバージョン運用を導入し、現在値を 0.1.016 に確定 | Merge `6cef449`、タグ `v0.1.016` |
-| refactor（0.1.022） | 未使用の DailyEnergyReports・旧 API/型と AppPaths の未使用パスを削除し、テストを新 API へ移行 | `023b009`、Merge `7ff7a77` |
-| fix(history)（0.1.022） | チャート範囲線の共有 Pen を凍結し、大量の健全性データ描画時の応答停止を修正 | `f2ac66a`、Merge `7ff7a77` |
+| feat(logs)（0.1.017、#6） | 保存済みログの期間・種別・重大度フィルタ、live 統合、最新 500 件の上限表示を追加 | `feature/logs-saved-event-filter`、Merge `75fc16c` |
+| feat(export)（0.1.018、#5） | 全期間選択、JSON 逐次出力、安全な一時ファイル置換、キャンセル・終了待機に対応 | `feature/export-all-range-streaming`、Merge `0e8231a` |
+| feat(health)（0.1.019） | 公式健全性記録の日時入力案内・未来日時検証を追加（DatePicker の起動時不具合は 0.1.021 で修正） | `feature/health-record-date-validation`、Merge `b9c7dff` |
+| fix(logs)（0.1.020） | Logs の初期期間を全期間に変更し、500 件の上限と案内を維持 | `fix/logs-default-all-range`、Merge `212d18d` |
+| fix(ui)（0.1.021） | DatePicker の読み取り専用プロパティへの書き戻しによる起動時終了を修正し、Logs・設定・History・Analytics の表示と選択保持を修正 | `fix/date-picker-binding-crash`、Merge `6185bdb` |
+| refactor（0.1.022） | 未使用の DailyEnergyReports・旧 API/型と AppPaths の未使用パスを削除し、テストを新 API へ移行 | `fix/remove-unused-code`、`023b009`、Merge `7ff7a77` |
+| fix(history)（0.1.022） | チャート範囲線の共有 Pen を凍結し、大量の健全性データ描画時の応答停止を修正 | `fix/remove-unused-code`、`f2ac66a`、Merge `7ff7a77` |
+| fix(ui)（0.1.023） | 入力電圧異常の境界条件を文面に明示し、Analytics 選択ラベルの日英表示を修正 | `fix/voltage-message-and-analytics-labels`、Merge `b288edd` |
+| feat(health)（0.1.024） | 公式値の密集記録を推定時に固定先頭窓24時間の最新1件へまとめ、保存件数と推定用件数を区別 | `feature/health-dense-record-grouping`、Merge `93298b4` |
+| fix(analytics)（0.1.025） | Analytics の日英表示・日数書式を修正し、件数を有効な分数へ統一 | `fix/analytics-i18n-and-days`、Merge `c8d2561` |
+| fix(ui)（0.1.026） | Dashboard・History・通知テストの固定日本語を日英リソース化し、概算列も言語切替で更新 | `fix/remaining-ui-i18n`、Merge `74ebc10` |
 
-#6 は 0.1.017 で実装済み。#5 は未着手のまま（「⏳ 次ラウンド」を維持）。
+#5 は 0.1.018、#6 は 0.1.017 で実装済み。
 
 整理済み（0.1.022、`fix/remove-unused-code`）: XAML 未バインドの旧 `DailyEnergyReports`（7 日固定）と毎リフレッシュの取得処理、`QueryDailyEnergyReportsAsync` ラッパー・`DailyEnergyReportItem` を削除。既存の新 API テストで精度・料金・停電集計が担保されているためラッパー専用検証を削除し、7 日分の件数確認とベンチマークは `QueryEnergyReportsAsync` に移行した。
 
@@ -101,7 +110,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 ## 今回スコープ推奨
 
-#1〜#4・#6 は実装済み。未着手の推奨施策は #5。
+#1〜#6 はすべて実装済み。以下の推奨理由は提案時の課題を記録したもの。
 
 | 番号 | 施策 | 領域 | 推奨理由 | 難易度 |
 |---:|---|---|---|---|
@@ -116,9 +125,9 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 | 番号 | 施策 | 領域 | 見送り理由 | 再検討条件 |
 |---:|---|---|---|---|
-| 7 | `MainViewModel` の責務分割 | アーキテクチャ | 明確な積み残しだが、現ファイルは約 3,330 行（2026-11-10 時点で 3,331 行）で、今回推奨施策の大半と競合する。先に機能ギャップをテストで固定した方が安全（2026-11-10 の検討メモ参照） | #5・#6 の統合後、タブ単位の振る舞いテストを用意できた時点 |
+| 7 | `MainViewModel` の責務分割 | アーキテクチャ | 明確な積み残し。#5・#6 との競合を理由に見送っていたが、両施策は統合済み（2026-11-10 の検討メモ参照） | #5・#6 の統合条件は達成済み（0.1.018・0.1.017）。残るタブ単位の振る舞いテストを用意できた時点で再検討 |
 | 8 | ReadyToRun 発行設定の検証 | 起動 | 発行方式・配布サイズ上限・cold start 基準値が未定で、設定だけ有効化しても効果を判定できない | x64 配布形態と起動計測シナリオを確定した時点 |
-| 9 | 日次レポート DataGrid の差分更新 | UI | 現在は値が変わった場合だけ更新され、件数も固定 7 行で 10 秒周期。残る `Clear` + `Add` の通知コストは小さい | 4 により表示件数が増える、または UI 計測で再描画が顕在化した場合 |
+| 9 | 日次レポート DataGrid の差分更新 | UI | 対象だった旧 `DailyEnergyReports` は 0.1.022 で削除済み。現行 `EnergyReports` は日次30日／月次12か月を対象に、同値時は更新を抑止し、変更時は `Clear` + `Add` で再構築 | 現行 DataGrid の再描画・選択・スクロールへの影響が UI 計測で確認された場合、または表示期間をさらに拡大する場合 |
 
 ## 提案施策の仕分け結果
 
@@ -242,6 +251,8 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 ## 7. `MainViewModel` の責務分割
 
+2026-11-17 確認: #5（0.1.018）・#6（0.1.017）は main へ統合済みで、再検討の前提だった統合条件は満たされた。#6 では `LogsViewModel` を先行抽出し振る舞いテストも追加済み。残るタブの振る舞いテストを整えた上で、分割範囲と優先度を再検討する。
+
 > **検討メモ（2026-11-10、決定ではない）**: 以前は約 2,700 行だった `MainViewModel.cs` は 3,331 行になった（#1・#4 の UI 統合と `a2e973b` の健全性推定で +約 570 行）。増加の根拠は次のとおり。`a2e973b` だけで `MainViewModel.cs` が +571 行、`MainWindow.xaml` が +112 行。見送りを維持する論拠は、#5・#6 が同じファイルと競合する点、および `Core.Tests`（58 件）が Core/Infrastructure 中心で ViewModel の振る舞いテストが無い点。優先度を上げる論拠は、機能追加のたびに同ファイルへ数百行が加わる傾向があり、将来の分割コストが増え続ける点。折衷案として、健全性記録まわり（設定・モデル比較表）だけを先に子 VM へ切り出す案もあるが、未検証。見送り維持か優先度引き上げかは別途判断する。
 
 - **対象領域**: アーキテクチャ
@@ -282,15 +293,16 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
   - `docs/performance/ui_responsiveness_analysis.md`「2.3 DataGrid / Chart 再描画コスト」
   - `docs/ui_responsiveness_optimization/implementation_plan.md`「2.2 MainViewModel」（DailyEnergyReports 差分チェック）
 - **現状と課題**:
-  `SequenceEqual` により同値時の更新は抑止済みだが、差分があると `ObservableCollection.Clear()` 後に 7 回 `Add()` し、CollectionChanged と行生成が複数回発生する。現状規模では実害は小さい。
+  当初の対象だった旧 `DailyEnergyReports`（固定7日）は 0.1.022（`fix/remove-unused-code`、Merge `7ff7a77`）で取得処理・旧 API/型とともに削除済み。現行 DataGrid は `EnergyReports` にバインドされ、`MainViewModel` は `QueryEnergyReportsAsync` で日次は当日を含む30日、月次は当月を含む12か月を取得する。`SequenceEqual` で同値時の更新を抑止するが、変更時は `EnergyReports.Clear()` 後に結果を1件ずつ `Add()` しており、行単位の差分更新ではない。通知・再描画コストの実測は未実施。
+- **再検討条件**: #4 の日次／月次表示は実装済みのため、現行 DataGrid で再描画・選択・スクロールへの影響が UI 計測により確認された場合、または表示期間をさらに拡大する場合に再評価する。
 - **提案する実装方針**:
-  - 4 で件数が増える場合、`IReadOnlyList<EnergyReportItem>` property の参照を一度だけ差し替えて `PropertyChanged` 1 回にする。行選択維持が必要なら key（period start）で既存行を reconcile する。
+  - 再検討条件を満たした場合、`IReadOnlyList<EnergyReportItem>` property の参照を一度だけ差し替えて `PropertyChanged` 1 回にする。行選択維持が必要なら key（period start）で既存行を reconcile する。
   - 独自 `ObservableRangeCollection` はアプリ全体で range update の需要が増えた場合だけ導入し、単用途の抽象化は避ける。
 - **影響範囲・リスク**: DataGrid の選択・スクロール位置が collection replacement で失われる可能性がある。
 - **必要なテスト**: 同値時無通知、差分時 1 通知、選択維持、月次／多数行、言語変更時の表示。
 - **難易度**: 小
 - **確証度**: コード確認済み
-- **依存・競合**: 4 と同じ `MainViewModel.cs` / `MainWindow.xaml` を触るため、4 の一部として必要性を再評価する。
+- **依存・競合**: 実装済みの #4 と同じ `MainViewModel.cs` / `MainWindow.xaml` が対象。今後の #7 の責務分割と競合するため、現行 `EnergyReports` を対象に必要性を計測してから調整する。
 
 ## 実装フェーズの分割案
 
