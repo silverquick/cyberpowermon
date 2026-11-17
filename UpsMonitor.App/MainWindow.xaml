@@ -8,6 +8,7 @@
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <local:EnergyPeriodFormatConverter x:Key="EnergyPeriodFormatConverter" />
+        <local:EstimatedCostFormatConverter x:Key="EstimatedCostFormatConverter" />
         <Style x:Key="CardStyle" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
@@ -654,7 +655,20 @@
                                         <DataGrid.Columns>
                                             <DataGridTextColumn Header="{DynamicResource ColumnDate}" Binding="{Binding Converter={StaticResource EnergyPeriodFormatConverter}}" Width="100" />
                                             <DataGridTextColumn Header="{DynamicResource ColumnEnergyKwh}" Binding="{Binding EnergyKwh, StringFormat={}{0:F2} kWh}" Width="95" />
-                                            <DataGridTextColumn Header="{DynamicResource ColumnEstimatedCost}" Binding="{Binding EstimatedCost, StringFormat={}約 {0:N0} 円}" Width="100" />
+                                            <DataGridTemplateColumn Header="{DynamicResource ColumnEstimatedCost}" Width="120">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock>
+                                                            <TextBlock.Text>
+                                                                <MultiBinding Converter="{StaticResource EstimatedCostFormatConverter}">
+                                                                    <Binding Path="EstimatedCost" />
+                                                                    <Binding Path="DataContext.SelectedLanguageCode" RelativeSource="{RelativeSource AncestorType=Window}" />
+                                                                </MultiBinding>
+                                                            </TextBlock.Text>
+                                                        </TextBlock>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
                                             <DataGridTextColumn Header="{DynamicResource ColumnPeakWatts}" Binding="{Binding PeakWatts, StringFormat={}{0:F0} W}" Width="85" />
                                             <DataGridTextColumn Header="{DynamicResource ColumnAvgWatts}" Binding="{Binding AvgWatts, StringFormat={}{0:F0} W}" Width="85" />
                                             <DataGridTextColumn Header="{DynamicResource ColumnOutages}" Binding="{Binding OutageCount}" Width="75" />

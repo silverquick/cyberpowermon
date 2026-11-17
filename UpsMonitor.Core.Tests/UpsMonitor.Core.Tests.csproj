@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="..\UpsMonitor.App\LogsViewModel.cs" Link="LogsViewModel.cs" />
     <Compile Include="..\UpsMonitor.App\LocalizedOption.cs" Link="LocalizedOption.cs" />
+    <Compile Include="..\UpsMonitor.App\UiTextFormatting.cs" Link="UiTextFormatting.cs" />
     <Compile Include="..\UpsMonitor.App\ExportShutdown.cs" Link="ExportShutdown.cs" />
     <Compile Include="..\UpsMonitor.App\UpsEventViewModel.cs" Link="UpsEventViewModel.cs" />
   </ItemGroup>

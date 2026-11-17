@@ -1291,11 +1291,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             if (snapshot.ConfigApparentPower is { } ratedVa && snapshot.ApparentPower is { } curVa)
             {
                 var remainVa = Math.Max(0, ratedVa - curVa);
-                PowerMarginText = $"残り {remainW:0.#} W / {remainVa:0.#} VA";
+                PowerMarginText = UiTextFormatting.PowerMargin(remainW, remainVa);
             }
             else
             {
-                PowerMarginText = $"残り {remainW:0.#} W";
+                PowerMarginText = UiTextFormatting.PowerMargin(remainW, null);
             }
         }
         else
@@ -1306,7 +1306,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         if (snapshot.InputVoltage is { } inV && snapshot.LowVoltageTransfer is { } lowV)
         {
             var margin = inV - lowV;
-            VoltageMarginText = margin >= 0 ? $"下限({lowV:0.#}V)まで +{margin:0.#} V" : $"下限({lowV:0.#}V)超過 {margin:0.#} V";
+            VoltageMarginText = UiTextFormatting.VoltageMargin(lowV, margin);
         }
         else
         {
@@ -1318,7 +1318,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             var nominalV = snapshot.NominalBatteryVoltage ?? 24.0;
             var cellCount = (int)Math.Max(1, Math.Round(nominalV / 2.0));
             var cellV = batV / cellCount;
-            CellVoltageText = $"{cellV:0.00} V/cell ({cellCount}セル)";
+            CellVoltageText = UiTextFormatting.CellVoltage(cellV, cellCount);
         }
         else
         {
@@ -2361,7 +2361,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         if (summary.TotalEnergyKwh is { } kwh)
         {
             var cost = kwh * _configuration.Monitoring.ElectricityRatePerKwh;
-            PeriodCostSummaryText = $"約 {cost:N0} {L("CurrencyUnit")} ({_configuration.Monitoring.ElectricityRatePerKwh:0.#}{L("CurrencyUnit")}/kWh)";
+            PeriodCostSummaryText = UiTextFormatting.PeriodCost(cost, _configuration.Monitoring.ElectricityRatePerKwh);
             var co2 = kwh * 0.457;
             PeriodCo2SummaryText = $"{co2:0.##} kg-CO₂";
         }
