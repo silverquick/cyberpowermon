@@ -72,7 +72,7 @@ git -c credential.helper= -c "credential.helper=!gh auth git-credential" push or
 
 ## データの扱い（重要）
 
-- 実運用の履歴 DB（UPS テレメトリの SQLite）・実 config・ログ（`C:\ProgramData\UpsMonitor\logs\`、リポジトリ直下の `error.log`）は**機密（Restricted）**。2026-11-14 のユーザー許可により、承認済みエージェント（Claude、Codex Sol / Luna / Terra）は、直接開く・SQL で読む、画面確認のために実データでアプリを起動する、必要なら編集することができる。
+- 実運用の履歴 DB（UPS テレメトリの SQLite）・実 config・ログ（`C:\ProgramData\UpsMonitor\logs\`、リポジトリ直下の `error.log`）は**機密（Restricted）**。2026-11-14 のユーザー許可と、2026-11-17 のユーザー判断による Antigravity（Claude / Gemini）・Codex Astra の追加承認により、承認済みエージェント（Claude、Codex（Sol / Luna / Terra / Astra）、Antigravity（Claude / Gemini））は、直接開く・SQL で読む、画面確認のために実データでアプリを起動する、必要なら編集することができる。
   - 既定パス（`UpsMonitor.Infrastructure/AppPaths.cs`、`Environment.SpecialFolder.CommonApplicationData` + `UpsMonitor`）:
     - 履歴 DB: `C:\ProgramData\UpsMonitor\telemetry.db`（WAL 用に `-wal` / `-shm` も同じ場所）
     - config: `C:\ProgramData\UpsMonitor\config.json`
@@ -81,7 +81,7 @@ git -c credential.helper= -c "credential.helper=!gh auth git-credential" push or
 - 編集するとき: 編集前にバックアップを取る（DB は `-wal` / `-shm` も含める。アプリ停止中にコピーするか、SQLite backup API を使う）。アプリ起動中は書き込まず、何を変えたか報告する。
 - アプリはシングルインスタンス。ユーザーが起動中のときは2つ目を起動しない。終了や再起動はユーザーに確認してから行う。
 - 報告やコミットに DB・config・ログの大量のダンプやシリアル番号などの識別子を貼らない。集計と必要最小限の行だけにする。
-- Antigravity、Codex Astra、Fable など未承認のエージェントには実データを渡さず、実 DB にアクセスできる作業場所でも起動しない。
+- Fable など、ここに挙げていないエージェントには実データを渡さず、実 DB にアクセスできる作業場所でも起動しない。
 - 動作確認は合成データを基本とし、画面確認では実データでの起動もできる。合成データは `AppPaths` のコンストラクター引数や一時ディレクトリで作る（既存テストの方式に倣う）。
 - 設定の例は `config.example.json` を使う。
 
