@@ -171,7 +171,7 @@ public sealed class UpsEventDetector
                     if (inputVoltage <= _alertThresholds.LowVoltage || inputVoltage >= _alertThresholds.HighVoltage)
                     {
                         _voltageAbnormalActive = true;
-                        Add(UpsEventType.VoltageAbnormal, $"Input voltage is abnormal: {inputVoltage:0.#}V (normal: {_alertThresholds.LowVoltage:0.#}V - {_alertThresholds.HighVoltage:0.#}V)");
+                        Add(UpsEventType.VoltageAbnormal, $"Input voltage is abnormal: {inputVoltage:0.#}V (warning: <= {_alertThresholds.LowVoltage:0.#}V or >= {_alertThresholds.HighVoltage:0.#}V)");
                     }
                 }
                 else

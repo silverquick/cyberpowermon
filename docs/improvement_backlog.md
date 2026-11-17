@@ -32,6 +32,8 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | feat(health) | 公式アプリ（CyberPower BHI 等）の健全性を日時付きで記録し、その推移から現在値を推定する改善サイクルを追加（3 モデル並走・バックテスト選択・記録時の状況の自動保存など） | `a2e973b`、Merge `c2de3ce`（`f7f1055` と同一マージ） |
 | fix(health) | 健全性記録で履歴状況取得に失敗しても、起動後の履歴問い合わせ成功時に不足状況を補完（既存の記録時現在値は維持） | `9cff017` ほか、Merge `1624cbf` |
 | build(version) | パッチ番号の一元管理、`0.1.XXX` 表示、CHANGELOG とバージョン運用を導入し、現在値を 0.1.016 に確定 | Merge `6cef449`、タグ `v0.1.016` |
+| refactor（0.1.022） | 未使用の DailyEnergyReports・旧 API/型と AppPaths の未使用パスを削除し、テストを新 API へ移行 | `023b009`、Merge `7ff7a77` |
+| fix(history)（0.1.022） | チャート範囲線の共有 Pen を凍結し、大量の健全性データ描画時の応答停止を修正 | `f2ac66a`、Merge `7ff7a77` |
 
 #6 は 0.1.017 で実装済み。#5 は未着手のまま（「⏳ 次ラウンド」を維持）。
 
@@ -79,6 +81,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 #### コード上の改善余地（未着手）
 
+- 健全性グラフ（`MainViewModel.HealthChart`、`SqliteTelemetryQueries.QueryHealthAsync`）は他のメトリクスと違い点を間引かず、観測が増えると描画が重くなる要因が残る（0.1.022 の共有 Pen 凍結で停止は解消済み）。
 - 同じ値・近い時刻の記録に対して、重複の抑制も重み付けもない。偏りの大きさは、合成データ（等間隔、変化時のみ、密集）で `Estimate` とバックテストを比べる単体テストで確かめられる。
 - ✅ 実装済み（0.1.022、`fix/remove-unused-code`）: 未使用の `AppPaths.DevicesFile`・`AppPaths.UserDirectory` とローカルパス引数を削除。テストの合成データ用パスは共通ルート引数だけで指定する。
 - 推定結果はあくまで公式値の再現を目的とした推定で、UPS が HID で直接公開する値ではない（README 参照）。
