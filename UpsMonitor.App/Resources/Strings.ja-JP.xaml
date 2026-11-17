@@ -556,4 +556,15 @@
     <sys:String x:Key="AnalyticsAverageFormat">平均: {0} {1}</sys:String>
     <sys:String x:Key="AnalyticsValueRangeFormat">範囲: {0:0.#} ～ {1:0.#} {2}</sys:String>
     <sys:String x:Key="AnalyticsTooltipSamplesFormat">サンプル数: {0:N0} 分</sys:String>
+    <sys:String x:Key="PowerMarginWithVaFormat">残り {0:0.#} W / {1:0.#} VA</sys:String>
+    <sys:String x:Key="PowerMarginFormat">残り {0:0.#} W</sys:String>
+    <sys:String x:Key="VoltageMarginAboveFormat">下限({0:0.#}V)まで +{1:0.#} V</sys:String>
+    <sys:String x:Key="VoltageMarginBelowFormat">下限({0:0.#}V)超過 {1:0.#} V</sys:String>
+    <sys:String x:Key="CellVoltageFormat">{0:0.00} V/cell ({1}セル)</sys:String>
+    <sys:String x:Key="PeriodCostFormat">約 {0:N0} 円 ({1:0.#}円/kWh)</sys:String>
+    <sys:String x:Key="EstimatedCostFormat">約 {0:N0} 円</sys:String>
+    <sys:String x:Key="TestNotificationCriticalTitle">[PowerGuard] テスト通知 (重大)</sys:String>
+    <sys:String x:Key="TestNotificationWarningTitle">[PowerGuard] テスト通知 (警告)</sys:String>
+    <sys:String x:Key="TestNotificationInfoTitle">[PowerGuard] テスト通知 (情報)</sys:String>
+    <sys:String x:Key="TestNotificationMessage">これは PowerGuard の Windows 通知テストです。通知設定は正常に機能しています。</sys:String>
 </ResourceDictionary>

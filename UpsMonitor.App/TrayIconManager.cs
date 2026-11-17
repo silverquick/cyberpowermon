@@ -168,13 +168,8 @@ internal sealed class TrayIconManager : IDisposable
 
     public void ShowTestNotification(UpsEventSeverity severity)
     {
-        var title = severity switch
-        {
-            UpsEventSeverity.Critical => "[PowerGuard] テスト通知 (重大)",
-            UpsEventSeverity.Warning => "[PowerGuard] テスト通知 (警告)",
-            _ => "[PowerGuard] テスト通知 (情報)",
-        };
-        var msg = "これは PowerGuard の Windows 通知テストです。通知設定は正常に機能しています。";
+        var title = UiTextFormatting.TestNotificationTitle(severity);
+        var msg = LocalizationManager.Get("TestNotificationMessage");
         ShowNotification(title, msg, severity);
     }
 
