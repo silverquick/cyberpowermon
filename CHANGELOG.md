@@ -2,6 +2,10 @@
 
 feature/fix の main マージごとにパッチ番号を 1 増やします。表示は `0.1.XXX`（3 桁ゼロ埋め）です。docs のみの変更では番号を増やしません。0.1.017 以降はコミット hash の代わりにブランチ名を記載し、該当コミットは承認後に付ける `v0.1.XXX` タグ、または `git log --merges --grep` で辿ります。新しいバージョンはこの一覧の先頭に追加します。
 
+## 0.1.023 — 2026-11-17
+
+- `fix/voltage-message-and-analytics-labels` — 入力電圧異常メッセージに下限以下・上限以上の警告条件を明示し、境界値と小数表示の回帰テストを追加。Analytics の指標・期間の選択表示を DisplayName にバインドし、日英切替時に閉じた ComboBox のラベルも更新する。過去の保存済みイベントの文面は変更しない。
+
 ## 0.1.022 — 2026-11-17
 
 - `fix/remove-unused-code` — XAML 未バインドの旧 DailyEnergyReports と毎更新時の不要な取得処理、旧 API・型を削除。未使用の AppPaths.DevicesFile・UserDirectory とローカルパス引数を削除し、テスト・ベンチマークを日次／月次の新 API に統一。

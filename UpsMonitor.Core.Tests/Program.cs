@@ -72,6 +72,7 @@ var tests = new (string Name, Action Run)[]
     ("Navigation refresh on visibility change", NavigationRefreshOnVisibilityChange),
     ("Navigation refresh on language change", NavigationRefreshOnLanguageChange),
     ("High load alert detector edge and hysteresis", HighLoadAlertDetectorEdgeAndHysteresis),
+    ("Voltage abnormal message matches inclusive warning thresholds", VoltageAbnormalMessageMatchesWarningThresholds),
     ("Voltage abnormal alert detector edge and hysteresis", VoltageAbnormalAlertDetectorEdgeAndHysteresis),
     ("Alert detector disconnected produces no alerts", AlertDetectorDisconnectedNoAlerts),
     ("Dynamic alert thresholds update", DynamicAlertThresholdsUpdate),
@@ -2533,6 +2534,33 @@ static void HighLoadAlertDetectorEdgeAndHysteresis()
     // Load rises again to 82% (>= 80%) -> triggers HighLoadWarning again!
     var retriggered = detector.Observe(Snapshot(connected: true, ac: true, load: 82.0));
     HasType(retriggered, UpsEventType.HighLoadWarning);
+}
+
+static void VoltageAbnormalMessageMatchesWarningThresholds()
+{
+    var previousCulture = CultureInfo.CurrentCulture;
+    try
+    {
+        CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+        foreach (var (voltage, low, high, expected) in new[]
+        {
+            (92.0, 92.0, 108.0, "Input voltage is abnormal: 92V (warning: <= 92V or >= 108V)"),
+            (108.0, 92.0, 108.0, "Input voltage is abnormal: 108V (warning: <= 92V or >= 108V)"),
+            (92.4, 92.4, 108.6, "Input voltage is abnormal: 92.4V (warning: <= 92.4V or >= 108.6V)"),
+            (108.6, 92.4, 108.6, "Input voltage is abnormal: 108.6V (warning: <= 92.4V or >= 108.6V)"),
+            (91.46, 92.4, 108.6, "Input voltage is abnormal: 91.5V (warning: <= 92.4V or >= 108.6V)"),
+        })
+        {
+            var detector = new UpsEventDetector(TimeSpan.FromMinutes(3), new UpsAlertThresholds(LowVoltage: low, HighVoltage: high));
+            _ = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: 100.0));
+            var events = detector.Observe(Snapshot(connected: true, ac: true, inputVoltage: voltage));
+            Equal(expected, events.Single(e => e.Type == UpsEventType.VoltageAbnormal).Message);
+        }
+    }
+    finally
+    {
+        CultureInfo.CurrentCulture = previousCulture;
+    }
 }
 
 static void VoltageAbnormalAlertDetectorEdgeAndHysteresis()

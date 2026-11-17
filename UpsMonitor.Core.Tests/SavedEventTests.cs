@@ -303,6 +303,7 @@ internal static class SavedEventTests
                 {
                     (UpsEventType.HighLoadWarning, "UPS load is high: 91% (threshold: 80%)", "EventHighLoadWarning"),
                     (UpsEventType.VoltageAbnormal, "Input voltage is abnormal: 89V (normal: 92V - 108V)", "EventVoltageAbnormal"),
+                    (UpsEventType.VoltageAbnormal, "Input voltage is abnormal: 92V (warning: <= 92V or >= 108V)", "EventVoltageAbnormal"),
                 })
                 {
                     var value = new UpsEventViewModel(Event(0, type, message));
