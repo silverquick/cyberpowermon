@@ -483,6 +483,7 @@
     <sys:String x:Key="HealthReasonRelativePerformance">ランタイム相対性能 {0:0.#}%</sys:String>
     <sys:String x:Key="HealthReasonRuntimeDeclineRerecord">ランタイム低下を検出(相対性能 {0:0.#}%)。公式値の再記録を推奨します。</sys:String>
     <sys:String x:Key="ReplacementReasonOfficialTrend">公式値の推移から推定した健全性 {0:0.#}% が確認目安の {1:0.#}% を下回りました。</sys:String>
+    <sys:String x:Key="OfficialRecordCountFormat">記録 {0} 件（推定には {1} 件を使用。グループ先頭から24時間以内の記録は最新の1件にまとめます）</sys:String>
     <sys:String x:Key="OfficialRecordTitle">公式の健全性を記録</sys:String>
     <sys:String x:Key="OfficialRecordValueLabel">公式の健全性(0-100%)</sys:String>
     <sys:String x:Key="OfficialRecordDateLabel">記録日時(時刻は HH:mm)</sys:String>
@@ -494,7 +495,7 @@
     <sys:String x:Key="OfficialRecordColumnPredicted">記録時の予測</sys:String>
     <sys:String x:Key="OfficialRecordColumnError">誤差</sys:String>
     <sys:String x:Key="OfficialRecordDelete">削除</sys:String>
-    <sys:String x:Key="OfficialRecordMaeLabel">予測の平均絶対誤差</sys:String>
+    <sys:String x:Key="OfficialRecordMaeLabel">記録時の予測の平均絶対誤差（保存値）</sys:String>
     <sys:String x:Key="OfficialRecordMaeFormat">{0:0.0} ポイント</sys:String>
     <sys:String x:Key="OfficialRecordInstalledLabel">バッテリー購入(設置)日</sys:String>
     <sys:String x:Key="OfficialRecordHelp">PowerPanel等で確認した公式の健全性を時系列で記録すると、その推移から現在の健全性を推定します。購入日は推移の傾きを求める補助として使います(公式値の記録が1件以上必要です)。誤差は(公式値 - 記録時の予測)です。日付と時刻が空なら現在日時。日付だけなら、今日は現在時刻・過去の日付は 00:00。未来の日時は記録できません(時計のずれは5分まで許容)。</sys:String>
@@ -506,7 +507,7 @@
     <sys:String x:Key="OfficialRecordDeleted">公式値の記録を削除しました。</sys:String>
     <sys:String x:Key="OfficialInstalledSaved">バッテリー設置日を保存しました。</sys:String>
     <sys:String x:Key="OfficialModelTitle">推定モデルの比較</sys:String>
-    <sys:String x:Key="OfficialModelHelp">3種のモデルを並走させ、過去の記録を前の記録だけで予測し直した成績(バックテスト)で採用モデルを選びます。全モデルのバックテストが3件以上になるまでは、利用可能なら購入日起点の直線を使います。</sys:String>
+    <sys:String x:Key="OfficialModelHelp">再計算のMAEは24時間の代表点を、確定した先行グループだけで予測した誤差です。保存済みの記録時の予測誤差とは異なります。 3種のモデルを並走させ、過去の記録を前の記録だけで予測し直した成績(バックテスト)で採用モデルを選びます。全モデルのバックテストが3件以上になるまでは、利用可能なら購入日起点の直線を使います。</sys:String>
     <sys:String x:Key="OfficialModelColumnModel">モデル</sys:String>
     <sys:String x:Key="OfficialModelColumnValue">現在の推定値</sys:String>
     <sys:String x:Key="OfficialModelColumnCount">検証件数</sys:String>

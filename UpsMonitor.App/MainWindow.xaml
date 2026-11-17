@@ -1217,6 +1217,7 @@
                                             <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding OfficialRecordNote, UpdateSourceTrigger=LostFocus}" />
                                         </Grid>
                                         <Button Content="{DynamicResource RecordOfficialHealth}" Command="{Binding RecordOfficialHealthCommand}" HorizontalAlignment="Left" Margin="0,12,0,0" />
+                                        <TextBlock Text="{Binding OfficialRecordCountText}" TextWrapping="Wrap" Margin="0,10,0,0" Foreground="{DynamicResource MutedTextBrush}" />
                                         <Grid Margin="0,16,0,4">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="150" /><ColumnDefinition Width="80" /><ColumnDefinition Width="110" /><ColumnDefinition Width="170" /><ColumnDefinition Width="*" />

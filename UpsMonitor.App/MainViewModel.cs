@@ -482,6 +482,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         private set => SetField(ref _officialErrorText, value);
     }
 
+    private string _officialRecordCountText = string.Empty;
+    public string OfficialRecordCountText
+    {
+        get => _officialRecordCountText;
+        private set => SetField(ref _officialRecordCountText, value);
+    }
+
     public double? OfficialRecordPercent
     {
         get => _officialRecordPercent;
@@ -1045,6 +1052,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         RefreshAnalyticsOptions();
         OnPropertyChanged(nameof(BaselineInstructionText));
         Logs.RefreshLanguage();
+        // 記録時の誤差・詳細・有効件数・比較表も、保存せず即時に翻訳し直す。
+        RefreshOfficialEditor(_lastSnapshot is { } current ? FindHealthProfile(current.Device) : null);
         _telemetryItemsList.Clear();
         TelemetryItems = [];
         SettingsStatus = string.Empty;
@@ -1619,6 +1628,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         _lastOfficialModelRefresh = DateTimeOffset.Now;
         OfficialModelRows.Clear();
+        var records = profile?.OfficialHealthRecords ?? [];
+        OfficialRecordCountText = LocalizationManager.Format("OfficialRecordCountFormat",
+            records.Count, OfficialHealthEstimator.GroupRecords(records).Length);
         if (profile is null
             || OfficialHealthEstimator.Estimate(profile.OfficialHealthRecords, profile.BatteryInstalledAt, DateTimeOffset.Now)
                 is not { } estimate)
