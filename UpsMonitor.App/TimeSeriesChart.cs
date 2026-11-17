@@ -239,6 +239,9 @@ public sealed class TimeSeriesChart : FrameworkElement
 
         var brush = ParseBrush(series.Color);
         var rangePen = new Pen(WithOpacity(brush, 0.24), 1);
+        // A shared mutable pen adds an inheritance context for every range line.
+        // Freeze it before recording thousands of lines in the same drawing.
+        rangePen.Freeze();
         foreach (var point in series.Points)
         {
             var x = TimeToX(point.Timestamp, from, to, plot);

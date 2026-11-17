@@ -6,6 +6,8 @@ feature/fix の main マージごとにパッチ番号を 1 増やします。�
 
 - `fix/remove-unused-code` — XAML 未バインドの旧 DailyEnergyReports と毎更新時の不要な取得処理、旧 API・型を削除。未使用の AppPaths.DevicesFile・UserDirectory とローカルパス引数を削除し、テスト・ベンチマークを日次／月次の新 API に統一。
 
+- 履歴チャートの範囲線に使う共有 Pen を凍結し、長期間の健全性データを描画すると WPF の継承コンテキスト処理に時間がかかり画面が応答しなくなる既存の問題を修正。
+
 ## 0.1.021 — 2026-11-14
 
 - `fix/date-picker-binding-crash` — 0.1.019〜0.1.020 で起動直後に終了する不具合を修正。公式健全性の記録日時に使う DatePicker の日付上限を OneWay でバインドし、読み取り専用プロパティへの書き戻しを防止。
