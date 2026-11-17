@@ -940,40 +940,6 @@ public sealed partial class SqliteTelemetryStore
         return result;
     }
 
-    public async Task<IReadOnlyList<DailyEnergyReportItem>> QueryDailyEnergyReportsAsync(
-        string deviceId,
-        int days,
-        double electricityRatePerKwh,
-        CancellationToken cancellationToken = default)
-    {
-        if (days <= 0)
-        {
-            return [];
-        }
-
-        var today = DateOnly.FromDateTime(DateTime.Now);
-        var fromDate = today.AddDays(-(days - 1));
-        var localNow = DateTimeOffset.Now;
-        var from = new DateTimeOffset(fromDate.ToDateTime(TimeOnly.MinValue), localNow.Offset);
-        var to = new DateTimeOffset(today.ToDateTime(TimeOnly.MaxValue), localNow.Offset);
-
-        var items = await QueryEnergyReportsAsync(
-            deviceId,
-            from,
-            to,
-            EnergyReportPeriod.Day,
-            electricityRatePerKwh,
-            cancellationToken).ConfigureAwait(false);
-
-        return items.Select(i => new DailyEnergyReportItem(
-            DateOnly.FromDateTime(i.PeriodStart.LocalDateTime),
-            i.EnergyKwh,
-            i.EstimatedCost,
-            i.PeakWatts,
-            i.AvgWatts,
-            i.OutageCount)).ToList();
-    }
-
     public async Task<PowerTroubleSummary> QueryPowerTroubleSummaryAsync(
         string deviceId,
         DateTimeOffset from,

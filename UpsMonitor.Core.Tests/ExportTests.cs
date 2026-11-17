@@ -20,7 +20,7 @@ internal static class ExportTests
             Work().GetAwaiter().GetResult();
             async Task Work()
             {
-                await using var store = new SqliteTelemetryStore(new AppPaths(root, root), new HistoryConfiguration());
+                await using var store = new SqliteTelemetryStore(new AppPaths(root), new HistoryConfiguration());
                 await store.InitializeAsync();
                 await test(store, root);
             }

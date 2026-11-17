@@ -23,7 +23,7 @@ Windows 標準の HID / SetupAPI を P/Invoke して UPS を読み取り、状�
 
 ```powershell
 dotnet build UpsMonitor.sln                              # Debug ビルド
-dotnet run --project UpsMonitor.Core.Tests               # 独自ランナー。現在 92/92 件通過（2026-11-14 確認）
+dotnet run --project UpsMonitor.Core.Tests               # 独自ランナー。現在 92/92 件通過（2026-11-17 確認）
 dotnet run --project .\UpsMonitor.App\UpsMonitor.App.csproj
 ```
 
@@ -39,7 +39,6 @@ dotnet run --project .\UpsMonitor.App\UpsMonitor.App.csproj
 
 - `UpsMonitor.App/MainViewModel.cs` は約 3,300 行と巨大（監視表示・履歴・Analytics・Logs・設定・export・健全性記録を一括）。
   変更は小さく局所的に行い、無関係な整理を混ぜない。分割の検討状況は `docs/improvement_backlog.md` の #7 を参照。
-- 旧 `DailyEnergyReports`（`MainViewModel.cs:423` 付近）は XAML 未バインドのまま残っている（backlog の整理事項）。
 - HID は読み取り専用。`HidNative.cs` が使うのは `HidD_GetFeature` などの読み取り系で、Output report・`HidD_SetFeature` は使わない。追加しない。
 - アプリ自身は OS のシャットダウンや UPS への書き込みを行わない。「シャットダウン自動化」パネルと Actions タブは表示・プレビューのみ。
   ただし外部コマンド連携（`CommandRunner.cs`）はユーザー指定のコマンドを `cmd.exe /c` で実行する（既定は無効）。
@@ -78,7 +77,6 @@ git -c credential.helper= -c "credential.helper=!gh auth git-credential" push or
     - 履歴 DB: `C:\ProgramData\UpsMonitor\telemetry.db`（WAL 用に `-wal` / `-shm` も同じ場所）
     - config: `C:\ProgramData\UpsMonitor\config.json`
     - ログ: `C:\ProgramData\UpsMonitor\logs\`
-    - `AppPaths.DevicesFile`（`devices.json`）と `AppPaths.UserDirectory`（`%LOCALAPPDATA%\UpsMonitor`）は初期コミット `342d350` から定義だけあり、読み書きするコードは一度も存在しない
 - 読むとき: アプリ起動中は読み取り専用で接続する（例: SQLite URI `?mode=ro`）。PRAGMA の変更、VACUUM、checkpoint はしない。
 - 編集するとき: 編集前にバックアップを取る（DB は `-wal` / `-shm` も含める。アプリ停止中にコピーするか、SQLite backup API を使う）。アプリ起動中は書き込まず、何を変えたか報告する。
 - アプリはシングルインスタンス。ユーザーが起動中のときは2つ目を起動しない。終了や再起動はユーザーに確認してから行う。
