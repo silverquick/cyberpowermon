@@ -35,7 +35,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 #6 は 0.1.017 で実装済み。#5 は未着手のまま（「⏳ 次ラウンド」を維持）。
 
-既知の整理事項（2026-11-13 時点で再確認）: #4 実装後に残った旧 `DailyEnergyReports`（7 日固定）コレクションは、依然として削除されていない。`UpsMonitor.App/MainViewModel.cs:423` で宣言され、2164〜2176 行付近で毎リフレッシュ `QueryDailyEnergyReportsAsync` を呼んで差分更新しているが、`MainWindow.xaml` にバインドはない（grep で確認）。#7 の分割時、またはそれ以前の単独の小修正で削除できる。
+整理済み（0.1.022、`fix/remove-unused-code`）: XAML 未バインドの旧 `DailyEnergyReports`（7 日固定）と毎リフレッシュの取得処理、`QueryDailyEnergyReportsAsync` ラッパー・`DailyEnergyReportItem` を削除。既存の新 API テストで精度・料金・停電集計が担保されているためラッパー専用検証を削除し、7 日分の件数確認とベンチマークは `QueryEnergyReportsAsync` に移行した。
 
 ### 健全性推定（公式値推移）の運用上の注意
 
@@ -80,7 +80,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 #### コード上の改善余地（未着手）
 
 - 同じ値・近い時刻の記録に対して、重複の抑制も重み付けもない。偏りの大きさは、合成データ（等間隔、変化時のみ、密集）で `Estimate` とバックテストを比べる単体テストで確かめられる。
-- `AppPaths.DevicesFile` と `AppPaths.UserDirectory` は未使用。削除候補。
+- ✅ 実装済み（0.1.022、`fix/remove-unused-code`）: 未使用の `AppPaths.DevicesFile`・`AppPaths.UserDirectory` とローカルパス引数を削除。テストの合成データ用パスは共通ルート引数だけで指定する。
 - 推定結果はあくまで公式値の再現を目的とした推定で、UPS が HID で直接公開する値ではない（README 参照）。
 
 ## 今回スコープ推奨

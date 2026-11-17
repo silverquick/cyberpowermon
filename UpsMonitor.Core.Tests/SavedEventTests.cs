@@ -17,7 +17,7 @@ internal static class SavedEventTests
         var root = Path.Combine(Path.GetTempPath(), "UpsMonitor.Tests", Guid.NewGuid().ToString("N"));
         try
         {
-            var paths = new AppPaths(root, root);
+            var paths = new AppPaths(root);
             await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
             await store.InitializeAsync();
             await test(store, paths);

@@ -719,7 +719,7 @@ static async Task OfficialHealthRecordsConfigurationRoundTripAsync()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         var store = new JsonConfigurationStore(paths);
         var configuration = new AppConfiguration();
         var profile = new BatteryHealthProfile
@@ -914,7 +914,7 @@ static async Task OfficialContextConfigurationCompatibilityAsync()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         var store = new JsonConfigurationStore(paths);
         Directory.CreateDirectory(paths.SharedDirectory);
 
@@ -972,7 +972,7 @@ static async Task OfficialContextQueryAndBackfillAsync()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
         await store.InitializeAsync();
         var at = new DateTimeOffset(2026, 11, 1, 6, 38, 0, TimeSpan.Zero);
@@ -1108,7 +1108,7 @@ static async Task OfficialContextCaptureFailureRecoveryAsync(bool withLive)
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         await using var history = new SqliteTelemetryStore(paths, new HistoryConfiguration());
         await history.InitializeAsync();
         var at = OfficialT0();
@@ -1224,7 +1224,7 @@ static async Task SqliteHistoryRoundTripAsync()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
         await store.InitializeAsync();
         var device = new UpsDeviceInfo(
@@ -1340,7 +1340,7 @@ static async Task LegacySchemaV1IndexMigrationAsync()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         Directory.CreateDirectory(Path.GetDirectoryName(paths.TelemetryDatabaseFile)!);
 
         // Recreate the pre-merge "v1" schema: full DDL minus the two new time indexes,
@@ -1565,7 +1565,7 @@ static void TelemetryExportRoundTrip()
     SqliteTelemetryStore? store = null;
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         var dbPath = paths.TelemetryDatabaseFile;
         var config = new HistoryConfiguration { RawRetentionDays = 1, RawUsageCheckpointSeconds = 30 };
         store = new SqliteTelemetryStore(paths, config);
@@ -1663,7 +1663,7 @@ static void WeeklyPatternAggregation()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
         store.InitializeAsync().GetAwaiter().GetResult();
 
@@ -1736,7 +1736,7 @@ static void WeeklyPatternPowerFactorAggregation()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
         store.InitializeAsync().GetAwaiter().GetResult();
 
@@ -1880,7 +1880,7 @@ static void DailyEnergyAndTroubleSummaryQueries()
     SqliteTelemetryStore? store = null;
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         var config = new HistoryConfiguration { RawRetentionDays = 7, RawUsageCheckpointSeconds = 30 };
         store = new SqliteTelemetryStore(paths, config);
         store.InitializeAsync().GetAwaiter().GetResult();
@@ -1900,7 +1900,10 @@ static void DailyEnergyAndTroubleSummaryQueries()
         store.FlushAsync().GetAwaiter().GetResult();
 
         // Query daily reports
-        var reports = store.QueryDailyEnergyReportsAsync(devId, 7, 31.0).GetAwaiter().GetResult();
+        var today = DateTime.Today;
+        var from = new DateTimeOffset(today.AddDays(-6));
+        var to = new DateTimeOffset(today.AddDays(1)).AddTicks(-1);
+        var reports = store.QueryEnergyReportsAsync(devId, from, to, EnergyReportPeriod.Day, 31.0).GetAwaiter().GetResult();
         Equal(7, reports.Count);
 
         // Query power trouble summary
@@ -2120,7 +2123,7 @@ static async Task PerformanceBenchmarkAsync()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         var store = new SqliteTelemetryStore(paths, new HistoryConfiguration { RawRetentionDays = 30 });
         await store.InitializeAsync();
 
@@ -2301,8 +2304,10 @@ static async Task PerformanceBenchmarkAsync()
 
         Console.WriteLine("\n=== Benchmarking Current Methods ===");
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var dailyReports = await store.QueryDailyEnergyReportsAsync(devId, 30, 31.0);
-        Console.WriteLine($"[BENCH] QueryDailyEnergyReportsAsync(30 days): {sw.ElapsedMilliseconds} ms, count={dailyReports.Count}");
+        var reportFrom = new DateTimeOffset(start.LocalDateTime.Date);
+        var reportTo = new DateTimeOffset(start.LocalDateTime.Date.AddDays(30)).AddTicks(-1);
+        var dailyReports = await store.QueryEnergyReportsAsync(devId, reportFrom, reportTo, EnergyReportPeriod.Day, 31.0);
+        Console.WriteLine($"[BENCH] QueryEnergyReportsAsync(30 days, Day): {sw.ElapsedMilliseconds} ms, count={dailyReports.Count}");
 
         sw.Restart();
         var trouble = await store.QueryPowerTroubleSummaryAsync(devId, start, start.AddDays(30));
@@ -2691,7 +2696,7 @@ static async Task AlertEventsSqliteRoundTripAsync()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
         await store.InitializeAsync();
 
@@ -2733,7 +2738,7 @@ static async Task ConcurrentReaderDoesNotLockTelemetryStoreWriterAsync()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
         var errors = new List<Exception>();
         store.StorageError += errors.Add;
@@ -2796,7 +2801,7 @@ static async Task AccurateEnergyReportsAndMonthlyAggregationAsync()
     Directory.CreateDirectory(testRoot);
     try
     {
-        var paths = new AppPaths(testRoot, testRoot);
+        var paths = new AppPaths(testRoot);
         // raw retention は 7 日に設定（30日超のデータは samples から消える想定）
         var config = new HistoryConfiguration { RawRetentionDays = 7, RawUsageCheckpointSeconds = 30 };
         var store = new SqliteTelemetryStore(paths, config);
@@ -3033,13 +3038,6 @@ static async Task AccurateEnergyReportsAndMonthlyAggregationAsync()
         var reportsDay35 = await store.QueryEnergyReportsAsync(devId, day35Start, day35Start.AddDays(1).AddTicks(-1), EnergyReportPeriod.Day, 31.0);
         Equal(1, reportsDay35.Count);
         Near(0.2, reportsDay35[0].EnergyKwh, 0.0001);
-
-        // --- 旧 API Wrapper の検証 ---
-        var oldReports = await store.QueryDailyEnergyReportsAsync(devId, 4, 31.0);
-        Equal(4, oldReports.Count);
-        // 今日 (0.2kWh)
-        Near(0.2, oldReports[^1].EnergyKwh, 0.0001);
-        Equal(1, oldReports[^1].OutageCount);
 
         await store.DisposeAsync();
     }

@@ -413,7 +413,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public string SimulatedRuntimeText { get => _simulatedRuntimeText; private set => SetField(ref _simulatedRuntimeText, value); }
     public IReadOnlyList<RuntimeEstimateTableItem> StandardLoadEstimates { get => _standardLoadEstimates; private set => SetField(ref _standardLoadEstimates, value); }
-    public ObservableCollection<DailyEnergyReportItem> DailyEnergyReports { get; } = [];
     public ObservableCollection<EnergyReportItem> EnergyReports { get; } = [];
 
     public EnergyReportPeriod EnergyReportGranularity
@@ -2075,22 +2074,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                 [Series(TelemetryMetric.TemperatureCelsius, "HistorySeriesTemperature", "#F43F5E")]);
             EnergyHistory = EnergyChart(history, markers);
             UpdatePeriodSummaries(history.Summary);
-
-            // 日別集計レポートの取得
-            var dailyReports = await _historyStore.QueryDailyEnergyReportsAsync(
-                UpsDeviceIdentity.Create(device),
-                7,
-                _configuration.Monitoring.ElectricityRatePerKwh,
-                refreshCancellation.Token);
-
-            if (!DailyEnergyReports.SequenceEqual(dailyReports))
-            {
-                DailyEnergyReports.Clear();
-                foreach (var item in dailyReports)
-                {
-                    DailyEnergyReports.Add(item);
-                }
-            }
 
             // 電力量レポート（日次/月次）の取得
             DateTimeOffset energyFrom;

@@ -110,14 +110,6 @@ public sealed record EnergyReportItem(
     double AvgWatts,
     int OutageCount);
 
-public sealed record DailyEnergyReportItem(
-    DateOnly Date,
-    double EnergyKwh,
-    double EstimatedCost,
-    double PeakWatts,
-    double AvgWatts,
-    int OutageCount);
-
 public sealed record PowerTroubleSummary
 {
     public int TotalOutages { get; init; }
