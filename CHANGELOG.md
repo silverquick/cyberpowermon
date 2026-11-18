@@ -4,7 +4,9 @@ feature/fix の main マージごとにパッチ番号を 1 増やします。�
 
 ## 0.1.027 — 2026-11-18
 
-- `fix/health-chart-downsample` — 履歴の健全性グラフ（`SqliteTelemetryQueries.QueryHealthAsync`・`MainViewModel.HealthChart`）で、観測件数が `maximumPoints`（既定 720）を超える場合に SQL 側で等時間幅のバケットへ間引くよう修正。バケットごとの最小・平均・最大を集約して範囲線と折れ線を描画し、上限以下の件数では従来どおり各観測点をそのまま表示する。合成 SQLite による上限・境界・空期間・代表値のテストを追加。
+- `fix/health-chart-downsample` — 履歴の健全性グラフ（`SqliteTelemetryQueries.QueryHealthAsync`・`MainViewModel.HealthChart`）で、観測件数が `maximumPoints`（既定 720）を超える場合に等時間幅のバケットへ間引くよう修正。バケットごとの最小・平均・最大を集約して範囲線と折れ線を描画し、上限以下の件数では従来どおり各観測点をそのまま表示する。合成 SQLite による上限・境界・空期間・代表値のテストを追加。
+
+- レビュー修正: `LIMIT N+1` で上限判定を一本化し、間引き時はバケットを紀元に揃え（`NiceBucketSize` 併用）、必要な3列だけを索引順に流し読みして C# で集約することで高速化（合成 `BatteryHealth` 行の生成を廃止し、間引き時は `BatteryHealth` を空にして `BatteryHealthSeries` で描画）。
 
 ## 0.1.026 — 2026-11-17
 

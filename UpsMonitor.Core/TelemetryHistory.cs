@@ -73,6 +73,10 @@ public sealed record TelemetryPeriodSummary
     public double? AvgPowerFactor { get; init; }
 }
 
+/// <summary>
+/// 健全性グラフ（公式値／相対性能）の描画用データ系列。
+/// 件数が上限以下のときは生の観測点、上限を超えるときはバケットごとの最小・平均・最大を表す。
+/// </summary>
 public sealed record BatteryHealthHistory(
     IReadOnlyList<TelemetryHistoryPoint> HealthPoints,
     IReadOnlyList<TelemetryHistoryPoint> RelativePerformancePoints)
@@ -87,8 +91,19 @@ public sealed record TelemetryHistoryResult
     public required IReadOnlyDictionary<TelemetryMetric, TelemetryMetricHistory> Metrics { get; init; }
     public required IReadOnlyList<UpsEvent> Events { get; init; }
     public required IReadOnlyList<UpsStateChange> StateChanges { get; init; }
+
+    /// <summary>
+    /// 期間内の健全性観測一覧。観測件数が <c>maximumPoints</c> 以下のときだけ生の観測行を返し、
+    /// 上限を超えて間引いたときは空リストになる（グラフの描画には <see cref="BatteryHealthSeries"/> を使う）。
+    /// </summary>
     public required IReadOnlyList<BatteryHealthObservation> BatteryHealth { get; init; }
+
+    /// <summary>
+    /// 健全性グラフ描画用のデータ系列（<see cref="BatteryHealthHistory"/>）。
+    /// 上限以下のときは生の観測点、上限を超えるときは紀元揃えのバケットで間引いた点が入る。
+    /// </summary>
     public BatteryHealthHistory? BatteryHealthSeries { get; init; }
+
     public required long SourceSampleCount { get; init; }
     public TelemetryPeriodSummary? Summary { get; init; }
 }
