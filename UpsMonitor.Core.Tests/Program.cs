@@ -107,6 +107,10 @@ var tests = new (string Name, Action Run)[]
     ("Official record context query and idempotent backfill", OfficialContextQueryAndBackfill),
     ("Official record context capture failure recovers after reload", OfficialContextCaptureFailureRecovery),
     ("Official record live context survives history recovery", OfficialLiveContextCaptureFailureRecovery),
+    ("Health history downsampling caps points above limit", HealthHistoryDownsamplingCapsPointsAboveLimit),
+    ("Health history preserves exact points at or below limit", HealthHistoryPreservesExactPointsAtOrBelowLimit),
+    ("Health history inclusive range boundaries and empty range", HealthHistoryRangeBoundariesAndEmptyRange),
+    ("Health history bucket representative values min avg max", HealthHistoryBucketRepresentativeValues),
 };
 
 static void VersionDisplayFormatting()
@@ -3112,6 +3116,386 @@ static async Task AccurateEnergyReportsAndMonthlyAggregationAsync()
         Near(0.2, reportsDay35[0].EnergyKwh, 0.0001);
 
         await store.DisposeAsync();
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            try { Directory.Delete(testRoot, recursive: true); } catch { }
+        }
+    }
+}
+
+static void HealthHistoryDownsamplingCapsPointsAboveLimit() =>
+    HealthHistoryDownsamplingCapsPointsAboveLimitAsync().GetAwaiter().GetResult();
+
+static async Task HealthHistoryDownsamplingCapsPointsAboveLimitAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsHealthDownsample_{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot);
+        await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        await store.InitializeAsync();
+
+        const string devId = "0764:0601:TEST_HEALTH_CAP";
+        var start = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
+        var startMs = start.ToUnixTimeMilliseconds();
+
+        await using (var conn = new SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await conn.OpenAsync();
+            await using var tx = conn.BeginTransaction();
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO battery_health_observations (
+                    device_id, timestamp_utc_ms, health_percent, relative_performance_percent,
+                    status, method, confidence, anchor_source, vendor_category, replacement_status)
+                VALUES ($d, $t, $h, $r, 1, 7, 2, 'BHI', 4, 1);
+                """;
+            var pDev = cmd.Parameters.Add("$d", SqliteType.Text);
+            var pTime = cmd.Parameters.Add("$t", SqliteType.Integer);
+            var pHealth = cmd.Parameters.Add("$h", SqliteType.Real);
+            var pRel = cmd.Parameters.Add("$r", SqliteType.Real);
+            pDev.Value = devId;
+
+            for (var i = 0; i < 1500; i++)
+            {
+                pTime.Value = startMs + (i * 1000L);
+                pHealth.Value = 60.0 - (i * 0.01);
+                pRel.Value = 95.0 - ((i % 10) * 0.5);
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            await tx.CommitAsync();
+        }
+
+        var result60 = await store.QueryHistoryAsync(
+            devId,
+            start,
+            start.AddSeconds(1499),
+            [],
+            maximumPoints: 60);
+
+        Equal(true, result60.BatteryHealth.Count is > 0 and <= 60);
+        Equal(true, result60.BatteryHealthSeries is not null);
+        Equal(true, result60.BatteryHealthSeries!.HealthPoints.Count is > 0 and <= 60);
+        Equal(true, result60.BatteryHealthSeries.RelativePerformancePoints.Count is > 0 and <= 60);
+        Equal(result60.BatteryHealth.Count, result60.BatteryHealthSeries.HealthPoints.Count);
+
+        // Default maximumPoints (720) also caps 1500 points to <= 720.
+        var resultDefault = await store.QueryHistoryAsync(
+            devId,
+            start,
+            start.AddSeconds(1499),
+            []);
+        Equal(true, resultDefault.BatteryHealth.Count is > 0 and <= 720);
+        Equal(true, resultDefault.BatteryHealthSeries!.HealthPoints.Count is > 0 and <= 720);
+        Equal(true, resultDefault.BatteryHealthSeries.RelativePerformancePoints.Count is > 0 and <= 720);
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            try { Directory.Delete(testRoot, recursive: true); } catch { }
+        }
+    }
+}
+
+static void HealthHistoryPreservesExactPointsAtOrBelowLimit() =>
+    HealthHistoryPreservesExactPointsAtOrBelowLimitAsync().GetAwaiter().GetResult();
+
+static async Task HealthHistoryPreservesExactPointsAtOrBelowLimitAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsHealthExact_{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot);
+        await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        await store.InitializeAsync();
+
+        const string devId = "0764:0601:TEST_HEALTH_EXACT";
+        var start = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
+        var startMs = start.ToUnixTimeMilliseconds();
+
+        // Insert 60 observations with timestamps inside the same second (same bucket if bucketed)
+        // to verify no bucketing occurs when count <= maximumPoints.
+        await using (var conn = new SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await conn.OpenAsync();
+            await using var tx = conn.BeginTransaction();
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO battery_health_observations (
+                    device_id, timestamp_utc_ms, health_percent, relative_performance_percent,
+                    status, method, confidence, anchor_source, vendor_category, replacement_status)
+                VALUES ($d, $t, $h, $r, 1, 7, 2, 'BHI', 4, 1);
+                """;
+            var pDev = cmd.Parameters.Add("$d", SqliteType.Text);
+            var pTime = cmd.Parameters.Add("$t", SqliteType.Integer);
+            var pHealth = cmd.Parameters.Add("$h", SqliteType.Real);
+            var pRel = cmd.Parameters.Add("$r", SqliteType.Real);
+            pDev.Value = devId;
+
+            for (var i = 0; i < 60; i++)
+            {
+                pTime.Value = startMs + (i * 10L);
+                pHealth.Value = 50.0 + (i * 0.5);
+                pRel.Value = i % 2 == 0 ? 90.0 + i : DBNull.Value;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            await tx.CommitAsync();
+        }
+
+        var result = await store.QueryHistoryAsync(
+            devId,
+            start,
+            start.AddHours(1),
+            [],
+            maximumPoints: 60);
+
+        Equal(60, result.BatteryHealth.Count);
+        Equal(60, result.BatteryHealthSeries!.HealthPoints.Count);
+        Equal(30, result.BatteryHealthSeries.RelativePerformancePoints.Count);
+
+        for (var i = 0; i < 60; i++)
+        {
+            var expectedTime = start.AddMilliseconds(i * 10L);
+            var expectedHealth = 50.0 + (i * 0.5);
+            Equal(expectedTime, result.BatteryHealth[i].Timestamp);
+            Near(expectedHealth, result.BatteryHealth[i].HealthPercent);
+
+            var pt = result.BatteryHealthSeries.HealthPoints[i];
+            Equal(expectedTime, pt.Timestamp);
+            Near(expectedHealth, pt.Minimum);
+            Near(expectedHealth, pt.Average);
+            Near(expectedHealth, pt.Maximum);
+            Near(expectedHealth, pt.Last);
+        }
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            try { Directory.Delete(testRoot, recursive: true); } catch { }
+        }
+    }
+}
+
+static void HealthHistoryRangeBoundariesAndEmptyRange() =>
+    HealthHistoryRangeBoundariesAndEmptyRangeAsync().GetAwaiter().GetResult();
+
+static async Task HealthHistoryRangeBoundariesAndEmptyRangeAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsHealthBounds_{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot);
+        await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        await store.InitializeAsync();
+
+        const string devId = "0764:0601:TEST_HEALTH_BOUNDS";
+        var from = new DateTimeOffset(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
+        var to = from.AddMinutes(10);
+        var fromMs = from.ToUnixTimeMilliseconds();
+        var toMs = to.ToUnixTimeMilliseconds();
+
+        await using (var conn = new SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await conn.OpenAsync();
+            await using var tx = conn.BeginTransaction();
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO battery_health_observations (
+                    device_id, timestamp_utc_ms, health_percent, relative_performance_percent,
+                    status, method, confidence, anchor_source, vendor_category, replacement_status)
+                VALUES ($d, $t, $h, $r, 1, 7, 2, 'BHI', 4, 1);
+                """;
+            var pDev = cmd.Parameters.Add("$d", SqliteType.Text);
+            var pTime = cmd.Parameters.Add("$t", SqliteType.Integer);
+            var pHealth = cmd.Parameters.Add("$h", SqliteType.Real);
+            var pRel = cmd.Parameters.Add("$r", SqliteType.Real);
+            pDev.Value = devId;
+
+            async Task Insert(long ms, double h, double r)
+            {
+                pTime.Value = ms;
+                pHealth.Value = h;
+                pRel.Value = r;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // Outside range (before from and after to)
+            await Insert(fromMs - 1, 10.0, 10.0);
+            await Insert(toMs + 1, 99.0, 99.0);
+
+            // Exact boundaries (inclusive)
+            await Insert(fromMs, 80.0, 90.0);
+            await Insert(toMs, 70.0, 85.0);
+
+            await tx.CommitAsync();
+        }
+
+        // 1. Exact path boundary check
+        var exact = await store.QueryHistoryAsync(devId, from, to, [], maximumPoints: 60);
+        Equal(2, exact.BatteryHealth.Count);
+        Equal(from, exact.BatteryHealth[0].Timestamp);
+        Near(80.0, exact.BatteryHealth[0].HealthPercent);
+        Equal(to, exact.BatteryHealth[1].Timestamp);
+        Near(70.0, exact.BatteryHealth[1].HealthPercent);
+
+        // 2. Empty range check
+        var empty = await store.QueryHistoryAsync(devId, to.AddMinutes(5), to.AddMinutes(10), [], maximumPoints: 60);
+        Equal(0, empty.BatteryHealth.Count);
+        Equal(0, empty.BatteryHealthSeries!.HealthPoints.Count);
+        Equal(0, empty.BatteryHealthSeries.RelativePerformancePoints.Count);
+
+        // 3. Downsampled path boundary check (> 60 points inside [from, to])
+        await using (var conn = new SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await conn.OpenAsync();
+            await using var tx = conn.BeginTransaction();
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO battery_health_observations (
+                    device_id, timestamp_utc_ms, health_percent, relative_performance_percent,
+                    status, method, confidence, anchor_source, vendor_category, replacement_status)
+                VALUES ($d, $t, $h, $r, 1, 7, 2, 'BHI', 4, 1);
+                """;
+            var pDev = cmd.Parameters.Add("$d", SqliteType.Text);
+            var pTime = cmd.Parameters.Add("$t", SqliteType.Integer);
+            var pHealth = cmd.Parameters.Add("$h", SqliteType.Real);
+            var pRel = cmd.Parameters.Add("$r", SqliteType.Real);
+            pDev.Value = devId;
+
+            for (var i = 1; i <= 100; i++)
+            {
+                pTime.Value = fromMs + (i * 5000L);
+                pHealth.Value = 75.0;
+                pRel.Value = 88.0;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            await tx.CommitAsync();
+        }
+
+        var downsampled = await store.QueryHistoryAsync(devId, from, to, [], maximumPoints: 60);
+        Equal(true, downsampled.BatteryHealth.Count is > 0 and <= 60);
+        Equal(from, downsampled.BatteryHealth[0].Timestamp);
+        Equal(true, downsampled.BatteryHealth[^1].Timestamp <= to);
+        // Values outside [from, to] (10.0 and 99.0) must not leak into any bucket
+        Equal(false, downsampled.BatteryHealthSeries!.HealthPoints.Any(p => p.Minimum <= 10.0 || p.Maximum >= 99.0));
+        Near(80.0, downsampled.BatteryHealthSeries.HealthPoints[0].Maximum);
+        Near(70.0, downsampled.BatteryHealthSeries.HealthPoints[^1].Minimum);
+    }
+    finally
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testRoot))
+        {
+            try { Directory.Delete(testRoot, recursive: true); } catch { }
+        }
+    }
+}
+
+static void HealthHistoryBucketRepresentativeValues() =>
+    HealthHistoryBucketRepresentativeValuesAsync().GetAwaiter().GetResult();
+
+static async Task HealthHistoryBucketRepresentativeValuesAsync()
+{
+    var testRoot = Path.Combine(Path.GetTempPath(), $"UpsHealthRep_{Guid.NewGuid():N}");
+    Directory.CreateDirectory(testRoot);
+    try
+    {
+        var paths = new AppPaths(testRoot);
+        await using var store = new SqliteTelemetryStore(paths, new HistoryConfiguration());
+        await store.InitializeAsync();
+
+        const string devId = "0764:0601:TEST_HEALTH_REP";
+        var from = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
+        // duration = 59_999 ms, maximumPoints = 60 -> bucketMilliseconds = (59999 + 60) / 60 = 1000 ms
+        var to = from.AddMilliseconds(59_999);
+        var fromMs = from.ToUnixTimeMilliseconds();
+
+        await using (var conn = new SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await conn.OpenAsync();
+            await using var tx = conn.BeginTransaction();
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO battery_health_observations (
+                    device_id, timestamp_utc_ms, health_percent, relative_performance_percent,
+                    status, method, confidence, anchor_source, vendor_category, replacement_status)
+                VALUES ($d, $t, $h, $r, 1, 7, 2, 'BHI', 4, 1);
+                """;
+            var pDev = cmd.Parameters.Add("$d", SqliteType.Text);
+            var pTime = cmd.Parameters.Add("$t", SqliteType.Integer);
+            var pHealth = cmd.Parameters.Add("$h", SqliteType.Real);
+            var pRel = cmd.Parameters.Add("$r", SqliteType.Real);
+            pDev.Value = devId;
+
+            // Bucket 0 ([fromMs, fromMs + 999]): 3 points -> health: 50, 56, 62 (min=50, avg=56, max=62), relative: 80, null, 100 (min=80, avg=90, max=100)
+            pTime.Value = fromMs + 100; pHealth.Value = 50.0; pRel.Value = 80.0; await cmd.ExecuteNonQueryAsync();
+            pTime.Value = fromMs + 400; pHealth.Value = 56.0; pRel.Value = DBNull.Value; await cmd.ExecuteNonQueryAsync();
+            pTime.Value = fromMs + 800; pHealth.Value = 62.0; pRel.Value = 100.0; await cmd.ExecuteNonQueryAsync();
+
+            // Bucket 1 ([fromMs + 1000, fromMs + 1999]): health null, relative only (70, 74 -> min=70, avg=72, max=74)
+            pTime.Value = fromMs + 1100; pHealth.Value = DBNull.Value; pRel.Value = 70.0; await cmd.ExecuteNonQueryAsync();
+            pTime.Value = fromMs + 1500; pHealth.Value = DBNull.Value; pRel.Value = 74.0; await cmd.ExecuteNonQueryAsync();
+
+            // Add 56 more points in buckets 2..57 so total rows = 61 (> maximumPoints = 60)
+            for (var b = 2; b < 58; b++)
+            {
+                pTime.Value = fromMs + (b * 1000L) + 200;
+                pHealth.Value = 60.0;
+                pRel.Value = 90.0;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            await tx.CommitAsync();
+        }
+
+        var result = await store.QueryHistoryAsync(devId, from, to, [], maximumPoints: 60);
+        Equal(58, result.BatteryHealth.Count);
+        // Bucket 1 had no non-null health_percent, so HealthPoints has 57 points while RelativePerformancePoints has 58.
+        Equal(57, result.BatteryHealthSeries!.HealthPoints.Count);
+        Equal(58, result.BatteryHealthSeries.RelativePerformancePoints.Count);
+
+        var h0 = result.BatteryHealthSeries.HealthPoints[0];
+        Equal(from, h0.Timestamp);
+        Near(50.0, h0.Minimum);
+        Near(56.0, h0.Average);
+        Near(62.0, h0.Maximum);
+        Near(56.0, h0.Last);
+        Near(56.0, result.BatteryHealth[0].HealthPercent);
+
+        var r0 = result.BatteryHealthSeries.RelativePerformancePoints[0];
+        Equal(from, r0.Timestamp);
+        Near(80.0, r0.Minimum);
+        Near(90.0, r0.Average);
+        Near(100.0, r0.Maximum);
+        Near(90.0, r0.Last);
+        Near(90.0, result.BatteryHealth[0].RelativePerformancePercent);
+
+        Equal(null, result.BatteryHealth[1].HealthPercent);
+        Near(72.0, result.BatteryHealth[1].RelativePerformancePercent);
+        var r1 = result.BatteryHealthSeries.RelativePerformancePoints[1];
+        Equal(from.AddSeconds(1), r1.Timestamp);
+        Near(70.0, r1.Minimum);
+        Near(72.0, r1.Average);
+        Near(74.0, r1.Maximum);
     }
     finally
     {

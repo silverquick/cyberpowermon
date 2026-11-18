@@ -2191,14 +2191,25 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         TelemetryHistoryResult history,
         IReadOnlyList<HistoryEventMarker> markers)
     {
-        var healthPoints = history.BatteryHealth
-            .Where(item => item.HealthPercent.HasValue)
-            .Select(item => Point(item.Timestamp, item.HealthPercent!.Value))
-            .ToArray();
-        var relativePoints = history.BatteryHealth
-            .Where(item => item.RelativePerformancePercent.HasValue)
-            .Select(item => Point(item.Timestamp, item.RelativePerformancePercent!.Value))
-            .ToArray();
+        IReadOnlyList<TelemetryHistoryPoint> healthPoints;
+        IReadOnlyList<TelemetryHistoryPoint> relativePoints;
+        if (history.BatteryHealthSeries is { } series)
+        {
+            healthPoints = series.HealthPoints;
+            relativePoints = series.RelativePerformancePoints;
+        }
+        else
+        {
+            healthPoints = history.BatteryHealth
+                .Where(item => item.HealthPercent.HasValue)
+                .Select(item => Point(item.Timestamp, item.HealthPercent!.Value))
+                .ToArray();
+            relativePoints = history.BatteryHealth
+                .Where(item => item.RelativePerformancePercent.HasValue)
+                .Select(item => Point(item.Timestamp, item.RelativePerformancePercent!.Value))
+                .ToArray();
+        }
+
         return new HistoryChartData
         {
             From = history.From,

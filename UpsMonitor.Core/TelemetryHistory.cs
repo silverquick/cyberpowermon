@@ -73,6 +73,13 @@ public sealed record TelemetryPeriodSummary
     public double? AvgPowerFactor { get; init; }
 }
 
+public sealed record BatteryHealthHistory(
+    IReadOnlyList<TelemetryHistoryPoint> HealthPoints,
+    IReadOnlyList<TelemetryHistoryPoint> RelativePerformancePoints)
+{
+    public static BatteryHealthHistory Empty { get; } = new([], []);
+}
+
 public sealed record TelemetryHistoryResult
 {
     public required DateTimeOffset From { get; init; }
@@ -81,6 +88,7 @@ public sealed record TelemetryHistoryResult
     public required IReadOnlyList<UpsEvent> Events { get; init; }
     public required IReadOnlyList<UpsStateChange> StateChanges { get; init; }
     public required IReadOnlyList<BatteryHealthObservation> BatteryHealth { get; init; }
+    public BatteryHealthHistory? BatteryHealthSeries { get; init; }
     public required long SourceSampleCount { get; init; }
     public TelemetryPeriodSummary? Summary { get; init; }
 }
