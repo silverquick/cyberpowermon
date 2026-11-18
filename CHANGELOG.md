@@ -2,6 +2,12 @@
 
 feature/fix の main マージごとにパッチ番号を 1 増やします。表示は `0.1.XXX`（3 桁ゼロ埋め）です。docs のみの変更では番号を増やしません。0.1.017 以降はコミット hash の代わりにブランチ名を記載し、該当コミットは承認後に付ける `v0.1.XXX` タグ、または `git log --merges --grep` で辿ります。新しいバージョンはこの一覧の先頭に追加します。
 
+## 0.1.027 — 2026-11-18
+
+- `fix/health-chart-downsample` — 履歴の健全性グラフ（`SqliteTelemetryQueries.QueryHealthAsync`・`MainViewModel.HealthChart`）で、観測件数が `maximumPoints`（既定 720）を超える場合に等時間幅のバケットへ間引くよう修正。バケットごとの最小・平均・最大を集約して範囲線と折れ線を描画し、上限以下の件数では従来どおり各観測点をそのまま表示する。合成 SQLite による上限・境界・空期間・代表値のテストを追加。
+
+- レビュー修正: `LIMIT N+1` で上限判定を一本化し、間引き時はバケットを紀元に揃え（`NiceBucketSize` 併用）、必要な3列だけを索引順に流し読みして C# で集約することで高速化（合成 `BatteryHealth` 行の生成を廃止し、間引き時は `BatteryHealth` を空にして `BatteryHealthSeries` で描画）。
+
 ## 0.1.026 — 2026-11-17
 
 - `fix/remaining-ui-i18n` — Dashboard の電力残容量・電圧マージン・セル数、History の電気代要約と表の概算費用、Windows 通知テスト文を日英リソースへ移し、言語切替で即時反映。英語の通貨表記は JPY に統一し、実リソースによる書式・境界値・通知重大度のテストを追加。

@@ -111,11 +111,12 @@ public sealed partial class SqliteTelemetryStore
             fromMilliseconds,
             toMilliseconds,
             cancellationToken).ConfigureAwait(false);
-        var health = await QueryHealthAsync(
+        var (health, healthSeries) = await QueryHealthAsync(
             connection,
             deviceId,
             fromMilliseconds,
             toMilliseconds,
+            maximumPoints,
             cancellationToken).ConfigureAwait(false);
         var sourceSampleCount = await QuerySourceSampleCountAsync(
             connection,
@@ -135,6 +136,7 @@ public sealed partial class SqliteTelemetryStore
             Events = events,
             StateChanges = stateChanges,
             BatteryHealth = health,
+            BatteryHealthSeries = healthSeries,
             SourceSampleCount = sourceSampleCount,
             Summary = summary,
         };
@@ -398,44 +400,170 @@ public sealed partial class SqliteTelemetryStore
         return changes;
     }
 
-    private static async Task<IReadOnlyList<BatteryHealthObservation>> QueryHealthAsync(
+    private static async Task<(IReadOnlyList<BatteryHealthObservation> Observations, BatteryHealthHistory Series)> QueryHealthAsync(
         SqliteConnection connection,
         string deviceId,
         long fromMilliseconds,
         long toMilliseconds,
+        int maximumPoints,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT timestamp_utc_ms, health_percent, relative_performance_percent,
-                   status, method, confidence, anchor_source, vendor_category, replacement_status
-            FROM battery_health_observations
-            WHERE device_id = $device
-                AND timestamp_utc_ms >= $from
-                AND timestamp_utc_ms <= $to
-            ORDER BY timestamp_utc_ms;
-            """;
-        AddRangeParameters(command, deviceId, fromMilliseconds, toMilliseconds);
-        var observations = new List<BatteryHealthObservation>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        var observations = new List<BatteryHealthObservation>(Math.Min(maximumPoints, 128));
+        var healthPoints = new List<TelemetryHistoryPoint>(Math.Min(maximumPoints, 128));
+        var relativePoints = new List<TelemetryHistoryPoint>(Math.Min(maximumPoints, 128));
+        var exceededLimit = false;
+
+        await using (var command = connection.CreateCommand())
         {
-            observations.Add(new()
+            command.CommandText = """
+                SELECT timestamp_utc_ms, health_percent, relative_performance_percent,
+                       status, method, confidence, anchor_source, vendor_category, replacement_status
+                FROM battery_health_observations
+                WHERE device_id = $device
+                    AND timestamp_utc_ms >= $from
+                    AND timestamp_utc_ms <= $to
+                ORDER BY timestamp_utc_ms
+                LIMIT $limit;
+                """;
+            AddRangeParameters(command, deviceId, fromMilliseconds, toMilliseconds);
+            command.Parameters.AddWithValue("$limit", maximumPoints + 1);
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                DeviceId = deviceId,
-                Timestamp = FromMilliseconds(reader.GetInt64(0)),
-                HealthPercent = reader.IsDBNull(1) ? null : reader.GetDouble(1),
-                RelativePerformancePercent = reader.IsDBNull(2) ? null : reader.GetDouble(2),
-                Status = (BatteryHealthStatus)reader.GetInt32(3),
-                Method = (BatteryHealthMethod)reader.GetInt32(4),
-                Confidence = (BatteryHealthConfidence)reader.GetInt32(5),
-                AnchorSource = reader.IsDBNull(6) ? null : reader.GetString(6),
-                VendorCategory = (VendorBatteryHealthCategory)reader.GetInt32(7),
-                ReplacementStatus = (BatteryReplacementStatus)reader.GetInt32(8),
-            });
+                if (observations.Count == maximumPoints)
+                {
+                    exceededLimit = true;
+                    break;
+                }
+
+                var timestamp = FromMilliseconds(reader.GetInt64(0));
+                double? health = reader.IsDBNull(1) ? null : reader.GetDouble(1);
+                double? relative = reader.IsDBNull(2) ? null : reader.GetDouble(2);
+                observations.Add(new()
+                {
+                    DeviceId = deviceId,
+                    Timestamp = timestamp,
+                    HealthPercent = health,
+                    RelativePerformancePercent = relative,
+                    Status = (BatteryHealthStatus)reader.GetInt32(3),
+                    Method = (BatteryHealthMethod)reader.GetInt32(4),
+                    Confidence = (BatteryHealthConfidence)reader.GetInt32(5),
+                    AnchorSource = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    VendorCategory = (VendorBatteryHealthCategory)reader.GetInt32(7),
+                    ReplacementStatus = (BatteryReplacementStatus)reader.GetInt32(8),
+                });
+                if (health is { } h)
+                {
+                    healthPoints.Add(new TelemetryHistoryPoint(timestamp, h, h, h, h));
+                }
+
+                if (relative is { } r)
+                {
+                    relativePoints.Add(new TelemetryHistoryPoint(timestamp, r, r, r, r));
+                }
+            }
         }
 
-        return observations;
+        if (!exceededLimit)
+        {
+            return observations.Count == 0
+                ? ([], BatteryHealthHistory.Empty)
+                : (observations, new BatteryHealthHistory(healthPoints, relativePoints));
+        }
+
+        var durationMilliseconds = toMilliseconds - fromMilliseconds;
+        var minBucketMilliseconds = Math.Max(1L, (durationMilliseconds + maximumPoints - 2) / (maximumPoints - 1));
+        var bucketMilliseconds = Math.Max(minBucketMilliseconds, NiceBucketSize(minBucketMilliseconds));
+
+        var downsampledHealthPoints = new List<TelemetryHistoryPoint>(maximumPoints);
+        var downsampledRelativePoints = new List<TelemetryHistoryPoint>(maximumPoints);
+
+        await using (var streamCommand = connection.CreateCommand())
+        {
+            streamCommand.CommandText = """
+                SELECT timestamp_utc_ms, health_percent, relative_performance_percent
+                FROM battery_health_observations
+                WHERE device_id = $device
+                    AND timestamp_utc_ms >= $from
+                    AND timestamp_utc_ms <= $to
+                ORDER BY timestamp_utc_ms;
+                """;
+            AddRangeParameters(streamCommand, deviceId, fromMilliseconds, toMilliseconds);
+
+            var currentBucketMs = -1L;
+            var healthMin = 0.0;
+            var healthMax = 0.0;
+            var healthSum = 0.0;
+            var healthCount = 0L;
+            var relativeMin = 0.0;
+            var relativeMax = 0.0;
+            var relativeSum = 0.0;
+            var relativeCount = 0L;
+
+            void FlushBucket()
+            {
+                if (currentBucketMs < 0)
+                {
+                    return;
+                }
+
+                var bucketTime = FromMilliseconds(currentBucketMs);
+                if (healthCount > 0)
+                {
+                    var avg = healthSum / healthCount;
+                    downsampledHealthPoints.Add(new TelemetryHistoryPoint(bucketTime, healthMin, avg, healthMax, avg));
+                }
+
+                if (relativeCount > 0)
+                {
+                    var avg = relativeSum / relativeCount;
+                    downsampledRelativePoints.Add(new TelemetryHistoryPoint(bucketTime, relativeMin, avg, relativeMax, avg));
+                }
+            }
+
+            await using var reader = await streamCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var timestampMs = reader.GetInt64(0);
+                var bucketMs = (timestampMs / bucketMilliseconds) * bucketMilliseconds;
+                if (bucketMs != currentBucketMs)
+                {
+                    FlushBucket();
+                    currentBucketMs = bucketMs;
+                    healthMin = double.MaxValue;
+                    healthMax = double.MinValue;
+                    healthSum = 0.0;
+                    healthCount = 0L;
+                    relativeMin = double.MaxValue;
+                    relativeMax = double.MinValue;
+                    relativeSum = 0.0;
+                    relativeCount = 0L;
+                }
+
+                if (!reader.IsDBNull(1))
+                {
+                    var value = reader.GetDouble(1);
+                    if (value < healthMin) healthMin = value;
+                    if (value > healthMax) healthMax = value;
+                    healthSum += value;
+                    healthCount++;
+                }
+
+                if (!reader.IsDBNull(2))
+                {
+                    var value = reader.GetDouble(2);
+                    if (value < relativeMin) relativeMin = value;
+                    if (value > relativeMax) relativeMax = value;
+                    relativeSum += value;
+                    relativeCount++;
+                }
+            }
+
+            FlushBucket();
+        }
+
+        return ([], new BatteryHealthHistory(downsampledHealthPoints, downsampledRelativePoints));
     }
 
     private static async Task<long> QuerySourceSampleCountAsync(

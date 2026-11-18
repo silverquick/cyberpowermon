@@ -51,6 +51,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | feat(health)（0.1.024） | 公式値の密集記録を推定時に固定先頭窓24時間の最新1件へまとめ、保存件数と推定用件数を区別 | `feature/health-dense-record-grouping`、Merge `93298b4` |
 | fix(analytics)（0.1.025） | Analytics の日英表示・日数書式を修正し、件数を有効な分数へ統一 | `fix/analytics-i18n-and-days`、Merge `c8d2561` |
 | fix(ui)（0.1.026） | Dashboard・History・通知テストの固定日本語を日英リソース化し、概算列も言語切替で更新 | `fix/remaining-ui-i18n`、Merge `74ebc10` |
+| fix(history)（0.1.027） | 健全性グラフで観測件数が `maximumPoints` を超える場合に紀元揃えの等時間幅バケットへ間引き、必要な3列の流し読みで最小・平均・最大を集約して高速化・描画負荷を軽減 | `fix/health-chart-downsample` |
 
 #5 は 0.1.018、#6 は 0.1.017 で実装済み。
 
@@ -104,7 +105,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 #### コード上の改善余地（未着手）
 
-- 健全性グラフ（`MainViewModel.HealthChart`、`SqliteTelemetryQueries.QueryHealthAsync`）は他のメトリクスと違い点を間引かず、観測が増えると描画が重くなる要因が残る（0.1.022 の共有 Pen 凍結で停止は解消済み）。
+- ✅ 実装済み（0.1.027、`fix/health-chart-downsample`）: 健全性グラフ（`MainViewModel.HealthChart`、`SqliteTelemetryQueries.QueryHealthAsync`）も他のメトリクスと同様に `maximumPoints`（既定 720）を上限とし、`LIMIT N+1` で超過を判定した場合は紀元揃えのバケットで必要な3列だけを索引順に流し読みして最小・平均・最大を集約する（間引き時は `BatteryHealth` を空にして `BatteryHealthSeries` で描画し、上限以下は生データをそのまま表示）。
 - ✅ 実装済み（0.1.022、`fix/remove-unused-code`）: 未使用の `AppPaths.DevicesFile`・`AppPaths.UserDirectory` とローカルパス引数を削除。テストの合成データ用パスは共通ルート引数だけで指定する。
 - 推定結果はあくまで公式値の再現を目的とした推定で、UPS が HID で直接公開する値ではない（README 参照）。
 
