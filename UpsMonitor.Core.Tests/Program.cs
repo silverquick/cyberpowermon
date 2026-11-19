@@ -5,6 +5,9 @@ using UpsMonitor.Infrastructure;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("Analytics adapter matches production", AnalyticsViewModelTests.SourceParity),
+    ("Analytics selections and language", AnalyticsViewModelTests.SelectionsAndLanguage),
+    ("Analytics SQLite display minutes days and headings", AnalyticsViewModelTests.SqliteDisplay),
     ("Official grouping elapsed boundaries and fixed window", OfficialGroupingTests.Boundaries),
     ("Official grouping stable order duplicates and confidence", OfficialGroupingTests.OrderAndDuplicates),
     ("Official grouping past prediction backtest and saved snapshots", OfficialGroupingTests.PastPredictionAndSnapshots),
