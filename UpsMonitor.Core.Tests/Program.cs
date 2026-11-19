@@ -5,6 +5,9 @@ using UpsMonitor.Infrastructure;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("History adapter matches production", HistoryViewModelTests.SourceParity),
+    ("History ranges language and export selection", HistoryViewModelTests.ChoicesLanguageExport),
+    ("History SQLite charts summaries reports and downsampled health", HistoryViewModelTests.SqliteChartsSummaryReportsHealth),
     ("Analytics activation throttle and selection requests", AnalyticsViewModelTests.RoutingAndSelectionRequests),
     ("Analytics latest request errors and disposal", AnalyticsViewModelTests.LatestWins),
     ("Analytics XAML bindings resources and Main integration", AnalyticsViewModelTests.BindingsAndMainIntegration),
