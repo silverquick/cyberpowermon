@@ -5,6 +5,10 @@ using UpsMonitor.Infrastructure;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("Settings health adapter matches production", SettingsHealthTests.SourceParity),
+    ("Settings save failure retains edits and success updates engine", SettingsHealthTests.SaveFailureAndSuccess),
+    ("Settings immediate effects and language keep selections", SettingsHealthTests.ImmediateChoicesAndLanguage),
+    ("Battery official records grouping baseline and purchase date", SettingsHealthTests.OfficialRecordsAndBaseline),
     ("Shared export cancellation busy state and IO failure", SharedExportViewModelTests.CancellationAndFailure),
     ("History and Logs share export workflow", SharedExportViewModelTests.HistoryAndLogsShareExport),
     ("History derived charts reference lines and raw health fallback", HistoryLifecycleTests.ChartProjectionsAndHealthFallback),
