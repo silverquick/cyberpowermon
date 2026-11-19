@@ -5,7 +5,14 @@ using UpsMonitor.Infrastructure;
 
 var tests = new (string Name, Action Run)[]
 {
-    ("History adapter matches production", HistoryViewModelTests.SourceParity),
+    ("Shared export cancellation busy state and IO failure", SharedExportViewModelTests.CancellationAndFailure),
+    ("History and Logs share export workflow", SharedExportViewModelTests.HistoryAndLogsShareExport),
+    ("History derived charts reference lines and raw health fallback", HistoryLifecycleTests.ChartProjectionsAndHealthFallback),
+    ("History activation language and snapshot intervals", HistoryLifecycleTests.ActivationLanguageAndSnapshots),
+    ("History latest wins at every query await", HistoryLifecycleTests.LatestWinsEveryAwait),
+    ("History energy report notification counts and costs", HistoryLifecycleTests.ReportNotificationsAndCosts),
+    ("History failure cancellation and disposal", HistoryLifecycleTests.FailureCancellationDisposal),
+    ("History XAML bindings and Main integration", HistoryLifecycleTests.BindingsAndMainIntegration),
     ("History ranges language and export selection", HistoryViewModelTests.ChoicesLanguageExport),
     ("History SQLite charts summaries reports and downsampled health", HistoryViewModelTests.SqliteChartsSummaryReportsHealth),
     ("Analytics activation throttle and selection requests", AnalyticsViewModelTests.RoutingAndSelectionRequests),

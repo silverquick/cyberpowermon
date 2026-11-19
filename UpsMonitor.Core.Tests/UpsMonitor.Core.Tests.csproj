@@ -6,6 +6,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\UpsMonitor.App\HistoryViewModel.cs" Link="HistoryViewModel.cs" />
+    <Compile Include="..\UpsMonitor.App\HistoryQueries.cs" Link="HistoryQueries.cs" />
+    <Compile Include="..\UpsMonitor.App\ExportViewModel.cs" Link="ExportViewModel.cs" />
     <Compile Include="..\UpsMonitor.App\HistoryChartModels.cs" Link="HistoryChartModels.cs" />
     <Compile Include="..\UpsMonitor.App\AnalyticsViewModel.cs" Link="AnalyticsViewModel.cs" />
     <Compile Include="..\UpsMonitor.App\AsyncRelayCommand.cs" Link="AsyncRelayCommand.cs" />

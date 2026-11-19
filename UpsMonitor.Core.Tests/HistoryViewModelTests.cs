@@ -9,29 +9,12 @@ internal static class HistoryViewModelTests
     internal static void Check(bool condition, string message)
     { if (!condition) throw new InvalidOperationException(message); }
 
-    public static void SourceParity()
-    {
-        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../.."));
-        var source = File.ReadAllText(Path.Combine(root, "UpsMonitor.App/MainViewModel.cs")).Replace("\r", "");
-        var adapter = File.ReadAllText(Path.Combine(root, "UpsMonitor.Core.Tests/HistoryTestAdapter.cs")).Replace("\r", "");
-        foreach (var (start, end) in new[] {
-            ("    private IReadOnlyList<HistoryRangeOption>", "    private bool _isWindowVisible"),
-            ("    public ObservableCollection<EnergyReportItem> EnergyReports", "    public IReadOnlyList<LanguageOption>"),
-            ("    public IReadOnlyList<HistoryRangeOption>", "    public double ElectricityRatePerKwh"),
-            ("    public bool HasFrequencySensor", "    public bool IsWindowVisible"),
-            ("    private async Task RefreshHistoryAsync()", "    private void SetCommandError"),
-            ("    private void RefreshHistoryRangeOptions()", "    private void RefreshVendorHealthCategoryOptions()"),
-            ("    private static string FormatDuration(TimeSpan? value)", "    private BatteryHealthProfile? FindHealthProfile") })
-            Check(adapter.Contains(source[source.IndexOf(start)..source.IndexOf(end)]), "exact production History members");
-        Check(source.Contains("var from = HistoryExportRange == 1 ? DateTimeOffset.MinValue : to - (SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(7));"), "original export range");
-    }
-
     public static void ChoicesLanguageExport()
     {
         var language = LocalizationManager.Language;
         try
         {
-            var vm = new HistoryTestAdapter(null, new());
+            var vm = new HistoryViewModel(null, new(), e => throw e);
             Check(vm.SelectedHistoryRange?.Key == "1h", "default one hour");
             Check(vm.HistoryRangeOptions.Select(x => x.Key).SequenceEqual(new[] { "1h", "6h", "24h", "7d", "30d" }), "all ranges");
             foreach (var range in vm.HistoryRangeOptions)
@@ -39,7 +22,7 @@ internal static class HistoryViewModelTests
                 vm.SelectedHistoryRange = range;
                 foreach (var lang in new[] { "ja-JP", "en-US" })
                 {
-                    LocalizationManager.Language = lang; vm.Language();
+                    LocalizationManager.Language = lang; vm.RefreshLanguage();
                     Check(ReferenceEquals(range, vm.SelectedHistoryRange), "selection identity survives translation");
                     vm.HistoryExportRange = 0;
                     var (from, to) = vm.ExportRange();
@@ -48,7 +31,7 @@ internal static class HistoryViewModelTests
                     Check(vm.ExportRange() == (DateTimeOffset.MinValue, DateTimeOffset.MaxValue), "all time export");
                 }
             }
-            vm.Refresh().GetAwaiter().GetResult();
+            vm.RefreshHistoryAsync().GetAwaiter().GetResult();
             Check(vm.HistoryStatus == LocalizationManager.Get("HistoryUnavailable"), "disabled history");
         }
         finally { LocalizationManager.Language = language; }
@@ -58,8 +41,8 @@ internal static class HistoryViewModelTests
     {
         var config = new AppConfiguration();
         config.Monitoring.ElectricityRatePerKwh = 30;
-        var vm = new HistoryTestAdapter(store, config);
-        await vm.Refresh();
+        var vm = new HistoryViewModel(HistoryQueries.FromStore(store), config, e => throw e);
+        await vm.RefreshHistoryAsync();
         Check(vm.HistoryStatus == LocalizationManager.Get("HistoryWaitingForUps"), "waiting for snapshot");
         var start = DateTimeOffset.Now.AddMinutes(-40);
         var snapshot = new UpsSnapshot { Device = Device, Timestamp = start, IsConnected = true, AcPresent = true,
@@ -83,9 +66,9 @@ internal static class HistoryViewModelTests
             await command.ExecuteNonQueryAsync();
         }
         vm.SetSnapshot(snapshot);
-        await vm.Refresh();
+        await vm.RefreshHistoryAsync();
         Check(vm.VoltageHistory!.Series[0].Points.Count == 2 && vm.PowerHistory!.Series.Count == 2, "charts populated");
-        Check(vm.PeriodVoltageSummaryText.Contains("Min 100V") && vm.PeriodVoltageSummaryText.Contains("Max 110V"), "voltage min max");
+        Check(vm.PeriodVoltageSummaryText.Contains("Min 100V") && vm.PeriodVoltageSummaryText.Contains("Avg 105V") && vm.PeriodVoltageSummaryText.Contains("Max 110V"), "voltage min avg max");
         Check(vm.PeriodPowerSummaryText.Contains("Peak 200W"), "power peak");
         var result = await store.QueryHistoryAsync(UpsDeviceIdentity.Create(Device), vm.VoltageHistory.From, vm.VoltageHistory.To, Enum.GetValues<TelemetryMetric>());
         Check(vm.PeriodCostSummaryText == UiTextFormatting.PeriodCost(result.Summary!.TotalEnergyKwh!.Value * 30, 30), "period cost");
@@ -94,7 +77,7 @@ internal static class HistoryViewModelTests
         Check(vm.HealthHistory.Series[1].Points.SequenceEqual(result.BatteryHealthSeries.RelativePerformancePoints), "relative points preserved");
         var daily = await store.QueryEnergyReportsAsync(UpsDeviceIdentity.Create(Device), DateTimeOffset.Now.Date.AddDays(-29), DateTimeOffset.Now, EnergyReportPeriod.Day, 30);
         Check(vm.EnergyReports.SequenceEqual(daily), "daily reports");
-        vm.IsEnergyReportMonth = true; await vm.Refresh();
+        vm.IsEnergyReportMonth = true; await vm.RefreshHistoryAsync();
         Check(vm.EnergyReportGranularity == EnergyReportPeriod.Month && !vm.IsEnergyReportDay, "monthly choice");
         var now = DateTimeOffset.Now;
         var monthly = await store.QueryEnergyReportsAsync(UpsDeviceIdentity.Create(Device), new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, now.Offset).AddMonths(-11), now, EnergyReportPeriod.Month, 30);

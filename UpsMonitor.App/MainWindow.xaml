@@ -335,7 +335,7 @@
                                     <TextBlock Text="{DynamicResource UpsStatus}" Style="{StaticResource CaptionStyle}" />
                                     <TextBlock Text="{Binding StateText}" Style="{StaticResource MetricValueStyle}" />
                                     <TextBlock Text="{Binding InputVoltageSummaryText}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,8,0,0" />
-                                    <local:TimeSeriesChart Height="28" Margin="0,10,0,0" Data="{Binding VoltageHistory}" Compact="True" IsHitTestVisible="False" />
+                                    <local:TimeSeriesChart Height="28" Margin="0,10,0,0" Data="{Binding History.VoltageHistory}" Compact="True" IsHitTestVisible="False" />
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource MetricCardStyle}">
@@ -343,7 +343,7 @@
                                     <TextBlock Text="{DynamicResource Battery}" Style="{StaticResource CaptionStyle}" />
                                     <TextBlock Text="{Binding BatteryText}" Style="{StaticResource MetricValueStyle}" />
                                     <ProgressBar Value="{Binding BatteryProgress, Mode=OneWay}" Maximum="100" Height="5" Margin="0,13,0,0" Foreground="{Binding StatusAccent}" />
-                                    <local:TimeSeriesChart Height="28" Margin="0,10,0,0" Data="{Binding BatteryChargeHistory}" FixedMinimum="0" FixedMaximum="100" Compact="True" IsHitTestVisible="False" />
+                                    <local:TimeSeriesChart Height="28" Margin="0,10,0,0" Data="{Binding History.BatteryChargeHistory}" FixedMinimum="0" FixedMaximum="100" Compact="True" IsHitTestVisible="False" />
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource MetricCardStyle}" BorderBrush="{Binding BatteryHealthAccent}">
@@ -351,7 +351,7 @@
                                     <TextBlock Text="{DynamicResource BatteryHealth}" Style="{StaticResource CaptionStyle}" />
                                     <TextBlock Text="{Binding BatteryHealthText}" Style="{StaticResource MetricValueStyle}" />
                                     <TextBlock Text="{Binding BatteryHealthDetailText}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
-                                    <local:TimeSeriesChart Height="28" Margin="0,10,0,0" Data="{Binding HealthHistory}" FixedMinimum="0" FixedMaximum="100" Compact="True" IsHitTestVisible="False" />
+                                    <local:TimeSeriesChart Height="28" Margin="0,10,0,0" Data="{Binding History.HealthHistory}" FixedMinimum="0" FixedMaximum="100" Compact="True" IsHitTestVisible="False" />
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource MetricCardStyle}">
@@ -359,7 +359,7 @@
                                     <TextBlock Text="{DynamicResource EstimatedRuntime}" Style="{StaticResource CaptionStyle}" />
                                     <TextBlock Text="{Binding RuntimeText}" Style="{StaticResource MetricValueStyle}" />
                                     <TextBlock Text="{DynamicResource AtCurrentLoad}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,8,0,0" />
-                                    <local:TimeSeriesChart Height="28" Margin="0,10,0,0" Data="{Binding RuntimeHistory}" Compact="True" IsHitTestVisible="False" />
+                                    <local:TimeSeriesChart Height="28" Margin="0,10,0,0" Data="{Binding History.RuntimeHistory}" Compact="True" IsHitTestVisible="False" />
                                 </StackPanel>
                             </Border>
                         </UniformGrid>
@@ -482,14 +482,14 @@
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                 <ComboBox Width="180"
-                                          ItemsSource="{Binding HistoryRangeOptions}"
-                                          SelectedItem="{Binding SelectedHistoryRange, Mode=TwoWay}"
+                                          ItemsSource="{Binding History.HistoryRangeOptions}"
+                                          SelectedItem="{Binding History.SelectedHistoryRange, Mode=TwoWay}"
                                           Margin="0,0,8,0">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate><TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource TextBrush}" /></DataTemplate>
                                     </ComboBox.ItemTemplate>
                                 </ComboBox>
-                                <Button Content="{DynamicResource RefreshHistory}" Command="{Binding RefreshHistoryCommand}" />
+                                <Button Content="{DynamicResource RefreshHistory}" Command="{Binding History.RefreshHistoryCommand}" />
                             </StackPanel>
                         </Grid>
 
@@ -504,27 +504,27 @@
                             <Border Grid.Column="0" Style="{StaticResource MetricCardStyle}" Margin="4,0" MinHeight="86" Padding="14,12">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource SummaryOutage}" Style="{StaticResource CaptionStyle}" />
-                                    <TextBlock Text="{Binding PeriodOutageSummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="16" Margin="0,5,0,0" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding History.PeriodOutageSummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="16" Margin="0,5,0,0" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="1" Style="{StaticResource MetricCardStyle}" Margin="4,0" MinHeight="86" Padding="14,12">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource SummaryVoltage}" Style="{StaticResource CaptionStyle}" />
-                                    <TextBlock Text="{Binding PeriodVoltageSummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="13" Margin="0,5,0,0" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding History.PeriodVoltageSummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="13" Margin="0,5,0,0" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="2" Style="{StaticResource MetricCardStyle}" Margin="4,0" MinHeight="86" Padding="14,12">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource SummaryPower}" Style="{StaticResource CaptionStyle}" />
-                                    <TextBlock Text="{Binding PeriodPowerSummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="13" Margin="0,5,0,0" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding History.PeriodPowerSummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="13" Margin="0,5,0,0" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="3" Style="{StaticResource MetricCardStyle}" Margin="4,0" MinHeight="86" Padding="14,12">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource SummaryEnergy}" Style="{StaticResource CaptionStyle}" />
-                                    <TextBlock Text="{Binding PeriodEnergySummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="13" Margin="0,4,0,0" TextWrapping="Wrap" />
-                                    <TextBlock Text="{Binding PeriodCostSummaryText}" Foreground="{DynamicResource SuccessTextBrush}" FontSize="11" FontWeight="SemiBold" Margin="0,3,0,0" />
-                                    <TextBlock Text="{Binding PeriodCo2SummaryText}" Foreground="{DynamicResource MutedTextBrush}" FontSize="10" Margin="0,1,0,0" />
+                                    <TextBlock Text="{Binding History.PeriodEnergySummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="13" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding History.PeriodCostSummaryText}" Foreground="{DynamicResource SuccessTextBrush}" FontSize="11" FontWeight="SemiBold" Margin="0,3,0,0" />
+                                    <TextBlock Text="{Binding History.PeriodCo2SummaryText}" Foreground="{DynamicResource MutedTextBrush}" FontSize="10" Margin="0,1,0,0" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -533,8 +533,8 @@
                             <StackPanel>
                                 <TextBlock Text="{DynamicResource PowerStateTimeline}" Style="{StaticResource SectionTitleStyle}" />
                                 <TextBlock Text="{DynamicResource PowerStateTimelineHelp}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,6" />
-                                <local:UpsStateTimeline Height="92" Data="{Binding StateHistory}" EmptyText="{DynamicResource HistoryNoData}" />
-                                <TextBlock Text="{Binding HistoryStatus}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,7,0,0" />
+                                <local:UpsStateTimeline Height="92" Data="{Binding History.StateHistory}" EmptyText="{DynamicResource HistoryNoData}" />
+                                <TextBlock Text="{Binding History.HistoryStatus}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,7,0,0" />
                             </StackPanel>
                         </Border>
 
@@ -542,7 +542,7 @@
                             <StackPanel>
                                 <TextBlock Text="{DynamicResource VoltageHistory}" Style="{StaticResource SectionTitleStyle}" />
                                 <TextBlock Text="{DynamicResource VoltageHistoryHelp}" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,8" />
-                                <local:TimeSeriesChart Height="250" Data="{Binding VoltageHistory}" Unit="V" EmptyText="{DynamicResource HistoryNoData}" />
+                                <local:TimeSeriesChart Height="250" Data="{Binding History.VoltageHistory}" Unit="V" EmptyText="{DynamicResource HistoryNoData}" />
                             </StackPanel>
                         </Border>
 
@@ -551,13 +551,13 @@
                             <Border Style="{StaticResource CardStyle}">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource LoadHistory}" Style="{StaticResource SectionTitleStyle}" />
-                                    <local:TimeSeriesChart Height="230" Data="{Binding LoadHistory}" Unit="%" FixedMinimum="0" FixedMaximum="100" EmptyText="{DynamicResource HistoryNoData}" />
+                                    <local:TimeSeriesChart Height="230" Data="{Binding History.LoadHistory}" Unit="%" FixedMinimum="0" FixedMaximum="100" EmptyText="{DynamicResource HistoryNoData}" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="1" Style="{StaticResource CardStyle}">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource PowerHistory}" Style="{StaticResource SectionTitleStyle}" />
-                                    <local:TimeSeriesChart Height="230" Data="{Binding PowerHistory}" Unit="W / VA" EmptyText="{DynamicResource HistoryNoData}" />
+                                    <local:TimeSeriesChart Height="230" Data="{Binding History.PowerHistory}" Unit="W / VA" EmptyText="{DynamicResource HistoryNoData}" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -568,14 +568,14 @@
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource PowerFactorHistory}" Style="{StaticResource SectionTitleStyle}" />
                                     <TextBlock Text="{DynamicResource PowerFactorHistoryHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,3,0,6" />
-                                    <local:TimeSeriesChart Height="210" Data="{Binding PowerFactorHistory}" Unit="%" FixedMinimum="0" FixedMaximum="100" EmptyText="{DynamicResource HistoryNoData}" />
+                                    <local:TimeSeriesChart Height="210" Data="{Binding History.PowerFactorHistory}" Unit="%" FixedMinimum="0" FixedMaximum="100" EmptyText="{DynamicResource HistoryNoData}" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="1" Style="{StaticResource CardStyle}">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource EnergyHistory}" Style="{StaticResource SectionTitleStyle}" />
                                     <TextBlock Text="{DynamicResource EnergyHistoryHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,3,0,6" />
-                                    <local:TimeSeriesChart Height="210" Data="{Binding EnergyHistory}" Unit="kWh" EmptyText="{DynamicResource HistoryNoData}" />
+                                    <local:TimeSeriesChart Height="210" Data="{Binding History.EnergyHistory}" Unit="kWh" EmptyText="{DynamicResource HistoryNoData}" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -586,14 +586,14 @@
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource FrequencyHistory}" Style="{StaticResource SectionTitleStyle}" />
                                     <TextBlock Text="{DynamicResource FrequencyHistoryHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,3,0,6" />
-                                    <local:TimeSeriesChart Height="210" Data="{Binding FrequencyHistory}" Unit="Hz" EmptyText="{Binding FrequencyEmptyText}" />
+                                    <local:TimeSeriesChart Height="210" Data="{Binding History.FrequencyHistory}" Unit="Hz" EmptyText="{Binding History.FrequencyEmptyText}" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="1" Style="{StaticResource CardStyle}">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource TemperatureHistory}" Style="{StaticResource SectionTitleStyle}" />
                                     <TextBlock Text="{DynamicResource TemperatureHistoryHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,3,0,6" />
-                                    <local:TimeSeriesChart Height="210" Data="{Binding TemperatureHistory}" Unit="°C" EmptyText="{Binding TemperatureEmptyText}" />
+                                    <local:TimeSeriesChart Height="210" Data="{Binding History.TemperatureHistory}" Unit="°C" EmptyText="{Binding History.TemperatureEmptyText}" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -603,13 +603,13 @@
                             <Border Style="{StaticResource CardStyle}">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource BatteryChargeHistory}" Style="{StaticResource SectionTitleStyle}" />
-                                    <local:TimeSeriesChart Height="230" Data="{Binding BatteryChargeHistory}" Unit="%" FixedMinimum="0" FixedMaximum="100" EmptyText="{DynamicResource HistoryNoData}" />
+                                    <local:TimeSeriesChart Height="230" Data="{Binding History.BatteryChargeHistory}" Unit="%" FixedMinimum="0" FixedMaximum="100" EmptyText="{DynamicResource HistoryNoData}" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="1" Style="{StaticResource CardStyle}">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource RuntimeHistory}" Style="{StaticResource SectionTitleStyle}" />
-                                    <local:TimeSeriesChart Height="230" Data="{Binding RuntimeHistory}" Unit="min" EmptyText="{DynamicResource HistoryNoData}" />
+                                    <local:TimeSeriesChart Height="230" Data="{Binding History.RuntimeHistory}" Unit="min" EmptyText="{DynamicResource HistoryNoData}" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -619,14 +619,14 @@
                             <Border Style="{StaticResource CardStyle}">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource BatteryVoltageHistory}" Style="{StaticResource SectionTitleStyle}" />
-                                    <local:TimeSeriesChart Height="230" Data="{Binding BatteryVoltageHistory}" Unit="V" EmptyText="{DynamicResource HistoryNoData}" />
+                                    <local:TimeSeriesChart Height="230" Data="{Binding History.BatteryVoltageHistory}" Unit="V" EmptyText="{DynamicResource HistoryNoData}" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="1" Style="{StaticResource CardStyle}">
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource BatteryHealthHistory}" Style="{StaticResource SectionTitleStyle}" />
                                     <TextBlock Text="{DynamicResource BatteryHealthHistoryHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap" />
-                                    <local:TimeSeriesChart Height="230" Data="{Binding HealthHistory}" Unit="%" FixedMinimum="0" FixedMaximum="100" EmptyText="{DynamicResource HistoryNoData}" />
+                                    <local:TimeSeriesChart Height="230" Data="{Binding History.HealthHistory}" Unit="%" FixedMinimum="0" FixedMaximum="100" EmptyText="{DynamicResource HistoryNoData}" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -646,12 +646,12 @@
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="{DynamicResource DailyEnergyReportTitle}" Style="{StaticResource SectionTitleStyle}" />
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                            <RadioButton Content="{DynamicResource EnergyGranularityDay}" IsChecked="{Binding IsEnergyReportDay, Mode=TwoWay}" Margin="0,0,12,0" GroupName="EnergyGranularityGroup" />
-                                            <RadioButton Content="{DynamicResource EnergyGranularityMonth}" IsChecked="{Binding IsEnergyReportMonth, Mode=TwoWay}" GroupName="EnergyGranularityGroup" />
+                                            <RadioButton Content="{DynamicResource EnergyGranularityDay}" IsChecked="{Binding History.IsEnergyReportDay, Mode=TwoWay}" Margin="0,0,12,0" GroupName="EnergyGranularityGroup" />
+                                            <RadioButton Content="{DynamicResource EnergyGranularityMonth}" IsChecked="{Binding History.IsEnergyReportMonth, Mode=TwoWay}" GroupName="EnergyGranularityGroup" />
                                         </StackPanel>
                                     </Grid>
                                     <TextBlock Text="{DynamicResource DailyEnergyReportSubtitle}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Margin="0,0,0,10" />
-                                    <DataGrid ItemsSource="{Binding EnergyReports}" Style="{StaticResource TelemetryGridStyle}" MaxHeight="220" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column">
+                                    <DataGrid ItemsSource="{Binding History.EnergyReports}" Style="{StaticResource TelemetryGridStyle}" MaxHeight="220" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column">
                                         <DataGrid.Columns>
                                             <DataGridTextColumn Header="{DynamicResource ColumnDate}" Binding="{Binding Converter={StaticResource EnergyPeriodFormatConverter}}" Width="100" />
                                             <DataGridTextColumn Header="{DynamicResource ColumnEnergyKwh}" Binding="{Binding EnergyKwh, StringFormat={}{0:F2} kWh}" Width="95" />
@@ -684,11 +684,11 @@
                                     <Border Background="{DynamicResource SecondaryPanelBrush}" CornerRadius="8" Padding="14" Margin="0,0,0,10">
                                         <StackPanel>
                                             <TextBlock Text="{DynamicResource TotalOutagesLabel}" Style="{StaticResource CaptionStyle}" />
-                                            <TextBlock Text="{Binding TroubleSummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="14" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding History.TroubleSummaryText}" Style="{StaticResource MetricValueStyle}" FontSize="14" Margin="0,4,0,0" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
                                     <TextBlock Text="{DynamicResource TroubleEventsRecent}" Style="{StaticResource CaptionStyle}" Margin="0,4,0,4" />
-                                    <ListView ItemsSource="{Binding TroubleSummary.TroubleEvents}" MaxHeight="120" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextBrush}" ItemContainerStyle="{StaticResource EventItemStyle}">
+                                    <ListView ItemsSource="{Binding History.TroubleSummary.TroubleEvents}" MaxHeight="120" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextBrush}" ItemContainerStyle="{StaticResource EventItemStyle}">
                                         <ListView.View>
                                             <GridView ColumnHeaderContainerStyle="{StaticResource EventHeaderStyle}">
                                                 <GridViewColumn Header="{DynamicResource ColumnTime}" Width="130" DisplayMemberBinding="{Binding Timestamp, StringFormat={}{0:MM/dd HH:mm}}" />
@@ -738,16 +738,16 @@
                                 <TextBlock Text="{DynamicResource LocalHistoryStorage}" Style="{StaticResource CaptionStyle}" />
                                 <TextBlock Text="{Binding TelemetryDatabaseFile}" FontFamily="Cascadia Mono" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" />
                                 <TextBlock Text="{DynamicResource LocalHistoryStorageHelp}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,12" />
-                                <ComboBox SelectedIndex="{Binding HistoryExportRange, Mode=TwoWay}" HorizontalAlignment="Left" MinWidth="180" Margin="0,0,0,8">
+                                <ComboBox SelectedIndex="{Binding History.HistoryExportRange, Mode=TwoWay}" HorizontalAlignment="Left" MinWidth="180" Margin="0,0,0,8">
                                     <ComboBoxItem Content="{DynamicResource ExportCurrentRange}" />
                                     <ComboBoxItem Content="{DynamicResource ExportAllRange}" />
                                 </ComboBox>
-                                <StackPanel Orientation="Horizontal" IsEnabled="{Binding CanStartExport}">
-                                    <Button Content="{DynamicResource ExportTelemetryCsv}" Command="{Binding ExportTelemetryCsvCommand}" Margin="0,0,8,0" />
-                                    <Button Content="{DynamicResource ExportTelemetryJson}" Command="{Binding ExportTelemetryJsonCommand}" Margin="0,0,8,0" />
+                                <StackPanel Orientation="Horizontal" IsEnabled="{Binding Exports.CanStartExport}">
+                                    <Button Content="{DynamicResource ExportTelemetryCsv}" Command="{Binding History.ExportTelemetryCsvCommand}" Margin="0,0,8,0" />
+                                    <Button Content="{DynamicResource ExportTelemetryJson}" Command="{Binding History.ExportTelemetryJsonCommand}" Margin="0,0,8,0" />
                                 </StackPanel>
-                                <Button Content="{DynamicResource ExportCancel}" Command="{Binding CancelExportCommand}" IsEnabled="{Binding IsExporting}" HorizontalAlignment="Left" Margin="0,8,0,0" />
-                                <TextBlock Text="{Binding ExportStatus}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                                <Button Content="{DynamicResource ExportCancel}" Command="{Binding Exports.CancelExportCommand}" IsEnabled="{Binding Exports.IsExporting}" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                                <TextBlock Text="{Binding Exports.ExportStatus}" TextWrapping="Wrap" Margin="0,8,0,0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -985,11 +985,11 @@
                                 <ComboBoxItem Content="{DynamicResource ExportAllRange}" />
                             </ComboBox>
                             <WrapPanel>
-                                <Button Content="{DynamicResource ExportEventsCsv}" Command="{Binding ExportEventsCsvCommand}" IsEnabled="{Binding CanStartExport}" Margin="0,0,8,0" />
-                                <Button Content="{DynamicResource ExportCancel}" Command="{Binding CancelExportCommand}" IsEnabled="{Binding IsExporting}" />
+                                <Button Content="{DynamicResource ExportEventsCsv}" Command="{Binding Exports.ExportEventsCsvCommand}" IsEnabled="{Binding Exports.CanStartExport}" Margin="0,0,8,0" />
+                                <Button Content="{DynamicResource ExportCancel}" Command="{Binding Exports.CancelExportCommand}" IsEnabled="{Binding Exports.IsExporting}" />
                             </WrapPanel>
                             <TextBlock Text="{DynamicResource ExportSearchHelp}" TextWrapping="Wrap" Margin="0,6,0,0" />
-                            <TextBlock Text="{Binding ExportStatus}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding Exports.ExportStatus}" TextWrapping="Wrap" Margin="0,6,0,0" />
                         </StackPanel>
                     </Grid>
                     <StackPanel Grid.Row="1" Margin="0,0,0,12">

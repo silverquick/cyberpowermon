@@ -1,42 +1,26 @@
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Windows.Input;
 using UpsMonitor.Core;
 using UpsMonitor.Infrastructure;
+
 namespace UpsMonitor.App;
-// Exact production History members, checked by SourceParity.
-internal sealed class HistoryTestAdapter : INotifyPropertyChanged
+
+/// <summary>History and Dashboard charts. All entry points and continuations run on the UI dispatcher.</summary>
+public sealed class HistoryViewModel : INotifyPropertyChanged, IDisposable
 {
-    private readonly SqliteTelemetryStore? _historyStore;
+    private readonly HistoryQueries? _queries;
+    private readonly Action<Exception> _onError;
+    private readonly Func<DateTimeOffset> _now;
+    private bool _active;
+    private bool _disposed;
     private readonly AppConfiguration _configuration;
     private UpsSnapshot? _lastSnapshot;
-    private int _selectedNavigationIndex;
-    private bool _isWindowVisible;
-    private EnergyReportPeriod _energyReportGranularity;
+    private EnergyReportPeriod _energyReportGranularity = EnergyReportPeriod.Day;
     private PowerTroubleSummary? _troubleSummary;
     private string _troubleSummaryText = "-";
-    public string LastError { get; private set; } = "";
-    public int HistoryExportRange { get; set; }
-    public HistoryTestAdapter(SqliteTelemetryStore? store, AppConfiguration config)
-    { _historyStore = store; _configuration = config; RefreshHistoryRangeOptions(); }
-    public void SetSnapshot(UpsSnapshot snapshot) => _lastSnapshot = snapshot;
-    public void Language() => RefreshHistoryRangeOptions();
-    public Task Refresh() => RefreshHistoryAsync();
-    public (DateTimeOffset From, DateTimeOffset To) ExportRange()
-    {
-        var to = DateTimeOffset.Now;
-        var from = HistoryExportRange == 1 ? DateTimeOffset.MinValue : to - (SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(7));
-        var telemetryTo = HistoryExportRange == 1 ? DateTimeOffset.MaxValue : to;
-        return (from, telemetryTo);
-    }
-    private static bool IsHistoryRefreshTarget(int index) => index is 0 or 1;
-    public void SetActive(bool active) { _isWindowVisible = active; _selectedNavigationIndex = 0; }
-    public event PropertyChangedEventHandler? PropertyChanged;
-    private static string L(string key) => LocalizationManager.Get(key);
-    private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
-    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
-    { if (EqualityComparer<T>.Default.Equals(field, value)) return false; field = value; OnPropertyChanged(name); return true; }
+
     private IReadOnlyList<HistoryRangeOption> _historyRangeOptions = [];
     private HistoryRangeOption? _selectedHistoryRange;
     private CancellationTokenSource? _historyRefreshCancellation;
@@ -62,7 +46,95 @@ internal sealed class HistoryTestAdapter : INotifyPropertyChanged
     private string _periodCostSummaryText = "-";
     private string _periodCo2SummaryText = "-";
     private TelemetryPeriodSummary? _lastPeriodSummary;
-    public ObservableCollection<EnergyReportItem> EnergyReports { get; } = [];
+    private IReadOnlyList<EnergyReportItem> _energyReports = [];
+
+    public int HistoryExportRange { get; set; }
+    public HistoryViewModel(SqliteTelemetryStore? store, AppConfiguration configuration, ExportViewModel exports,
+        Action<Exception> onError, Action<Exception> onCommandError)
+        : this(HistoryQueries.FromStore(store), configuration, onError, exports: exports, onCommandError: onCommandError) { }
+
+    internal HistoryViewModel(HistoryQueries? queries, AppConfiguration configuration, Action<Exception> onError,
+        Func<DateTimeOffset>? now = null, ExportViewModel? exports = null, Action<Exception>? onCommandError = null)
+    {
+        _queries = queries;
+        _configuration = configuration;
+        _onError = onError;
+        _now = now ?? (() => DateTimeOffset.Now);
+        RefreshHistoryRangeOptions();
+        RefreshHistoryCommand = new AsyncRelayCommand(RefreshHistoryAsync, onCommandError ?? onError);
+        ExportTelemetryCsvCommand = new AsyncRelayCommand(
+            () => !_disposed && exports is not null ? exports.ExportTelemetryAsync(false, ExportRange) : Task.CompletedTask, onCommandError ?? onError);
+        ExportTelemetryJsonCommand = new AsyncRelayCommand(
+            () => !_disposed && exports is not null ? exports.ExportTelemetryAsync(true, ExportRange) : Task.CompletedTask, onCommandError ?? onError);
+    }
+
+    public ICommand RefreshHistoryCommand { get; }
+    public ICommand ExportTelemetryCsvCommand { get; }
+    public ICommand ExportTelemetryJsonCommand { get; }
+
+    public void SetSnapshot(UpsSnapshot snapshot) => _lastSnapshot = snapshot;
+
+    public void NotifySnapshotProperties()
+    {
+        OnPropertyChanged(nameof(FrequencyEmptyText));
+        OnPropertyChanged(nameof(TemperatureEmptyText));
+    }
+
+    public void SetActive(bool active)
+    {
+        _active = active;
+        if (!_disposed && active && _lastSnapshot is not null && _now() - _lastHistoryRefresh >= TimeSpan.FromSeconds(5))
+            _ = RefreshHistoryAsync();
+    }
+
+    public void RefreshForSnapshot()
+    {
+        if (!_disposed && _queries is not null && _active && _lastSnapshot is { } snapshot &&
+            snapshot.Timestamp - _lastHistoryRefresh >= TimeSpan.FromSeconds(10))
+            _ = RefreshHistoryAsync();
+    }
+
+    public void RefreshLanguage(bool refresh = true)
+    {
+        if (_disposed) return;
+        RefreshHistoryRangeOptions();
+        if (refresh) RefreshIfActive();
+    }
+
+    public void RefreshIfActive()
+    {
+        if (!_disposed && _active && _lastSnapshot is not null) _ = RefreshHistoryAsync();
+    }
+
+    public void SetWaitingState() => HistoryStatus = _queries is null ? L("HistoryUnavailable") : L("HistoryWaitingForUps");
+    public void RefreshPeriodCost() => UpdatePeriodSummaries(_lastPeriodSummary);
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        var request = _historyRefreshCancellation;
+        _historyRefreshCancellation = null;
+        request?.Cancel(); // Each async request disposes its own CTS in finally.
+    }
+
+    public (DateTimeOffset From, DateTimeOffset To) ExportRange()
+    {
+        var to = _now();
+        var from = HistoryExportRange == 1 ? DateTimeOffset.MinValue : to - (SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(7));
+        var telemetryTo = HistoryExportRange == 1 ? DateTimeOffset.MaxValue : to;
+        return (from, telemetryTo);
+    }
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public IReadOnlyList<EnergyReportItem> EnergyReports => _energyReports;
+
+    private void UpdateEnergyReports(IReadOnlyList<EnergyReportItem> reports)
+    {
+        if (_energyReports.SequenceEqual(reports)) return;
+        _energyReports = reports;
+        OnPropertyChanged(nameof(EnergyReports));
+    }
 
     public EnergyReportPeriod EnergyReportGranularity
     {
@@ -73,7 +145,7 @@ internal sealed class HistoryTestAdapter : INotifyPropertyChanged
             {
                 OnPropertyChanged(nameof(IsEnergyReportDay));
                 OnPropertyChanged(nameof(IsEnergyReportMonth));
-                if (_lastSnapshot is not null && IsHistoryRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
+                if (_lastSnapshot is not null && _active)
                 {
                     _ = RefreshHistoryAsync();
                 }
@@ -165,9 +237,10 @@ internal sealed class HistoryTestAdapter : INotifyPropertyChanged
     public string FrequencyEmptyText => HasFrequencySensor ? L("HistoryNoData") : L("SensorUnsupported");
     public string TemperatureEmptyText => HasTemperatureSensor ? L("HistoryNoData") : L("SensorUnsupported");
 
-    private async Task RefreshHistoryAsync()
+    public async Task RefreshHistoryAsync()
     {
-        if (_historyStore is null)
+        if (_disposed) return;
+        if (_queries is null)
         {
             HistoryStatus = L("HistoryUnavailable");
             return;
@@ -183,23 +256,24 @@ internal sealed class HistoryTestAdapter : INotifyPropertyChanged
         var refreshCancellation = new CancellationTokenSource();
         _historyRefreshCancellation = refreshCancellation;
         previousCancellation?.Cancel();
-        previousCancellation?.Dispose();
 
         IsHistoryLoading = true;
         HistoryStatus = L("HistoryLoading");
-        var to = DateTimeOffset.Now;
+        var to = _now();
         var from = to - range.Duration;
         _lastHistoryRefresh = to;
 
         try
         {
-            var history = await _historyStore.QueryHistoryAsync(
+            var history = await _queries.History(
                 UpsDeviceIdentity.Create(device),
                 from,
                 to,
                 Enum.GetValues<TelemetryMetric>(),
-                cancellationToken: refreshCancellation.Token);
-            var statistics = await _historyStore.GetStatisticsAsync(refreshCancellation.Token);
+                refreshCancellation.Token);
+            if (!IsCurrent()) return;
+            var statistics = await _queries.Statistics(refreshCancellation.Token);
+            if (!IsCurrent()) return;
             var markers = history.Events.Select(ToHistoryEventMarker).ToArray();
 
             VoltageHistory = Chart(
@@ -262,7 +336,7 @@ internal sealed class HistoryTestAdapter : INotifyPropertyChanged
                 energyFrom = today.AddDays(-29);
             }
 
-            var energyReports = await _historyStore.QueryEnergyReportsAsync(
+            var energyReports = await _queries.Energy(
                 UpsDeviceIdentity.Create(device),
                 energyFrom,
                 to,
@@ -270,17 +344,11 @@ internal sealed class HistoryTestAdapter : INotifyPropertyChanged
                 _configuration.Monitoring.ElectricityRatePerKwh,
                 refreshCancellation.Token);
 
-            if (!EnergyReports.SequenceEqual(energyReports))
-            {
-                EnergyReports.Clear();
-                foreach (var item in energyReports)
-                {
-                    EnergyReports.Add(item);
-                }
-            }
+            if (!IsCurrent()) return;
+            UpdateEnergyReports(energyReports);
 
             // 停電・電圧サマリーの取得
-            TroubleSummary = await _historyStore.QueryPowerTroubleSummaryAsync(
+            var troubleSummary = await _queries.Trouble(
                 UpsDeviceIdentity.Create(device),
                 from,
                 to,
@@ -288,6 +356,8 @@ internal sealed class HistoryTestAdapter : INotifyPropertyChanged
                 _configuration.Alerts.HighVoltageWarningThreshold,
                 refreshCancellation.Token);
 
+            if (!IsCurrent()) return;
+            TroubleSummary = troubleSummary;
             if (TroubleSummary is not null)
             {
                 TroubleSummaryText = $"{TroubleSummary.TotalOutages} {L("TimesUnit")} ({FormatDuration(TroubleSummary.TotalOutageDuration)}) / {L("SagLabel")}: {TroubleSummary.VoltageSagCount}, {L("SurgeLabel")}: {TroubleSummary.VoltageSurgeCount}";
@@ -312,16 +382,24 @@ internal sealed class HistoryTestAdapter : INotifyPropertyChanged
         }
         catch (Exception exception)
         {
-            HistoryStatus = LocalizationManager.Format("HistoryLoadErrorFormat", exception.Message);
-            LastError = HistoryStatus;
+            if (IsCurrent())
+            {
+                HistoryStatus = LocalizationManager.Format("HistoryLoadErrorFormat", exception.Message);
+                _onError(new InvalidOperationException(HistoryStatus, exception));
+            }
         }
         finally
         {
             if (ReferenceEquals(_historyRefreshCancellation, refreshCancellation))
             {
+                _historyRefreshCancellation = null;
                 IsHistoryLoading = false;
             }
+            refreshCancellation.Dispose();
         }
+
+        bool IsCurrent() => !_disposed && !refreshCancellation.IsCancellationRequested &&
+            ReferenceEquals(_historyRefreshCancellation, refreshCancellation);
 
         (TelemetryMetric Metric, string LabelKey, string Color) Series(
             TelemetryMetric metric,
@@ -594,4 +672,16 @@ internal sealed class HistoryTestAdapter : INotifyPropertyChanged
             : $"{(int)duration.TotalMinutes}:{duration.Seconds:00}";
     }
 
+    private static string L(string key) => LocalizationManager.Get(key);
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
 }
