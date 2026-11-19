@@ -48,6 +48,16 @@ internal static class UiTextFormattingTests
         Equal(ja ? "約 0 円" : "Approx. 0 JPY", UiTextFormatting.EstimatedCost(0));
     });
 
+    internal static void OfficialContextSeparator() => InLanguages(language =>
+    {
+        var separator = LocalizationManager.Get("OfficialContextSeparator");
+        Equal(language == "ja-JP" ? "・" : " · ", separator);
+        var load = LocalizationManager.Format("OfficialContextLoad", 25);
+        var charging = LocalizationManager.Get("OfficialContextCharging");
+        Equal(language == "ja-JP" ? "負荷 25%・充電中" : "Load 25% · Charging",
+            string.Join(separator, new[] { load, charging }));
+    });
+
     internal static void Notifications() => InLanguages(language =>
     {
         var ja = language == "ja-JP";

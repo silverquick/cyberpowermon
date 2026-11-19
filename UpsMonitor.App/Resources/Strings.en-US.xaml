@@ -521,6 +521,7 @@
     <sys:String x:Key="OfficialRecordWithinRounding">within rounding</sys:String>
     <sys:String x:Key="HealthReasonOfficialModel">Model in use: {0}</sys:String>
     <sys:String x:Key="HealthReasonOfficialModelRange">Model in use: {0} ({1:0.#}%); range across models {2:0.0}-{3:0.0}%</sys:String>
+    <sys:String x:Key="OfficialContextSeparator" xml:space="preserve"> · </sys:String>
     <sys:String x:Key="OfficialContextLoad">Load {0:0}%</sys:String>
     <sys:String x:Key="OfficialContextPower">{0:0}W</sys:String>
     <sys:String x:Key="OfficialContextRuntime">Runtime {0}</sys:String>

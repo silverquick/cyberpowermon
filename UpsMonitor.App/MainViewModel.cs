@@ -1741,7 +1741,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
             if (items.Count > 0)
             {
-                parts.Add(string.Join("・", items));
+                parts.Add(string.Join(L("OfficialContextSeparator"), items));
             }
         }
 

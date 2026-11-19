@@ -64,6 +64,7 @@ var tests = new (string Name, Action Run)[]
     ("Localized dashboard margins and cell voltage", UiTextFormattingTests.Margins),
     ("Localized estimated cost and rate", UiTextFormattingTests.Costs),
     ("Localized notification title severity and body", UiTextFormattingTests.Notifications),
+    ("Localized official context separator preserves spacing", UiTextFormattingTests.OfficialContextSeparator),
     ("Weekly heatmap equivalent-day and localized formats", WeeklyEquivalentDays),
     ("Weekly heatmap pattern aggregation", WeeklyPatternAggregation),
     ("Weekly heatmap power-factor aggregation", WeeklyPatternPowerFactorAggregation),
