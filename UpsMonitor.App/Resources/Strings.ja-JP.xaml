@@ -521,6 +521,7 @@
     <sys:String x:Key="OfficialRecordWithinRounding">丸めの範囲内</sys:String>
     <sys:String x:Key="HealthReasonOfficialModel">採用モデル: {0}</sys:String>
     <sys:String x:Key="HealthReasonOfficialModelRange">採用モデル: {0}({1:0.#}%)・全モデルの推定幅 {2:0.0}〜{3:0.0}%</sys:String>
+    <sys:String x:Key="OfficialContextSeparator" xml:space="preserve">・</sys:String>
     <sys:String x:Key="OfficialContextLoad">負荷 {0:0}%</sys:String>
     <sys:String x:Key="OfficialContextPower">{0:0}W</sys:String>
     <sys:String x:Key="OfficialContextRuntime">ランタイム {0}</sys:String>
