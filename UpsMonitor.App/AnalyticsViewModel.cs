@@ -3,22 +3,19 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using UpsMonitor.Core;
 using UpsMonitor.Infrastructure;
+
 namespace UpsMonitor.App;
-// Exact production members; SourceParity prevents test adapter drift.
-internal sealed class AnalyticsTestAdapter : INotifyPropertyChanged
+
+/// <summary>Analytics tab state. Entry points and continuations run on the UI dispatcher.</summary>
+public sealed class AnalyticsViewModel : INotifyPropertyChanged, IDisposable
 {
-    private readonly SqliteTelemetryStore? _historyStore;
+    private readonly Func<string, DateTimeOffset, DateTimeOffset, WeeklyPatternMetric, CancellationToken, Task<WeeklyPatternResult>>? _query;
+    private readonly Action<Exception> _onError;
+    private readonly Func<DateTimeOffset> _now;
+    private bool _active;
+    private bool _disposed;
     private UpsSnapshot? _lastSnapshot;
-    public string LastError { get; private set; } = "";
-    public AnalyticsTestAdapter(SqliteTelemetryStore? store) { _historyStore = store; RefreshAnalyticsOptions(); }
-    public void SetSnapshot(UpsSnapshot snapshot) => _lastSnapshot = snapshot;
-    public Task Refresh() => RefreshAnalyticsAsync();
-    public void Language() => RefreshAnalyticsOptions();
-    public event PropertyChangedEventHandler? PropertyChanged;
-    private static string L(string key) => LocalizationManager.Get(key);
-    private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
-    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
-    { if (EqualityComparer<T>.Default.Equals(field, value)) return false; field = value; OnPropertyChanged(name); return true; }
+
     private IReadOnlyList<AnalyticsMetricOption> _analyticsMetricOptions = [];
     private AnalyticsMetricOption? _selectedAnalyticsMetric;
     private IReadOnlyList<AnalyticsRangeOption> _analyticsRangeOptions = [];
@@ -32,6 +29,55 @@ internal sealed class AnalyticsTestAdapter : INotifyPropertyChanged
     private string _analyticsSampleCountText = "-";
     private DateTimeOffset _lastAnalyticsRefresh = DateTimeOffset.MinValue;
     private CancellationTokenSource? _analyticsRefreshCancellation;
+
+    public AnalyticsViewModel(SqliteTelemetryStore? store, Action<Exception> onError, Action<Exception>? onCommandError = null)
+        : this(store is null ? null : store.QueryWeeklyPatternAsync, onError, onCommandError: onCommandError) { }
+
+    internal AnalyticsViewModel(
+        Func<string, DateTimeOffset, DateTimeOffset, WeeklyPatternMetric, CancellationToken, Task<WeeklyPatternResult>>? query,
+        Action<Exception> onError, Func<DateTimeOffset>? now = null, Action<Exception>? onCommandError = null)
+    {
+        _query = query;
+        _onError = onError;
+        _now = now ?? (() => DateTimeOffset.Now);
+        RefreshAnalyticsOptions();
+        RefreshAnalyticsCommand = new AsyncRelayCommand(RefreshAnalyticsAsync, onCommandError ?? onError);
+    }
+
+    public System.Windows.Input.ICommand RefreshAnalyticsCommand { get; }
+
+    public void SetActive(bool active)
+    {
+        _active = active;
+        if (!_disposed && active && _lastSnapshot is not null && _now() - _lastAnalyticsRefresh >= TimeSpan.FromSeconds(5))
+            _ = RefreshAnalyticsAsync();
+    }
+
+    public void RefreshLanguage(bool refresh = true)
+    {
+        if (_disposed) return;
+        RefreshAnalyticsOptions();
+        if (refresh) RefreshIfActive();
+    }
+
+    public void RefreshIfActive()
+    {
+        if (!_disposed && _active && _lastSnapshot is not null) _ = RefreshAnalyticsAsync();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        var request = _analyticsRefreshCancellation;
+        _analyticsRefreshCancellation = null;
+        // The async request owns disposal in its finally, including canceled requests.
+        request?.Cancel();
+    }
+
+    public void SetSnapshot(UpsSnapshot snapshot) => _lastSnapshot = snapshot;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public IReadOnlyList<AnalyticsMetricOption> AnalyticsMetricOptions
     {
@@ -105,9 +151,10 @@ internal sealed class AnalyticsTestAdapter : INotifyPropertyChanged
         OnPropertyChanged(nameof(AnalyticsHeatmapTitle));
     }
 
-    private async Task RefreshAnalyticsAsync()
+    public async Task RefreshAnalyticsAsync()
     {
-        if (_historyStore is null)
+        if (_disposed) return;
+        if (_query is null)
         {
             AnalyticsStatus = L("HistoryUnavailable");
             return;
@@ -121,14 +168,13 @@ internal sealed class AnalyticsTestAdapter : INotifyPropertyChanged
 
         var metric = SelectedAnalyticsMetric?.Metric ?? WeeklyPatternMetric.ActivePower;
         var duration = SelectedAnalyticsRange?.Duration;
-        var to = DateTimeOffset.Now;
+        var to = _now();
         var from = duration.HasValue ? to - duration.Value : DateTimeOffset.UnixEpoch;
 
         var previousCancellation = _analyticsRefreshCancellation;
         var refreshCancellation = new CancellationTokenSource();
         _analyticsRefreshCancellation = refreshCancellation;
         previousCancellation?.Cancel();
-        previousCancellation?.Dispose();
 
         IsAnalyticsLoading = true;
         AnalyticsStatus = L("HistoryLoading");
@@ -136,13 +182,15 @@ internal sealed class AnalyticsTestAdapter : INotifyPropertyChanged
 
         try
         {
-            var result = await _historyStore.QueryWeeklyPatternAsync(
+            var result = await _query(
                 UpsDeviceIdentity.Create(device),
                 from,
                 to,
                 metric,
                 refreshCancellation.Token);
 
+            if (_disposed || refreshCancellation.IsCancellationRequested ||
+                !ReferenceEquals(_analyticsRefreshCancellation, refreshCancellation)) return;
             WeeklyPattern = result;
 
             var unit = SelectedAnalyticsMetric?.Unit ?? string.Empty;
@@ -179,16 +227,33 @@ internal sealed class AnalyticsTestAdapter : INotifyPropertyChanged
         }
         catch (Exception exception)
         {
-            AnalyticsStatus = LocalizationManager.Format("HistoryLoadErrorFormat", exception.Message);
-            LastError = AnalyticsStatus;
+            if (!_disposed && ReferenceEquals(_analyticsRefreshCancellation, refreshCancellation))
+            {
+                AnalyticsStatus = LocalizationManager.Format("HistoryLoadErrorFormat", exception.Message);
+                _onError(new InvalidOperationException(AnalyticsStatus, exception));
+            }
         }
         finally
         {
             if (ReferenceEquals(_analyticsRefreshCancellation, refreshCancellation))
             {
+                _analyticsRefreshCancellation = null;
                 IsAnalyticsLoading = false;
             }
+            refreshCancellation.Dispose();
         }
     }
 
+    private static string L(string key) => LocalizationManager.Get(key);
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
 }

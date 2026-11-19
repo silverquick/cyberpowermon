@@ -6,6 +6,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\UpsMonitor.App\AnalyticsViewModel.cs" Link="AnalyticsViewModel.cs" />
+    <Compile Include="..\UpsMonitor.App\AsyncRelayCommand.cs" Link="AsyncRelayCommand.cs" />
     <Compile Include="..\UpsMonitor.App\LogsViewModel.cs" Link="LogsViewModel.cs" />
     <Compile Include="..\UpsMonitor.App\LocalizedOption.cs" Link="LocalizedOption.cs" />
     <Compile Include="..\UpsMonitor.App\UiTextFormatting.cs" Link="UiTextFormatting.cs" />

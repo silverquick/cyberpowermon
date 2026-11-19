@@ -5,7 +5,9 @@ using UpsMonitor.Infrastructure;
 
 var tests = new (string Name, Action Run)[]
 {
-    ("Analytics adapter matches production", AnalyticsViewModelTests.SourceParity),
+    ("Analytics activation throttle and selection requests", AnalyticsViewModelTests.RoutingAndSelectionRequests),
+    ("Analytics latest request errors and disposal", AnalyticsViewModelTests.LatestWins),
+    ("Analytics XAML bindings resources and Main integration", AnalyticsViewModelTests.BindingsAndMainIntegration),
     ("Analytics selections and language", AnalyticsViewModelTests.SelectionsAndLanguage),
     ("Analytics SQLite display minutes days and headings", AnalyticsViewModelTests.SqliteDisplay),
     ("Official grouping elapsed boundaries and fixed window", OfficialGroupingTests.Boundaries),
