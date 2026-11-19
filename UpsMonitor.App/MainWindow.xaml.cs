@@ -38,7 +38,7 @@ public partial class MainWindow : Window
 
         if (DataContext is MainViewModel viewModel)
         {
-            _trayManager = new TrayIconManager(this, () => viewModel.EnableNotifications);
+            _trayManager = new TrayIconManager(this, () => viewModel.Settings.EnableNotifications);
             _trayManager.Initialize();
 
             viewModel.NotificationRequested += (title, message, severity) =>
@@ -75,7 +75,7 @@ public partial class MainWindow : Window
     protected override void OnStateChanged(EventArgs e)
     {
         base.OnStateChanged(e);
-        if (WindowState == WindowState.Minimized && DataContext is MainViewModel { MinimizeToTray: true })
+        if (WindowState == WindowState.Minimized && DataContext is MainViewModel { Settings.MinimizeToTray: true })
         {
             Hide();
         }
@@ -92,7 +92,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        if (DataContext is MainViewModel { CloseToTray: true, IsExiting: false })
+        if (DataContext is MainViewModel { Settings.CloseToTray: true, IsExiting: false })
         {
             e.Cancel = true;
             Hide();

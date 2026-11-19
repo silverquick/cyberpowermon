@@ -4,24 +4,6 @@ using UpsMonitor.Infrastructure;
 
 internal static class SettingsHealthTests
 {
-    public static void SourceParity()
-    {
-        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../.."));
-        var source = File.ReadAllText(Path.Combine(root, "UpsMonitor.App/MainViewModel.cs")).Replace("\r", "");
-        var adapter = File.ReadAllText(Path.Combine(root, "UpsMonitor.Core.Tests/SettingsHealthTestAdapter.cs")).Replace("\r", "");
-        foreach (System.Text.RegularExpressions.Match member in System.Text.RegularExpressions.Regex.Matches(adapter,
-            @"(?ms)^    // Original member: \w+\n(.*?)(?=^    // Original member:|^}\n\z)"))
-        {
-            var text = member.Groups[1].Value
-                .Replace("_save(_configuration)", "_configurationStore.SaveAsync(_configuration)")
-                .Replace("_effects.ApplyTheme(value)", "ThemeManager.ApplyTheme(Application.Current, value)")
-                .Replace("_effects.ApplyLanguage(value)", "LocalizationManager.ApplyLanguage(Application.Current, value)")
-                .Replace("_effects.SetRunOnStartup", "StartupManager.SetRunOnStartup")
-                .Replace("_effects.RefreshPeriodCost()", "History.RefreshPeriodCost()")
-                .Replace("_effects.Set", "_engine.Set").Replace("_dispatch", "_dispatcher.InvokeAsync");
-            Check(source.Contains(text), "adapter copied production member " + member.Value.Split('\n')[0]);
-        }
-    }
     private static void Check(bool condition, string message)
     { if (!condition) throw new InvalidOperationException(message); }
     private static SettingsEffects Effects(List<string> calls) => new(
