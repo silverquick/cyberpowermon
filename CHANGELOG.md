@@ -2,6 +2,12 @@
 
 feature/fix の main マージごとにパッチ番号を 1 増やします。表示は `0.1.XXX`（3 桁ゼロ埋め）です。docs のみの変更では番号を増やしません。0.1.017 以降はコミット hash の代わりにブランチ名を記載し、該当コミットは承認後に付ける `v0.1.XXX` タグ、または `git log --merges --grep` で辿ります。新しいバージョンはこの一覧の先頭に追加します。
 
+## 0.1.029 — 2026-11-20
+
+- `refactor/mainviewmodel-split` — 段階1で振る舞いテストを整備し、段階2で Analytics、段階3で History、段階4で Settings と BatteryHealth を子 ViewModel へ分割。MainViewModel は 3,104 行から 1,175 行へ縮小し、XAML を子 VM のバインディングへ変更。
+- History と Logs の export を共通の ExportViewModel に集約。backlog #9 の電力量レポートは同値時の参照を維持し、変更時はリストの差し替えと通知1回で更新。
+- 合成データとソースリンクで、選択保持・日英切替・更新条件・latest-wins・保存失敗・健全性記録と補完・Dispose・バインディングを検証。設定の即時反映と保存方式、HID の読み取り専用、DB/config 形式を維持。
+
 ## 0.1.028 — 2026-11-19
 
 - `fix/official-context-separator` — 健全性記録の「記録時の状況」の区切り文字を日英リソースへ移し、日本語は「・」、英語は空白付きの「 · 」で表示。言語切替時は既存の記録一覧も更新し、両言語の区切り文字と空白を実リソースで検証するテストを追加。

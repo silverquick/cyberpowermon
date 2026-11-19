@@ -6,7 +6,7 @@
 
 本書は `docs/performance/*_analysis.md` と全 `docs/*/{implementation_plan,task,walkthrough}.md` を読み、walkthrough の記載だけでなく `UpsMonitor.*` の実コードと `git log` を照合して、提案済み施策の実装状況と積み残しを整理したものである。なお、依頼背景には .NET 8 とあるが、現コードの `UpsMonitor.App/UpsMonitor.App.csproj` は `net10.0-windows` を対象としているため、以下の設計は現行コードを正としている。
 
-## 実装状況（2026-11-17 更新）
+## 実装状況（2026-11-20 更新）
 
 Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Antigravity / 統合: Claude）で #1・#2・#4 を実装・main へ統合済み。
 #3 は Antigravity のワークスペース信頼確認でエージェント起動がブロックされたため Codex `gpt-5.6-terra`（medium）へ切り替え、Core/Infrastructure・UI統合の2waveで実装・main へ統合済み。
@@ -19,7 +19,9 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | 4 | 日次電力量の正確化＋月次集計 | ✅ 実装済み | Core/SQLite `96e2879`（正確化は旧 API ラッパー経由で既存 UI にも反映）、月次 UI `727c9c7` |
 | 5 | エクスポート全期間＋ストリーミング | ✅ 実装済み（0.1.018） | `feature/export-all-range-streaming` |
 | 6 | 保存済みログのフィルタ | ✅ 実装済み（0.1.017） | `feature/logs-saved-event-filter` |
-| 7〜9 | （下記「見送り推奨」参照） | 見送り | — |
+| 7 | MainViewModel の責務分割 | ✅ 実装済み（統合・画面確認待ち、0.1.029） | `refactor/mainviewmodel-split` |
+| 8 | ReadyToRun 発行設定の検証 | 見送り | — |
+| 9 | 電力量レポート DataGrid の更新通知 | ✅ 実装済み（統合・画面確認待ち、0.1.029） | `refactor/mainviewmodel-split` |
 
 ### 固定日本語の表示修正（実装済み、0.1.026）
 
@@ -126,9 +128,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 | 番号 | 施策 | 領域 | 見送り理由 | 再検討条件 |
 |---:|---|---|---|---|
-| 7 | `MainViewModel` の責務分割 | アーキテクチャ | 明確な積み残し。#5・#6 との競合を理由に見送っていたが、両施策は統合済み（2026-11-10 の検討メモ参照） | #5・#6 の統合条件は達成済み（0.1.018・0.1.017）。残るタブ単位の振る舞いテストを用意できた時点で再検討 |
 | 8 | ReadyToRun 発行設定の検証 | 起動 | 発行方式・配布サイズ上限・cold start 基準値が未定で、設定だけ有効化しても効果を判定できない | x64 配布形態と起動計測シナリオを確定した時点 |
-| 9 | 日次レポート DataGrid の差分更新 | UI | 対象だった旧 `DailyEnergyReports` は 0.1.022 で削除済み。現行 `EnergyReports` は日次30日／月次12か月を対象に、同値時は更新を抑止し、変更時は `Clear` + `Add` で再構築 | 現行 DataGrid の再描画・選択・スクロールへの影響が UI 計測で確認された場合、または表示期間をさらに拡大する場合 |
 
 ## 提案施策の仕分け結果
 
@@ -139,7 +139,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | SQLite: 日次 N+1 解消、複数メトリック一括取得、サグ／サージ単一走査、cleanup 索引、PRAGMA 調整 | 実装済み（機能精度の残件は 4） | `SqliteTelemetryQueries` と `SqliteTelemetryStore.ExecuteSchemaAsync` を確認。`8018f3c`、`330ff76` に履歴あり |
 | バックグラウンド: ポーリング待機、イベント定常時割当、HID バッファ／Parser／Mapper、Webhook retry、CommandRunner の drain／kill | 実装済み | `Monitoring.WaitForNextPollAsync`、`UpsEventDetector.Observe`、`HidDeviceSession`、`HidReportParser`、`UpsHidMapper`、`WebhookNotifier`、`CommandRunner` を確認 |
 | 機能: 日付・種別ログ、日次／月次レポート、力率 Analytics、全期間 export、カスタムアラート通知 | 一部のみ実装 | それぞれ 1、3〜6 に分解。walkthrough の完了表現より実コードを優先した |
-| `MainViewModel` 責務分割 | 提案のみ | Logs は 0.1.017 で `LogsViewModel` へ抽出済み。設定・履歴・Analytics・監視表示は単一クラスに残る（7） |
+| `MainViewModel` 責務分割 | 実装済み（統合待ち） | `refactor/mainviewmodel-split` で Analytics・History・Settings・BatteryHealth と共通 export を抽出（7・9） |
 | ReadyToRun | 提案のみ | `Directory.Build.props` と `UpsMonitor.App.csproj` に `PublishReadyToRun` および publish profile はない（8） |
 | `docs/ui_responsiveness_optimization/task.md` の未チェック 2 件 | 管理上の古い記載 | 「git commit」は `72c6e85` として実施・マージ済み。「`TASK.md` 末尾への完了報告」はコード施策ではなく、ルート `TASK.md` 自体が後続コミットで削除済み。実装バックログにはしない |
 
@@ -250,26 +250,17 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 - **当初案との差・後続**: 独立した `EventQuery.cs` / `SqliteEventQueries.cs` に配置。既存 History 用の非公開検索は従来の上端包含を維持し、新 API は [From, To) とする。live 通知は実コードでは永続化キュー投入より先なので、DB 完了を待たず bounded live バッファと検索結果を統合する。ページ送り・自由入力の日付範囲は追加せずプリセットと上限表示を採用。CSV export の条件共有は #5（0.1.018）で実装済み。
 - **検証**: 合成 SQLite で空 DB、再オープン、期間境界・UTC offset、全種別／重大度／未知 enum／上限の組合せ、500 件超、デバイス分離、パラメータ化、索引利用、重複排除を確認。実 VM をソースリンクし debounce・latest-wins・非表示時停止・dispose・エラー表示・検索・日英切替を検証。保存済み UTC 行と +09:00 live の統合前後での日時表示・検索一致、アラート原文の維持も確認。全 74 件。WPF 実画面での配置・操作確認は別途必要。
 
-## 7. `MainViewModel` の責務分割
+## 7. `MainViewModel` の責務分割（実装済み、0.1.029）
 
-2026-11-17 確認: #5（0.1.018）・#6（0.1.017）は main へ統合済みで、再検討の前提だった統合条件は満たされた。#6 では `LogsViewModel` を先行抽出し振る舞いテストも追加済み。残るタブの振る舞いテストを整えた上で、分割範囲と優先度を再検討する。
-
-> **検討メモ（2026-11-10、決定ではない）**: 以前は約 2,700 行だった `MainViewModel.cs` は 3,331 行になった（#1・#4 の UI 統合と `a2e973b` の健全性推定で +約 570 行）。増加の根拠は次のとおり。`a2e973b` だけで `MainViewModel.cs` が +571 行、`MainWindow.xaml` が +112 行。見送りを維持する論拠は、#5・#6 が同じファイルと競合する点、および `Core.Tests`（58 件）が Core/Infrastructure 中心で ViewModel の振る舞いテストが無い点。優先度を上げる論拠は、機能追加のたびに同ファイルへ数百行が加わる傾向があり、将来の分割コストが増え続ける点。折衷案として、健全性記録まわり（設定・モデル比較表）だけを先に子 VM へ切り出す案もあるが、未検証。見送り維持か優先度引き上げかは別途判断する。
+2026-11-20: `refactor/mainviewmodel-split` で段階1〜4を実装。main への統合と最終画面確認は別途行う。
 
 - **対象領域**: アーキテクチャ
 - **出典**: `docs/architecture_and_ux_improvements/implementation_plan.md`「1-6. MainViewModel の責務分割・リファクタリング」
-- **現状と課題**:
-  `UpsMonitor.App/MainViewModel.cs` は約 3,300 行（2026-11-13 時点。調査時点では約 2,700 行・118 KB）で、監視 snapshot 表示、履歴 query、Analytics、設定保存、export、通知、シミュレータ、バッテリー基準管理を一括している。walkthrough には専用フィルタ機能の追加はあるが、責務分割そのものは実施されていない。
-- **提案する実装方針**:
-  - `HistoryViewModel`（履歴 range、chart、period summary、energy report）、`AnalyticsViewModel`（指標、期間、weekly pattern）、`LogsViewModel`（6 の query/filter）、`SettingsViewModel`（設定編集・保存・通知テスト）、`BatteryHealthViewModel`（baseline 編集）へ段階的に抽出する。
-  - `MainViewModel` は `UpsMonitorEngine` の lifecycle、最新 `UpsSnapshot`、タブ子 VM への snapshot/context 配布、tray/minimonitor 向け最小 projection だけを担当する。
-  - 子 VM には `SqliteTelemetryStore` や設定 store を constructor injection し、`CancellationTokenSource` の所有者を明確にする。共有 mutable `AppConfiguration` の直接編集は `SettingsDraft` へコピーし、保存時に一括適用する。
-  - `MainWindow.xaml` は最初は `History.*` のような nested binding へ置換し、安定後に `Views/HistoryView.xaml`、`AnalyticsView.xaml`、`LogsView.xaml`、`SettingsView.xaml` へタブ単位で抽出する。全タブ一括 rewrite は避ける。
-- **影響範囲・リスク**: binding path、PropertyChanged、言語／テーマ変更、snapshot 配布順、dispose/cancellation の回帰範囲が広い。機能変更と同時に行うと原因切り分けが難しい。
-- **必要なテスト**: 各子 VM の純粋単体テスト、refresh の latest-wins、保存失敗時の draft 保持、language refresh、ウィンドウ非表示時の pending snapshot、dispose 後 callback なし、主要 XAML binding smoke test。
-- **難易度**: 大
-- **確証度**: コード確認済み
-- **依存・競合**: 1〜6 の `MainViewModel.cs` / `MainWindow.xaml` と全面競合。今回推奨施策の UI 統合後に直列実施する。6 で先行抽出した `LogsViewModel` は再利用する。
+- **実装**: 振る舞いテストを先行させ、Analytics（指標・期間・weekly pattern）、History（グラフ・期間サマリー・電力量レポート・健全性グラフ）、Settings（編集・保存・言語/テーマ・通知テスト）、BatteryHealth（公式記録・補完・基準・モデル比較・購入日）を子 VM へ抽出。先行実装の LogsViewModel を維持し、History/Logs 共通 export は ExportViewModel に集約した。
+- **所有権**: MainViewModel は 3,104 行から 1,175 行へ縮小し、engine lifecycle・snapshot 配布・共通状態と監視表示の projection を担当する。store/save/effects は constructor で注入。履歴・Analytics の CTS は要求自身が finally で Dispose し、置換と終了時は Cancel する。
+- **互換性の判断**: SettingsDraft は採用しない。言語・テーマ・自動起動・通知・料金など既存の即時反映を維持し、保存失敗時も編集内容を保持する。共有 config の形式と編集方式を維持し、保存成功後に engine へ反映する。健全性の警告しきい値は BatteryHealth 側に置き、Settings の保存処理が検証・保存する。
+- **検証**: Core.Tests から実 VM をソースリンクし、合成 SQLite と WPF 非依存 adapter で選択保持・日英切替・取得条件・latest-wins・保存失敗・公式記録と補完・24時間件数・基準と購入日・Dispose を検証。XAML の nested binding と日英キーを照合。全 130/130 件、Debug 警告0件。
+- **残る確認**: Release の実画面、言語/テーマとタブ選択保持、再表示、通知、DataGrid のスクロールは最終統合前に一度だけ確認する。タブ単位の View 分割は今回の対象外。
 
 ## 8. ReadyToRun 発行設定の検証
 
@@ -287,23 +278,14 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 - **確証度**: コード確認済み
 - **依存・競合**: 1〜7 とファイル競合なし。起動の機能変更が落ち着いた後に独立検証できる。
 
-## 9. 日次レポート DataGrid の差分更新
+## 9. 日次レポート DataGrid の差分更新（実装済み、0.1.029）
 
 - **対象領域**: UI
-- **出典**:
-  - `docs/performance/ui_responsiveness_analysis.md`「2.3 DataGrid / Chart 再描画コスト」
-  - `docs/ui_responsiveness_optimization/implementation_plan.md`「2.2 MainViewModel」（DailyEnergyReports 差分チェック）
-- **現状と課題**:
-  当初の対象だった旧 `DailyEnergyReports`（固定7日）は 0.1.022（`fix/remove-unused-code`、Merge `7ff7a77`）で取得処理・旧 API/型とともに削除済み。現行 DataGrid は `EnergyReports` にバインドされ、`MainViewModel` は `QueryEnergyReportsAsync` で日次は当日を含む30日、月次は当月を含む12か月を取得する。`SequenceEqual` で同値時の更新を抑止するが、変更時は `EnergyReports.Clear()` 後に結果を1件ずつ `Add()` しており、行単位の差分更新ではない。通知・再描画コストの実測は未実施。
-- **再検討条件**: #4 の日次／月次表示は実装済みのため、現行 DataGrid で再描画・選択・スクロールへの影響が UI 計測により確認された場合、または表示期間をさらに拡大する場合に再評価する。
-- **提案する実装方針**:
-  - 再検討条件を満たした場合、`IReadOnlyList<EnergyReportItem>` property の参照を一度だけ差し替えて `PropertyChanged` 1 回にする。行選択維持が必要なら key（period start）で既存行を reconcile する。
-  - 独自 `ObservableRangeCollection` はアプリ全体で range update の需要が増えた場合だけ導入し、単用途の抽象化は避ける。
-- **影響範囲・リスク**: DataGrid の選択・スクロール位置が collection replacement で失われる可能性がある。
-- **必要なテスト**: 同値時無通知、差分時 1 通知、選択維持、月次／多数行、言語変更時の表示。
-- **難易度**: 小
-- **確証度**: コード確認済み
-- **依存・競合**: 実装済みの #4 と同じ `MainViewModel.cs` / `MainWindow.xaml` が対象。今後の #7 の責務分割と競合するため、現行 `EnergyReports` を対象に必要性を計測してから調整する。
+- **出典**: `docs/performance/ui_responsiveness_analysis.md`「2.3 DataGrid / Chart 再描画コスト」、`docs/ui_responsiveness_optimization/implementation_plan.md`「2.2 MainViewModel」
+- **実装**: `refactor/mainviewmodel-split` の段階3で `HistoryViewModel.EnergyReports` を `IReadOnlyList<EnergyReportItem>` とし、同値時は同じ参照を維持して無通知、変更時は結果リストの参照を1回差し替えて PropertyChanged を1回発行する。Clear/Add による行ごとの再通知を廃止した。日次30日・月次12か月の query 条件は維持。
+- **選択・スクロール**: 表は読み取り専用で選択の binding や選択依存操作がなく、旧 Clear/Add も変更時に全行を削除していたため、period start による行 reconcile は不要と判断した。同値時は参照を維持する。変更時の選択・スクロール維持は新たに保証せず、最終画面確認で実表示を確認する。
+- **検証**: 同値時無通知、変更時1通知、30行/月次12行、日英切替で同値参照を維持することをソースリンクした VM で検証。Debug 警告0件、全130/130件。UI計測・実画面は未実施。
+- **状態**: 実装済み、main 統合・最終画面確認待ち。
 
 ## 実装フェーズの分割案
 
