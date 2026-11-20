@@ -6,6 +6,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\UpsMonitor.App\SettingsViewModel.cs" Link="SettingsViewModel.cs" />
+    <Compile Include="..\UpsMonitor.App\BatteryHealthViewModel.cs" Link="BatteryHealthViewModel.cs" />
+    <Compile Include="..\UpsMonitor.App\SettingsEffects.cs" Link="SettingsEffects.cs" />
+    <Compile Include="..\UpsMonitor.App\SettingsModels.cs" Link="SettingsModels.cs" />
+    <Compile Include="..\UpsMonitor.App\HistoryViewModel.cs" Link="HistoryViewModel.cs" />
+    <Compile Include="..\UpsMonitor.App\HistoryQueries.cs" Link="HistoryQueries.cs" />
+    <Compile Include="..\UpsMonitor.App\ExportViewModel.cs" Link="ExportViewModel.cs" />
+    <Compile Include="..\UpsMonitor.App\HistoryChartModels.cs" Link="HistoryChartModels.cs" />
+    <Compile Include="..\UpsMonitor.App\AnalyticsViewModel.cs" Link="AnalyticsViewModel.cs" />
+    <Compile Include="..\UpsMonitor.App\AsyncRelayCommand.cs" Link="AsyncRelayCommand.cs" />
     <Compile Include="..\UpsMonitor.App\LogsViewModel.cs" Link="LogsViewModel.cs" />
     <Compile Include="..\UpsMonitor.App\LocalizedOption.cs" Link="LocalizedOption.cs" />
     <Compile Include="..\UpsMonitor.App\UiTextFormatting.cs" Link="UiTextFormatting.cs" />

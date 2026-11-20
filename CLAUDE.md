@@ -12,9 +12,9 @@ Windows 標準の HID / SetupAPI を P/Invoke して UPS を読み取り、状�
 
 | プロジェクト | 役割 |
 | --- | --- |
-| `UpsMonitor.App` | WPF UI（`MainWindow.xaml`、`MainViewModel.cs`、`LogsViewModel.cs`、`TrayIconManager.cs`、`MiniMonitorWindow`）。多言語リソースは `Resources/Strings.*.xaml` |
+| `UpsMonitor.App` | WPF UI（`MainWindow.xaml`、`MainViewModel.cs`、子 VM: `AnalyticsViewModel`・`HistoryViewModel`・`SettingsViewModel`・`BatteryHealthViewModel`・`LogsViewModel`、共通 `ExportViewModel`、`TrayIconManager`、`MiniMonitorWindow`）。多言語リソースは `Resources/Strings.*.xaml` |
 | `UpsMonitor.Core` | Snapshot・状態・イベント検出・監視エンジン（`Monitoring.cs`）、バッテリー健全性（`BatteryHealth.cs`、`OfficialHealthEstimator.cs`）、履歴の型（`TelemetryHistory.cs`） |
-| `UpsMonitor.Core.Tests` | 独自ランナーのテスト（`Program.cs` と保存済みログのテスト（`SavedEventTests.cs`、日英リソース用 adapter）。Logs VM はソースリンクで検証）。NuGet のテストフレームワークは使わない |
+| `UpsMonitor.Core.Tests` | 独自ランナーのテスト（`Program.cs` と保存済みログのテスト（`SavedEventTests.cs`、日英リソース用 adapter）。各子 VM・共通 export はソースリンクと WPF 非依存 adapter で検証）。NuGet のテストフレームワークは使わない |
 | `UpsMonitor.Hid` | HID / SetupAPI の P/Invoke（`HidNative.cs`）、descriptor・report の解析、UPS へのマッピング（`WindowsHidUpsProvider.cs`） |
 | `UpsMonitor.Infrastructure` | 設定（`AppConfiguration.cs`、`JsonConfigurationStore.cs`）、パス解決（`AppPaths.cs`）、SQLite 履歴（`SqliteTelemetry*.cs`）、エクスポート、Webhook、外部コマンド、ファイルログ、スタートアップ登録 |
 | `UpsMonitor.Probe` | 実機の descriptor と現在値を表示するコンソールツール |
@@ -23,7 +23,7 @@ Windows 標準の HID / SetupAPI を P/Invoke して UPS を読み取り、状�
 
 ```powershell
 dotnet build UpsMonitor.sln                              # Debug ビルド
-dotnet run --project UpsMonitor.Core.Tests               # 独自ランナー。現在 107/107 件通過（2026-11-19 確認）
+dotnet run --project UpsMonitor.Core.Tests               # 独自ランナー。現在 130/130 件通過（2026-11-20 確認）
 dotnet run --project .\UpsMonitor.App\UpsMonitor.App.csproj
 ```
 
@@ -37,8 +37,8 @@ dotnet run --project .\UpsMonitor.App\UpsMonitor.App.csproj
 
 ## 設計上の注意
 
-- `UpsMonitor.App/MainViewModel.cs` は約 3,300 行と巨大（監視表示・履歴・Analytics・Logs・設定・export・健全性記録を一括）。
-  変更は小さく局所的に行い、無関係な整理を混ぜない。分割の検討状況は `docs/improvement_backlog.md` の #7 を参照。
+- `UpsMonitor.App/MainViewModel.cs` は 1,175 行（2026-11-20、分割前 3,104 行）。エンジン lifecycle・snapshot 配布・共通状態と監視表示の projection を担当し、タブ固有の処理は `AnalyticsViewModel`・`HistoryViewModel`・`SettingsViewModel`・`BatteryHealthViewModel`・`LogsViewModel`、共通 export は `ExportViewModel` が所有する。
+  履歴・Analytics の CTS は各 async 要求自身が finally で破棄する。設定は言語・テーマ・自動起動・料金等の即時反映を保つため共有 config の編集方式を維持し、保存成功後に engine の設定を適用する。変更は局所的に行い、分割の実装状況は `docs/improvement_backlog.md` の #7・#9 を参照。
 - HID は読み取り専用。`HidNative.cs` が使うのは `HidD_GetFeature` などの読み取り系で、Output report・`HidD_SetFeature` は使わない。追加しない。
 - アプリ自身は OS のシャットダウンや UPS への書き込みを行わない。「シャットダウン自動化」パネルと Actions タブは表示・プレビューのみ。
   ただし外部コマンド連携（`CommandRunner.cs`）はユーザー指定のコマンドを `cmd.exe /c` で実行する（既定は無効）。

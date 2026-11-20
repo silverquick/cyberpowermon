@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -25,7 +24,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public static bool IsAnalyticsRefreshTarget(int index) => index is AnalyticsIndex;
 
     private readonly UpsMonitorEngine _engine;
-    private readonly JsonConfigurationStore _configurationStore;
     private readonly AppConfiguration _configuration;
     private readonly SqliteTelemetryStore? _historyStore;
     private readonly Dispatcher _dispatcher;
@@ -35,87 +33,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private string _statusAccent = "#64748B";
     private string _lastUpdateText = string.Empty;
     private string _lastError = string.Empty;
-    private string _settingsStatus = string.Empty;
     private string _telemetryCountText = string.Empty;
     private IReadOnlyList<UpsTelemetryViewModel> _telemetryItems = [];
-    private int _pollIntervalMs;
-    private int _runtimeLowSeconds;
-    private string _selectedLanguageCode;
     private UpsSnapshot? _lastSnapshot;
     private UpsTelemetry? _lastTelemetry;
     // 健全性計算専用の定常化済みテレメトリ。画面表示・基準記録は生の _lastTelemetry を使う。
     private UpsTelemetry? _lastHealthTelemetry;
     private readonly Dictionary<string, RuntimeSteadyStateFilter> _steadyStateFilters = new(StringComparer.OrdinalIgnoreCase);
-    private double? _officialRecordPercent;
-    private DateTime? _officialRecordDate = DateTime.Today;
-    private string _officialRecordTime = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
-    private VendorBatteryHealthCategory _officialRecordSource = VendorBatteryHealthCategory.Unknown;
-    private string _officialRecordNote = string.Empty;
-    private DateTime? _batteryInstalledDate;
-    private string _officialErrorText = "—";
-    private bool _officialEditorLoading;
-    private double _batteryWarningThresholdPercent;
-    private double _batteryCriticalThresholdPercent;
-    private double _comparableLoadTolerancePercent;
-    private IReadOnlyList<BatteryBaselineModeOption> _baselineModeOptions = [];
-    private IReadOnlyList<VendorHealthCategoryOption> _vendorHealthCategoryOptions = [];
-    private BatteryRuntimeBaselineKind _selectedBaselineKind = BatteryRuntimeBaselineKind.CurrentRelative;
-    private VendorBatteryHealthCategory _selectedVendorHealthCategory = VendorBatteryHealthCategory.Unknown;
-    private double _knownHealthPercent = 59;
-    private string _knownHealthSource = "CyberPower BHI";
-    private bool _baselineEditorInitialized;
-    private IReadOnlyList<HistoryRangeOption> _historyRangeOptions = [];
-    private HistoryRangeOption? _selectedHistoryRange;
-    private CancellationTokenSource? _historyRefreshCancellation;
-    private DateTimeOffset _lastHistoryRefresh = DateTimeOffset.MinValue;
-    private string _historyStatus = string.Empty;
-    private bool _isHistoryLoading;
-    private HistoryChartData? _voltageHistory;
-    private HistoryChartData? _loadHistory;
-    private HistoryChartData? _powerHistory;
-    private HistoryChartData? _batteryChargeHistory;
-    private HistoryChartData? _runtimeHistory;
-    private HistoryChartData? _batteryVoltageHistory;
-    private HistoryChartData? _healthHistory;
-    private HistoryChartData? _powerFactorHistory;
-    private HistoryChartData? _frequencyHistory;
-    private HistoryChartData? _temperatureHistory;
-    private HistoryChartData? _energyHistory;
-    private HistoryStateTimelineData? _stateHistory;
-    private string _periodOutageSummaryText = "-";
-    private string _periodVoltageSummaryText = "-";
-    private string _periodPowerSummaryText = "-";
-    private string _periodEnergySummaryText = "-";
-    private string _periodCostSummaryText = "-";
-    private string _periodCo2SummaryText = "-";
-    private TelemetryPeriodSummary? _lastPeriodSummary;
     private bool _isWindowVisible;
     private int _selectedNavigationIndex;
     private UpsSnapshot? _pendingSnapshot;
     private List<UpsTelemetryViewModel> _telemetryItemsList = [];
-    private IReadOnlyList<ThemeOption> _themeOptions = [];
-    private string _webhookStatus = string.Empty;
-    private double _loadSimulationTargetWatts = 200.0;
-    private string _simulatedRuntimeText = "-";
-    private IReadOnlyList<RuntimeEstimateTableItem> _standardLoadEstimates = [];
-    private PowerTroubleSummary? _troubleSummary;
-    private string _troubleSummaryText = "-";
-    private EnergyReportPeriod _energyReportGranularity = EnergyReportPeriod.Day;
-
-    private IReadOnlyList<AnalyticsMetricOption> _analyticsMetricOptions = [];
-    private AnalyticsMetricOption? _selectedAnalyticsMetric;
-    private IReadOnlyList<AnalyticsRangeOption> _analyticsRangeOptions = [];
-    private AnalyticsRangeOption? _selectedAnalyticsRange;
-    private WeeklyPatternResult? _weeklyPattern;
-    private string _analyticsStatus = string.Empty;
-    private bool _isAnalyticsLoading;
-    private string _analyticsPeakHourText = "-";
-    private string _analyticsLowestHourText = "-";
-    private string _analyticsOverallAvgText = "-";
-    private string _analyticsSampleCountText = "-";
-    private DateTimeOffset _lastAnalyticsRefresh = DateTimeOffset.MinValue;
-    private CancellationTokenSource? _analyticsRefreshCancellation;
-
     private string _manufacturer = "N/A";
     private string _product = "No UPS detected";
     private string _serialNumber = "N/A";
@@ -127,7 +55,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     private string _powerText = "N/A";
     private string _batteryText = "N/A";
     private string _batteryHealthText = "N/A";
-    private DateTimeOffset _lastOfficialModelRefresh = DateTimeOffset.MinValue;
     private string _batteryHealthDetailText = string.Empty;
     private string _batteryHealthConfidenceText = "N/A";
     private string _batteryHealthMethodText = "N/A";
@@ -191,50 +118,30 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         SqliteTelemetryStore? historyStore)
     {
         _engine = engine;
-        _configurationStore = configurationStore;
         _configuration = configuration;
         _historyStore = historyStore;
-        _pollIntervalMs = configuration.Monitoring.PollIntervalMs;
-        _runtimeLowSeconds = configuration.Monitoring.RuntimeLowSeconds;
-        _selectedLanguageCode = LocalizationManager.CurrentLanguageCode;
-        _batteryWarningThresholdPercent = configuration.BatteryHealth.WarningThresholdPercent;
-        _batteryCriticalThresholdPercent = configuration.BatteryHealth.CriticalThresholdPercent;
-        _comparableLoadTolerancePercent = configuration.BatteryHealth.ComparableLoadTolerancePercent;
         ConfigurationFile = paths.ConfigurationFile;
         TelemetryDatabaseFile = paths.TelemetryDatabaseFile;
         LogsDirectory = paths.LogsDirectory;
         _dispatcher = Application.Current.Dispatcher;
+        Func<AppConfiguration,Task> save = config => configurationStore.SaveAsync(config);
+        BatteryHealth = new BatteryHealthViewModel(configuration, save, historyStore,
+            async action => await _dispatcher.InvokeAsync(action), SetSettingsStatus,
+            SetCommandError, ReapplySnapshot);
+        Settings = new SettingsViewModel(configuration, save,
+            new SettingsEffects(theme => ThemeManager.ApplyTheme(Application.Current, theme),
+                language => LocalizationManager.ApplyLanguage(Application.Current, language),
+                StartupManager.SetRunOnStartup, _engine.SetPollInterval, _engine.SetRuntimeLowThreshold,
+                _engine.SetAlertThresholds, RefreshPeriodCost, ReapplySnapshot),
+            BatteryHealth, exception => LastError = exception.Message, LocalizationManager.CurrentLanguageCode,
+            url => WebhookNotifier.SendTestNotificationAsync(url));
+        Settings.TestNotificationRequested += severity => TestNotificationRequested?.Invoke(severity);
         Logs = new LogsViewModel(historyStore);
-        RefreshThemeOptions();
-        RefreshBaselineModeOptions();
-        RefreshVendorHealthCategoryOptions();
-        RefreshHistoryRangeOptions();
-        RefreshAnalyticsOptions();
-        SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync, SetCommandError);
-        RecordRuntimeBaselineCommand = new AsyncRelayCommand(RecordRuntimeBaselineAsync, SetCommandError);
-        ClearRuntimeBaselineCommand = new AsyncRelayCommand(ClearRuntimeBaselineAsync, SetCommandError);
-        RefreshHistoryCommand = new AsyncRelayCommand(RefreshHistoryAsync, SetCommandError);
-        RefreshAnalyticsCommand = new AsyncRelayCommand(RefreshAnalyticsAsync, SetCommandError);
-        ExportTelemetryCsvCommand = new AsyncRelayCommand(ExportTelemetryCsvAsync, SetCommandError);
-        ExportTelemetryJsonCommand = new AsyncRelayCommand(ExportTelemetryJsonAsync, SetCommandError);
-        ExportEventsCsvCommand = new AsyncRelayCommand(ExportEventsCsvAsync, SetCommandError);
-        CancelExportCommand = new AsyncRelayCommand(() => { _exportCancellation?.Cancel(); return Task.CompletedTask; }, SetCommandError);
-        TestNotificationCommand = new AsyncRelayCommand(() =>
-        {
-            TestNotificationRequested?.Invoke(UpsEventSeverity.Warning);
-            return Task.CompletedTask;
-        }, SetCommandError);
-        TestWebhookCommand = new AsyncRelayCommand(async () =>
-        {
-            if (string.IsNullOrWhiteSpace(WebhookUrl))
-            {
-                WebhookStatus = L("WebhookUrlRequired");
-                return;
-            }
-            WebhookStatus = L("WebhookTesting");
-            var success = await WebhookNotifier.SendTestNotificationAsync(WebhookUrl);
-            WebhookStatus = success ? L("WebhookTestSuccess") : L("WebhookTestFailed");
-        }, SetCommandError);
+        Exports = new ExportViewModel(historyStore, ExportFilePicker.Pick, Logs.CreateExportQuery,
+            exception => LastError = exception.Message, SetCommandError);
+        History = new HistoryViewModel(historyStore, configuration, Exports,
+            exception => LastError = exception.Message, SetCommandError);
+        Analytics = new AnalyticsViewModel(historyStore, exception => LastError = exception.Message, SetCommandError);
         OpenMiniMonitorCommand = new AsyncRelayCommand(() =>
         {
             ShowMiniMonitorRequested?.Invoke();
@@ -249,9 +156,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             _historyStore.StorageError += OnHistoryStorageError;
         }
-        RecordOfficialHealthCommand = new AsyncRelayCommand(RecordOfficialHealthAsync, SetCommandError);
-        MigrateLegacyOfficialRecords();
-        _ = BackfillOfficialContextsAsync();
+        BatteryHealth.Initialize();
         ApplyWaitingState();
     }
 
@@ -273,334 +178,23 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public event Action? ShowMiniMonitorRequested;
 
+    public SettingsViewModel Settings { get; }
+    public BatteryHealthViewModel BatteryHealth { get; }
+    public string SelectedLanguageCode => Settings.SelectedLanguageCode;
     public LogsViewModel Logs { get; }
+    private void SetCommandError(Exception exception) => Settings.SetCommandError(exception);
+    private void SetSettingsStatus(string status) => Settings.SetStatus(status);
+    private void RefreshPeriodCost() => History.RefreshPeriodCost();
+    private void ReapplySnapshot() { if (_lastSnapshot is { } snapshot) ApplySnapshot(snapshot); }
 
     public ICommand OpenMiniMonitorCommand { get; }
 
-    public ICommand TestNotificationCommand { get; }
+    public HistoryViewModel History { get; }
+    public ExportViewModel Exports { get; }
 
-    public ICommand TestWebhookCommand { get; }
-
-    public string SelectedTheme
-    {
-        get => _configuration.Ui.Theme;
-        set
-        {
-            if (_configuration.Ui.Theme != value)
-            {
-                _configuration.Ui.Theme = value;
-                ThemeManager.ApplyTheme(Application.Current, value);
-                OnPropertyChanged();
-            }
-        }
-    }
-
-    public IReadOnlyList<ThemeOption> ThemeOptions
-    {
-        get => _themeOptions;
-        private set => SetField(ref _themeOptions, value);
-    }
-
-    public bool EnableSoundAlerts
-    {
-        get => _configuration.Alerts.EnableSoundAlerts;
-        set { _configuration.Alerts.EnableSoundAlerts = value; OnPropertyChanged(); }
-    }
-
-    public double HighLoadWarningPercent
-    {
-        get => _configuration.Alerts.HighLoadWarningPercent;
-        set { _configuration.Alerts.HighLoadWarningPercent = value; OnPropertyChanged(); }
-    }
-
-    public double LowVoltageWarningThreshold
-    {
-        get => _configuration.Alerts.LowVoltageWarningThreshold;
-        set { _configuration.Alerts.LowVoltageWarningThreshold = value; OnPropertyChanged(); }
-    }
-
-    public double HighVoltageWarningThreshold
-    {
-        get => _configuration.Alerts.HighVoltageWarningThreshold;
-        set { _configuration.Alerts.HighVoltageWarningThreshold = value; OnPropertyChanged(); }
-    }
-
-    public bool WebhookEnabled
-    {
-        get => _configuration.Webhook.Enabled;
-        set { _configuration.Webhook.Enabled = value; OnPropertyChanged(); }
-    }
-
-    public string WebhookUrl
-    {
-        get => _configuration.Webhook.Url;
-        set { _configuration.Webhook.Url = value; OnPropertyChanged(); }
-    }
-
-    public bool WebhookNotifyOnPowerLost
-    {
-        get => _configuration.Webhook.NotifyOnPowerLost;
-        set { _configuration.Webhook.NotifyOnPowerLost = value; OnPropertyChanged(); }
-    }
-
-    public bool WebhookNotifyOnPowerRestored
-    {
-        get => _configuration.Webhook.NotifyOnPowerRestored;
-        set { _configuration.Webhook.NotifyOnPowerRestored = value; OnPropertyChanged(); }
-    }
-
-    public bool WebhookNotifyOnBatteryLow
-    {
-        get => _configuration.Webhook.NotifyOnBatteryLow;
-        set { _configuration.Webhook.NotifyOnBatteryLow = value; OnPropertyChanged(); }
-    }
-
-    public bool WebhookNotifyOnHighLoad
-    {
-        get => _configuration.Webhook.NotifyOnHighLoad;
-        set { _configuration.Webhook.NotifyOnHighLoad = value; OnPropertyChanged(); }
-    }
-
-    public string WebhookStatus { get => _webhookStatus; private set => SetField(ref _webhookStatus, value); }
-
-    public bool ExternalCommandEnabled
-    {
-        get => _configuration.ExternalCommand.Enabled;
-        set { _configuration.ExternalCommand.Enabled = value; OnPropertyChanged(); }
-    }
-
-    public string CommandOnPowerLost
-    {
-        get => _configuration.ExternalCommand.CommandOnPowerLost;
-        set { _configuration.ExternalCommand.CommandOnPowerLost = value; OnPropertyChanged(); }
-    }
-
-    public string CommandOnPowerRestored
-    {
-        get => _configuration.ExternalCommand.CommandOnPowerRestored;
-        set { _configuration.ExternalCommand.CommandOnPowerRestored = value; OnPropertyChanged(); }
-    }
-
-    public string CommandOnBatteryLow
-    {
-        get => _configuration.ExternalCommand.CommandOnBatteryLow;
-        set { _configuration.ExternalCommand.CommandOnBatteryLow = value; OnPropertyChanged(); }
-    }
-
-    public string CommandOnHighLoad
-    {
-        get => _configuration.ExternalCommand.CommandOnHighLoad;
-        set { _configuration.ExternalCommand.CommandOnHighLoad = value; OnPropertyChanged(); }
-    }
-
-    public string CommandOnVoltageAbnormal
-    {
-        get => _configuration.ExternalCommand.CommandOnVoltageAbnormal;
-        set { _configuration.ExternalCommand.CommandOnVoltageAbnormal = value; OnPropertyChanged(); }
-    }
-
-    public double LoadSimulationTargetWatts
-    {
-        get => _loadSimulationTargetWatts;
-        set
-        {
-            if (SetField(ref _loadSimulationTargetWatts, Math.Clamp(value, 10.0, 3000.0)))
-            {
-                RecalculateSimulation();
-            }
-        }
-    }
-
-    public string SimulatedRuntimeText { get => _simulatedRuntimeText; private set => SetField(ref _simulatedRuntimeText, value); }
-    public IReadOnlyList<RuntimeEstimateTableItem> StandardLoadEstimates { get => _standardLoadEstimates; private set => SetField(ref _standardLoadEstimates, value); }
-    public ObservableCollection<EnergyReportItem> EnergyReports { get; } = [];
-
-    public EnergyReportPeriod EnergyReportGranularity
-    {
-        get => _energyReportGranularity;
-        set
-        {
-            if (SetField(ref _energyReportGranularity, value))
-            {
-                OnPropertyChanged(nameof(IsEnergyReportDay));
-                OnPropertyChanged(nameof(IsEnergyReportMonth));
-                if (_lastSnapshot is not null && IsHistoryRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
-                {
-                    _ = RefreshHistoryAsync();
-                }
-            }
-        }
-    }
-
-    public bool IsEnergyReportDay
-    {
-        get => EnergyReportGranularity == EnergyReportPeriod.Day;
-        set
-        {
-            if (value)
-            {
-                EnergyReportGranularity = EnergyReportPeriod.Day;
-            }
-        }
-    }
-
-    public bool IsEnergyReportMonth
-    {
-        get => EnergyReportGranularity == EnergyReportPeriod.Month;
-        set
-        {
-            if (value)
-            {
-                EnergyReportGranularity = EnergyReportPeriod.Month;
-            }
-        }
-    }
-    public PowerTroubleSummary? TroubleSummary { get => _troubleSummary; private set => SetField(ref _troubleSummary, value); }
-    public string TroubleSummaryText { get => _troubleSummaryText; private set => SetField(ref _troubleSummaryText, value); }
-
-    public IReadOnlyList<LanguageOption> LanguageOptions { get; } =
-    [
-        new("ja-JP", "日本語"),
-        new("en-US", "English"),
-    ];
-
-    public ICommand SaveSettingsCommand { get; }
-
-    public ICommand RecordRuntimeBaselineCommand { get; }
-
-    public ICommand ClearRuntimeBaselineCommand { get; }
-
-    public ICommand RecordOfficialHealthCommand { get; }
-
-    public ObservableCollection<OfficialRecordRow> OfficialRecords { get; } = [];
-
-    public ObservableCollection<OfficialModelRow> OfficialModelRows { get; } = [];
-
-    public string OfficialErrorText
-    {
-        get => _officialErrorText;
-        private set => SetField(ref _officialErrorText, value);
-    }
-
-    private string _officialRecordCountText = string.Empty;
-    public string OfficialRecordCountText
-    {
-        get => _officialRecordCountText;
-        private set => SetField(ref _officialRecordCountText, value);
-    }
-
-    public double? OfficialRecordPercent
-    {
-        get => _officialRecordPercent;
-        set => SetField(ref _officialRecordPercent, value);
-    }
-
-    public DateTime OfficialRecordDateEnd => DateTime.Today;
-
-    public DateTime? OfficialRecordDate
-    {
-        get => _officialRecordDate;
-        set => SetField(ref _officialRecordDate, value);
-    }
-
-    public string OfficialRecordTime
-    {
-        get => _officialRecordTime;
-        set => SetField(ref _officialRecordTime, value ?? string.Empty);
-    }
-
-    public VendorBatteryHealthCategory OfficialRecordSource
-    {
-        get => _officialRecordSource;
-        set => SetField(ref _officialRecordSource, value);
-    }
-
-    public string OfficialRecordNote
-    {
-        get => _officialRecordNote;
-        set => SetField(ref _officialRecordNote, value ?? string.Empty);
-    }
-
-    public DateTime? BatteryInstalledDate
-    {
-        get => _batteryInstalledDate;
-        set
-        {
-            if (!SetField(ref _batteryInstalledDate, value?.Date) || _officialEditorLoading)
-            {
-                return;
-            }
-
-            _ = SaveBatteryInstalledDateAsync(_batteryInstalledDate);
-        }
-    }
-
-    public ICommand RefreshHistoryCommand { get; }
-
-    public ICommand RefreshAnalyticsCommand { get; }
-
-    public ICommand ExportTelemetryCsvCommand { get; }
-
-    public ICommand ExportTelemetryJsonCommand { get; }
-
-    public ICommand ExportEventsCsvCommand { get; }
+    public AnalyticsViewModel Analytics { get; }
 
     public bool IsExiting { get; set; }
-
-    public bool MinimizeToTray
-    {
-        get => _configuration.Ui.MinimizeToTray;
-        set
-        {
-            _configuration.Ui.MinimizeToTray = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public bool CloseToTray
-    {
-        get => _configuration.Ui.CloseToTray;
-        set
-        {
-            _configuration.Ui.CloseToTray = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public bool StartMinimized
-    {
-        get => _configuration.Ui.StartMinimized;
-        set
-        {
-            _configuration.Ui.StartMinimized = value;
-            OnPropertyChanged();
-            if (RunOnStartup)
-            {
-                StartupManager.SetRunOnStartup(true, value);
-            }
-        }
-    }
-
-    public bool EnableNotifications
-    {
-        get => _configuration.Ui.EnableNotifications;
-        set
-        {
-            _configuration.Ui.EnableNotifications = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public bool RunOnStartup
-    {
-        get => _configuration.Ui.RunOnStartup;
-        set
-        {
-            _configuration.Ui.RunOnStartup = value;
-            StartupManager.SetRunOnStartup(value, StartMinimized);
-            OnPropertyChanged();
-        }
-    }
 
     public string ConfigurationFile { get; }
 
@@ -608,131 +202,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public string LogsDirectory { get; }
 
-    public IReadOnlyList<HistoryRangeOption> HistoryRangeOptions
-    {
-        get => _historyRangeOptions;
-        private set => SetField(ref _historyRangeOptions, value);
-    }
-
-    public HistoryRangeOption? SelectedHistoryRange
-    {
-        get => _selectedHistoryRange;
-        set
-        {
-            if (SetField(ref _selectedHistoryRange, value) && value is not null && _lastSnapshot is not null)
-            {
-                _ = RefreshHistoryAsync();
-            }
-        }
-    }
-
-    public string HistoryStatus { get => _historyStatus; private set => SetField(ref _historyStatus, value); }
-
-    public bool IsHistoryLoading { get => _isHistoryLoading; private set => SetField(ref _isHistoryLoading, value); }
-
-    public HistoryChartData? VoltageHistory { get => _voltageHistory; private set => SetField(ref _voltageHistory, value); }
-
-    public HistoryChartData? LoadHistory { get => _loadHistory; private set => SetField(ref _loadHistory, value); }
-
-    public HistoryChartData? PowerHistory { get => _powerHistory; private set => SetField(ref _powerHistory, value); }
-
-    public HistoryChartData? BatteryChargeHistory { get => _batteryChargeHistory; private set => SetField(ref _batteryChargeHistory, value); }
-
-    public HistoryChartData? RuntimeHistory { get => _runtimeHistory; private set => SetField(ref _runtimeHistory, value); }
-
-    public HistoryChartData? BatteryVoltageHistory { get => _batteryVoltageHistory; private set => SetField(ref _batteryVoltageHistory, value); }
-
-    public HistoryChartData? HealthHistory { get => _healthHistory; private set => SetField(ref _healthHistory, value); }
-
-    public HistoryChartData? PowerFactorHistory { get => _powerFactorHistory; private set => SetField(ref _powerFactorHistory, value); }
-
-    public HistoryChartData? FrequencyHistory { get => _frequencyHistory; private set => SetField(ref _frequencyHistory, value); }
-
-    public HistoryChartData? TemperatureHistory { get => _temperatureHistory; private set => SetField(ref _temperatureHistory, value); }
-
-    public HistoryChartData? EnergyHistory { get => _energyHistory; private set => SetField(ref _energyHistory, value); }
-
-    public HistoryStateTimelineData? StateHistory { get => _stateHistory; private set => SetField(ref _stateHistory, value); }
-
-    public string PeriodOutageSummaryText { get => _periodOutageSummaryText; private set => SetField(ref _periodOutageSummaryText, value); }
-    public string PeriodVoltageSummaryText { get => _periodVoltageSummaryText; private set => SetField(ref _periodVoltageSummaryText, value); }
-    public string PeriodPowerSummaryText { get => _periodPowerSummaryText; private set => SetField(ref _periodPowerSummaryText, value); }
-    public string PeriodEnergySummaryText { get => _periodEnergySummaryText; private set => SetField(ref _periodEnergySummaryText, value); }
-    public string PeriodCostSummaryText { get => _periodCostSummaryText; private set => SetField(ref _periodCostSummaryText, value); }
-    public string PeriodCo2SummaryText { get => _periodCo2SummaryText; private set => SetField(ref _periodCo2SummaryText, value); }
-
-    public double ElectricityRatePerKwh
-    {
-        get => _configuration.Monitoring.ElectricityRatePerKwh;
-        set
-        {
-            if (value is >= 0 and <= 1000)
-            {
-                _configuration.Monitoring.ElectricityRatePerKwh = value;
-                OnPropertyChanged();
-                UpdatePeriodSummaries(_lastPeriodSummary);
-            }
-        }
-    }
-
     public string PowerMarginText { get => _powerMarginText; private set => SetField(ref _powerMarginText, value); }
     public string VoltageMarginText { get => _voltageMarginText; private set => SetField(ref _voltageMarginText, value); }
     public string AvrBoostText { get => _avrBoostText; private set => SetField(ref _avrBoostText, value); }
     public string AvrBoostAccent { get => _avrBoostAccent; private set => SetField(ref _avrBoostAccent, value); }
     public string CellVoltageText { get => _cellVoltageText; private set => SetField(ref _cellVoltageText, value); }
-
-    public bool HasFrequencySensor => _lastSnapshot?.Frequency != null || (_lastSnapshot?.Telemetry.Any(t => t.UsagePage == 0x84 && t.Usage == 0x32) ?? false);
-    public bool HasTemperatureSensor => _lastSnapshot?.Temperature != null || (_lastSnapshot?.Telemetry.Any(t => t.UsagePage == 0x84 && t.Usage == 0x36) ?? false);
-    public string FrequencyEmptyText => HasFrequencySensor ? L("HistoryNoData") : L("SensorUnsupported");
-    public string TemperatureEmptyText => HasTemperatureSensor ? L("HistoryNoData") : L("SensorUnsupported");
-
-    public IReadOnlyList<AnalyticsMetricOption> AnalyticsMetricOptions
-    {
-        get => _analyticsMetricOptions;
-        private set => SetField(ref _analyticsMetricOptions, value);
-    }
-
-    public AnalyticsMetricOption? SelectedAnalyticsMetric
-    {
-        get => _selectedAnalyticsMetric;
-        set
-        {
-            if (SetField(ref _selectedAnalyticsMetric, value) && value is not null && _lastSnapshot is not null)
-            {
-                OnPropertyChanged(nameof(AnalyticsUnit));
-                OnPropertyChanged(nameof(AnalyticsHeatmapTitle));
-                _ = RefreshAnalyticsAsync();
-            }
-        }
-    }
-
-    public IReadOnlyList<AnalyticsRangeOption> AnalyticsRangeOptions
-    {
-        get => _analyticsRangeOptions;
-        private set => SetField(ref _analyticsRangeOptions, value);
-    }
-
-    public AnalyticsRangeOption? SelectedAnalyticsRange
-    {
-        get => _selectedAnalyticsRange;
-        set
-        {
-            if (SetField(ref _selectedAnalyticsRange, value) && value is not null && _lastSnapshot is not null)
-            {
-                _ = RefreshAnalyticsAsync();
-            }
-        }
-    }
-
-    public WeeklyPatternResult? WeeklyPattern { get => _weeklyPattern; private set => SetField(ref _weeklyPattern, value); }
-    public string AnalyticsStatus { get => _analyticsStatus; private set => SetField(ref _analyticsStatus, value); }
-    public bool IsAnalyticsLoading { get => _isAnalyticsLoading; private set => SetField(ref _isAnalyticsLoading, value); }
-    public string AnalyticsPeakHourText { get => _analyticsPeakHourText; private set => SetField(ref _analyticsPeakHourText, value); }
-    public string AnalyticsLowestHourText { get => _analyticsLowestHourText; private set => SetField(ref _analyticsLowestHourText, value); }
-    public string AnalyticsOverallAvgText { get => _analyticsOverallAvgText; private set => SetField(ref _analyticsOverallAvgText, value); }
-    public string AnalyticsSampleCountText { get => _analyticsSampleCountText; private set => SetField(ref _analyticsSampleCountText, value); }
-    public string AnalyticsUnit => SelectedAnalyticsMetric?.Unit ?? string.Empty;
-    public string AnalyticsHeatmapTitle => LocalizationManager.Format("AnalyticsHeatmapTitleFormat", SelectedAnalyticsMetric?.DisplayName);
 
     public bool IsWindowVisible
     {
@@ -742,23 +216,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             if (SetField(ref _isWindowVisible, value))
             {
                 Logs.SetActive(value && _selectedNavigationIndex == LogsIndex);
-                if (value)
+                if (value && _pendingSnapshot is { } pending)
                 {
-                    if (_pendingSnapshot is { } pending)
-                    {
-                        _pendingSnapshot = null;
-                        ApplySnapshotCore(pending);
-                    }
-
-                    if (IsHistoryRefreshTarget(_selectedNavigationIndex) && _lastSnapshot is not null && DateTimeOffset.Now - _lastHistoryRefresh >= TimeSpan.FromSeconds(5))
-                    {
-                        _ = RefreshHistoryAsync();
-                    }
-                    else if (IsAnalyticsRefreshTarget(_selectedNavigationIndex) && _lastSnapshot is not null && DateTimeOffset.Now - _lastAnalyticsRefresh >= TimeSpan.FromSeconds(5))
-                    {
-                        _ = RefreshAnalyticsAsync();
-                    }
+                    _pendingSnapshot = null;
+                    ApplySnapshotCore(pending);
                 }
+                History.SetActive(value && IsHistoryRefreshTarget(_selectedNavigationIndex));
+                Analytics.SetActive(value && IsAnalyticsRefreshTarget(_selectedNavigationIndex));
             }
         }
     }
@@ -771,111 +235,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             if (SetField(ref _selectedNavigationIndex, value))
             {
                 Logs.SetActive(_isWindowVisible && value == LogsIndex);
-                if (IsHistoryRefreshTarget(value) && _isWindowVisible && _lastSnapshot is not null && DateTimeOffset.Now - _lastHistoryRefresh >= TimeSpan.FromSeconds(5))
-                {
-                    _ = RefreshHistoryAsync();
-                }
-                else if (IsAnalyticsRefreshTarget(value) && _isWindowVisible && _lastSnapshot is not null && DateTimeOffset.Now - _lastAnalyticsRefresh >= TimeSpan.FromSeconds(5))
-                {
-                    _ = RefreshAnalyticsAsync();
-                }
+                History.SetActive(_isWindowVisible && IsHistoryRefreshTarget(value));
+                Analytics.SetActive(_isWindowVisible && IsAnalyticsRefreshTarget(value));
             }
         }
     }
-
-    public int RuntimeLowSeconds
-    {
-        get => _runtimeLowSeconds;
-        set => SetField(ref _runtimeLowSeconds, value);
-    }
-
-    public int PollIntervalMs
-    {
-        get => _pollIntervalMs;
-        set => SetField(ref _pollIntervalMs, value);
-    }
-
-    public string SelectedLanguageCode
-    {
-        get => _selectedLanguageCode;
-        set
-        {
-            if (!SetField(ref _selectedLanguageCode, value))
-            {
-                return;
-            }
-
-            _configuration.Ui.Language = value;
-            LocalizationManager.ApplyLanguage(Application.Current, value);
-        }
-    }
-
-    public double BatteryWarningThresholdPercent
-    {
-        get => _batteryWarningThresholdPercent;
-        set => SetField(ref _batteryWarningThresholdPercent, value);
-    }
-
-    public double BatteryCriticalThresholdPercent
-    {
-        get => _batteryCriticalThresholdPercent;
-        set => SetField(ref _batteryCriticalThresholdPercent, value);
-    }
-
-    public double ComparableLoadTolerancePercent
-    {
-        get => _comparableLoadTolerancePercent;
-        set => SetField(ref _comparableLoadTolerancePercent, value);
-    }
-
-    public IReadOnlyList<BatteryBaselineModeOption> BaselineModeOptions
-    {
-        get => _baselineModeOptions;
-        private set => SetField(ref _baselineModeOptions, value);
-    }
-
-    public BatteryRuntimeBaselineKind SelectedBaselineKind
-    {
-        get => _selectedBaselineKind;
-        set
-        {
-            if (SetField(ref _selectedBaselineKind, value))
-            {
-                OnPropertyChanged(nameof(BaselineInstructionText));
-            }
-        }
-    }
-
-    public double KnownHealthPercent
-    {
-        get => _knownHealthPercent;
-        set => SetField(ref _knownHealthPercent, value);
-    }
-
-    public string KnownHealthSource
-    {
-        get => _knownHealthSource;
-        set => SetField(ref _knownHealthSource, value);
-    }
-
-    public IReadOnlyList<VendorHealthCategoryOption> VendorHealthCategoryOptions
-    {
-        get => _vendorHealthCategoryOptions;
-        private set => SetField(ref _vendorHealthCategoryOptions, value);
-    }
-
-    public VendorBatteryHealthCategory SelectedVendorHealthCategory
-    {
-        get => _selectedVendorHealthCategory;
-        set => SetField(ref _selectedVendorHealthCategory, value);
-    }
-
-    public string BaselineInstructionText => L(SelectedBaselineKind switch
-    {
-        BatteryRuntimeBaselineKind.NewBattery => "BaselineInstructionNew",
-        BatteryRuntimeBaselineKind.KnownHealthAnchor => "BaselineInstructionKnown",
-        _ => "BaselineInstructionRelative",
-    });
 
     public string ConnectionText { get => _connectionText; private set => SetField(ref _connectionText, value); }
     public string StateText { get => _stateText; private set => SetField(ref _stateText, value); }
@@ -883,7 +247,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
     public string StatusAccent { get => _statusAccent; private set => SetField(ref _statusAccent, value); }
     public string LastUpdateText { get => _lastUpdateText; private set => SetField(ref _lastUpdateText, value); }
     public string LastError { get => _lastError; private set => SetField(ref _lastError, value); }
-    public string SettingsStatus { get => _settingsStatus; private set => SetField(ref _settingsStatus, value); }
     public string TelemetryCountText { get => _telemetryCountText; private set => SetField(ref _telemetryCountText, value); }
     public IReadOnlyList<UpsTelemetryViewModel> TelemetryItems { get => _telemetryItems; private set => SetField(ref _telemetryItems, value); }
 
@@ -956,11 +319,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _exportCancellation?.Cancel();
-        await ExportShutdown.WaitForWorkerAsync(_exportWorker, ExportShutdown.WaitTimeout).ConfigureAwait(false);
+        await Exports.DisposeAsync().ConfigureAwait(false);
+        Settings.Dispose();
+        BatteryHealth.Dispose();
         Logs.Dispose();
-        _historyRefreshCancellation?.Cancel();
-        _historyRefreshCancellation?.Dispose();
+        Analytics.Dispose();
+        History.Dispose();
         _engine.SnapshotUpdated -= OnSnapshotUpdated;
         _engine.EventDetected -= OnEventDetected;
         _engine.MonitorError -= OnMonitorError;
@@ -983,7 +347,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             Logs.AddLive(upsEvent);
             NotificationRequested?.Invoke(eventVm.Type, eventVm.Message, upsEvent.Severity);
 
-            if (EnableSoundAlerts)
+            if (Settings.EnableSoundAlerts)
             {
                 try
                 {
@@ -1045,20 +409,16 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
-        _selectedLanguageCode = LocalizationManager.CurrentLanguageCode;
+        Settings.RefreshLanguage(LocalizationManager.CurrentLanguageCode);
         OnPropertyChanged(nameof(SelectedLanguageCode));
-        RefreshThemeOptions();
-        RefreshBaselineModeOptions();
-        RefreshVendorHealthCategoryOptions();
-        RefreshHistoryRangeOptions();
-        RefreshAnalyticsOptions();
-        OnPropertyChanged(nameof(BaselineInstructionText));
+        History.RefreshLanguage(refresh: false);
         Logs.RefreshLanguage();
+        Analytics.RefreshLanguage(refresh: false);
         // 記録時の誤差・詳細・有効件数・比較表も、保存せず即時に翻訳し直す。
-        RefreshOfficialEditor(_lastSnapshot is { } current ? FindHealthProfile(current.Device) : null);
+        BatteryHealth.RefreshLanguage();
         _telemetryItemsList.Clear();
         TelemetryItems = [];
-        SettingsStatus = string.Empty;
+        Settings.SetStatus(string.Empty);
 
         if (_lastSnapshot is { } snapshot)
         {
@@ -1069,24 +429,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             ApplyWaitingState();
         }
 
-        if (_lastSnapshot is not null && IsHistoryRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
-        {
-            _ = RefreshHistoryAsync();
-        }
-        else if (_lastSnapshot is not null && IsAnalyticsRefreshTarget(_selectedNavigationIndex) && _isWindowVisible)
-        {
-            _ = RefreshAnalyticsAsync();
-        }
-    }
-
-    private void RefreshThemeOptions()
-    {
-        ThemeOptions = LocalizedOption.UpdateLabels(ThemeOptions,
-        [
-            new("system", L("ThemeSystem")),
-            new("dark", L("ThemeDark")),
-            new("light", L("ThemeLight")),
-        ]);
+        History.RefreshIfActive();
+        Analytics.RefreshIfActive();
     }
 
     private void ApplyWaitingState()
@@ -1098,27 +442,23 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         LastUpdateText = L("NeverUpdated");
         Product = L("NoUpsDetected");
         TelemetryCountText = LocalizationManager.Format("TelemetryCountFormat", 0, 0, 0, 0);
-        HistoryStatus = _historyStore is null ? L("HistoryUnavailable") : L("HistoryWaitingForUps");
+        History.SetWaitingState();
         RaiseSnapshotProperties();
     }
 
     private void ApplySnapshot(UpsSnapshot snapshot)
     {
         // 日付をまたいだ後も、記録欄のカレンダー上限を今日に更新する。
-        OnPropertyChanged(nameof(OfficialRecordDateEnd));
         _lastSnapshot = snapshot;
+        Analytics.SetSnapshot(snapshot);
+        History.SetSnapshot(snapshot);
         var telemetry = UpsTelemetryValidator.Normalize(snapshot);
         _lastTelemetry = telemetry;
+        BatteryHealth.SetSnapshot(snapshot, telemetry);
         _lastHealthTelemetry = ApplySteadyStateFilter(snapshot, telemetry);
-        var healthProfile = FindHealthProfile(snapshot.Device);
-        var health = BatteryHealthCalculator.Calculate(_lastHealthTelemetry, healthProfile, CreateHealthOptions());
-        if (healthProfile is not null
-            && healthProfile.OfficialHealthRecords.Count > 0
-            && DateTimeOffset.Now - _lastOfficialModelRefresh >= TimeSpan.FromMinutes(1))
-        {
-            // モデル比較表の現在値は1分ごとに更新する(毎秒は再計算しない)。
-            RefreshOfficialModelRows(healthProfile);
-        }
+        var healthProfile = BatteryHealth.FindHealthProfile(snapshot.Device);
+        var health = BatteryHealthCalculator.Calculate(_lastHealthTelemetry, healthProfile, BatteryHealth.CreateHealthOptions());
+        BatteryHealth.RefreshModelIfDue();
 
         var state =UpsPowerStateEvaluator.Evaluate(snapshot);
         StateText = state switch
@@ -1135,7 +475,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
         TooltipUpdated?.Invoke($"{Product}\n{StateText} - {BatteryText} ({RuntimeText})");
         DynamicTrayIconUpdated?.Invoke(state, telemetry.BatteryChargePercent.Value, snapshot.AcPresent ?? false);
-        RecalculateSimulation();
+        BatteryHealth.RecalculateSimulation();
 
         if (_historyStore is not null && snapshot.Device is { } historyDevice)
         {
@@ -1162,17 +502,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
 
         ApplySnapshotCore(snapshot, telemetry, healthProfile, health);
 
-        if (_historyStore is not null && IsHistoryRefreshTarget(_selectedNavigationIndex) && snapshot.Timestamp - _lastHistoryRefresh >= TimeSpan.FromSeconds(10))
-        {
-            _ = RefreshHistoryAsync();
-        }
+        History.RefreshForSnapshot();
     }
 
     private void ApplySnapshotCore(UpsSnapshot snapshot)
     {
         var telemetry = _lastTelemetry ?? UpsTelemetryValidator.Normalize(snapshot);
-        var healthProfile = FindHealthProfile(snapshot.Device);
-        var health = BatteryHealthCalculator.Calculate(_lastHealthTelemetry ?? telemetry, healthProfile, CreateHealthOptions());
+        var healthProfile = BatteryHealth.FindHealthProfile(snapshot.Device);
+        var health = BatteryHealthCalculator.Calculate(_lastHealthTelemetry ?? telemetry, healthProfile, BatteryHealth.CreateHealthOptions());
         ApplySnapshotCore(snapshot, telemetry, healthProfile, health);
     }
 
@@ -1182,7 +519,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         BatteryHealthProfile? healthProfile,
         BatteryHealthResult health)
     {
-        InitializeBaselineEditor(healthProfile);
+        BatteryHealth.InitializeBaselineEditor(healthProfile);
         LastUpdateText = LocalizationManager.Format("LastUpdateFormat", snapshot.Timestamp.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
         ConnectionText = snapshot.IsConnected ? L("Connected") : L("Disconnected");
 
@@ -1384,7 +721,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             return telemetry;
         }
 
-        var id = DeviceId(device);
+        var id = UpsDeviceIdentity.Create(device);
         if (!_steadyStateFilters.TryGetValue(id, out var filter))
         {
             filter = new RuntimeSteadyStateFilter();
@@ -1394,1028 +731,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         return filter.Apply(telemetry);
     }
 
-    private void MigrateLegacyOfficialRecords()
-    {
-        var migrated = false;
-        foreach (var profile in _configuration.BatteryHealth.Profiles)
-        {
-            migrated |= OfficialHealthEstimator.TryMigrateLegacyAnchor(profile);
-        }
-
-        if (migrated)
-        {
-            _ = SaveConfigurationQuietlyAsync();
-        }
-    }
-
-    // 起動時に1回、履歴取得が未完了の記録を補完する。保存済みの現在値は維持する。
-    private async Task BackfillOfficialContextsAsync()
-    {
-        if (_historyStore is null)
-        {
-            return;
-        }
-
-        try
-        {
-            var changed = false;
-            foreach (var profile in _configuration.BatteryHealth.Profiles.ToArray())
-            {
-                if (!profile.OfficialHealthRecords.Any(item => !item.ContextBackfillAttempted))
-                {
-                    continue;
-                }
-
-                changed |= await OfficialHealthContextService
-                    .BackfillAsync(profile.OfficialHealthRecords, profile.DeviceId, _historyStore)
-                    .ConfigureAwait(false) > 0;
-            }
-
-            if (changed)
-            {
-                await _configurationStore.SaveAsync(_configuration).ConfigureAwait(false);
-                await _dispatcher.InvokeAsync(() =>
-                {
-                    if (_lastSnapshot?.Device is { } device)
-                    {
-                        RefreshOfficialEditor(FindHealthProfile(device));
-                    }
-                });
-            }
-        }
-        catch (Exception exception)
-        {
-            SetCommandError(exception);
-        }
-    }
-
-    private OfficialHealthContext? CaptureLiveContext()
-    {
-        var snapshot = _lastSnapshot;
-        var telemetry = _lastTelemetry;
-        if (snapshot is null || telemetry is not { IsConnected: true })
-        {
-            return null;
-        }
-
-        return new OfficialHealthContext
-        {
-            LoadPercent = telemetry.LoadPercent.IsValid ? telemetry.LoadPercent.Value : null,
-            ActivePowerWatts = telemetry.ActivePowerWatts.IsValid ? telemetry.ActivePowerWatts.Value : null,
-            RuntimeSeconds = telemetry.RuntimeRemaining.IsValid ? telemetry.RuntimeRemaining.Value?.TotalSeconds : null,
-            BatteryVoltage = telemetry.BatteryVoltage.IsValid ? telemetry.BatteryVoltage.Value : null,
-            InputVoltage = snapshot.InputVoltage,
-            TemperatureCelsius = snapshot.Temperature,
-            Charging = snapshot.Charging,
-        };
-    }
-
-    private async Task SaveConfigurationQuietlyAsync()
-    {
-        try
-        {
-            await _configurationStore.SaveAsync(_configuration);
-        }
-        catch (Exception exception)
-        {
-            SetCommandError(exception);
-        }
-    }
-
-    private async Task RecordOfficialHealthAsync()
-    {
-        if (_lastSnapshot?.Device is not { } device)
-        {
-            SettingsStatus = L("OfficialRecordRequiresUps");
-            return;
-        }
-
-        if (OfficialRecordPercent is not { } percent || !double.IsFinite(percent) || percent is < 0 or > 100)
-        {
-            SettingsStatus = L("OfficialRecordValueInvalid");
-            return;
-        }
-
-        var resolvedTime = OfficialRecordTimeResolver.Resolve(
-            OfficialRecordDate, OfficialRecordTime, DateTimeOffset.Now);
-        if (resolvedTime.RecordedAt is not { } recordedAt)
-        {
-            SettingsStatus = L(resolvedTime.Error == OfficialRecordTimeError.InvalidTimeFormat
-                ? "OfficialRecordTimeInvalid"
-                : "OfficialRecordFutureInvalid");
-            return;
-        }
-
-        var profile = FindHealthProfile(device);
-        if (profile is null)
-        {
-            profile = new BatteryHealthProfile { DeviceId = DeviceId(device) };
-            _configuration.BatteryHealth.Profiles.Add(profile);
-        }
-
-        var newRecord = new OfficialHealthRecord
-        {
-            RecordedAt = recordedAt,
-            HealthPercent = percent,
-            Source = OfficialRecordSource,
-            Note = string.IsNullOrWhiteSpace(OfficialRecordNote) ? null : OfficialRecordNote.Trim(),
-        };
-        // 履歴取得が未完了なら、現在値を保存できても次回起動時の補完対象に残す。
-        await OfficialHealthContextService.CaptureForRecordAsync(
-            newRecord,
-            _historyStore,
-            profile.DeviceId,
-            DateTimeOffset.Now,
-            CaptureLiveContext());
-        var record = OfficialHealthEstimator.AddRecord(
-            profile.OfficialHealthRecords,
-            profile.BatteryInstalledAt,
-            newRecord);
-
-        await _configurationStore.SaveAsync(_configuration);
-        RefreshOfficialEditor(profile);
-        SettingsStatus = LocalizationManager.Format(
-            "OfficialRecordSavedFormat",
-            record.HealthPercent,
-            record.RecordedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.CurrentCulture));
-        ApplySnapshot(_lastSnapshot);
-    }
-
-    private async Task DeleteOfficialRecordAsync(OfficialHealthRecord record)
-    {
-        if (_lastSnapshot?.Device is not { } device || FindHealthProfile(device) is not { } profile)
-        {
-            return;
-        }
-
-        // 他の記録の PredictedPercent は再計算せず、記録時点の値を保持する。
-        if (!profile.OfficialHealthRecords.Remove(record))
-        {
-            return;
-        }
-
-        await _configurationStore.SaveAsync(_configuration);
-        RefreshOfficialEditor(profile);
-        SettingsStatus = L("OfficialRecordDeleted");
-        ApplySnapshot(_lastSnapshot);
-    }
-
-    private async Task SaveBatteryInstalledDateAsync(DateTime? date)
-    {
-        try
-        {
-            if (_lastSnapshot?.Device is not { } device)
-            {
-                SettingsStatus = L("OfficialRecordRequiresUps");
-                return;
-            }
-
-            var profile = FindHealthProfile(device);
-            if (profile is null)
-            {
-                if (date is null)
-                {
-                    return;
-                }
-
-                profile = new BatteryHealthProfile { DeviceId = DeviceId(device) };
-                _configuration.BatteryHealth.Profiles.Add(profile);
-            }
-
-            profile.BatteryInstalledAt = date is { } value ? new DateTimeOffset(value.Date) : null;
-            await _configurationStore.SaveAsync(_configuration);
-            SettingsStatus = L("OfficialInstalledSaved");
-            ApplySnapshot(_lastSnapshot);
-        }
-        catch (Exception exception)
-        {
-            SetCommandError(exception);
-        }
-    }
-
-    private void RefreshOfficialEditor(BatteryHealthProfile? profile)
-    {
-        _officialEditorLoading = true;
-        try
-        {
-            BatteryInstalledDate = profile?.BatteryInstalledAt?.ToLocalTime().Date;
-        }
-        finally
-        {
-            _officialEditorLoading = false;
-        }
-
-        OfficialRecords.Clear();
-        var records = profile?.OfficialHealthRecords ?? [];
-        foreach (var record in records.OrderBy(item => item.RecordedAt))
-        {
-            var predicted = record.PredictedPercent;
-            OfficialRecords.Add(new OfficialRecordRow(
-                record,
-                record.RecordedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.CurrentCulture),
-                $"{record.HealthPercent:0.#}%",
-                predicted is { } value ? $"{value:0.#}%" : "—",
-                FormatOfficialError(record.HealthPercent, predicted),
-                FormatOfficialDetail(record),
-                new AsyncRelayCommand(() => DeleteOfficialRecordAsync(record), SetCommandError)));
-        }
-
-        OfficialErrorText = OfficialHealthEstimator.MeanAbsoluteError(records) is { } mae
-            ? LocalizationManager.Format("OfficialRecordMaeFormat", mae)
-            : "—";
-        RefreshOfficialModelRows(profile);
-    }
-
-    private void RefreshOfficialModelRows(BatteryHealthProfile? profile)
-    {
-        _lastOfficialModelRefresh = DateTimeOffset.Now;
-        OfficialModelRows.Clear();
-        var records = profile?.OfficialHealthRecords ?? [];
-        OfficialRecordCountText = LocalizationManager.Format("OfficialRecordCountFormat",
-            records.Count, OfficialHealthEstimator.GroupRecords(records).Length);
-        if (profile is null
-            || OfficialHealthEstimator.Estimate(profile.OfficialHealthRecords, profile.BatteryInstalledAt, DateTimeOffset.Now)
-                is not { } estimate)
-        {
-            return;
-        }
-
-        foreach (var result in estimate.Models)
-        {
-            OfficialModelRows.Add(new OfficialModelRow(
-                LocalizeOfficialModel(result.Model),
-                result.Percent is { } value ? $"{value:0.0}%" : L("OfficialModelUnavailable"),
-                result.BacktestCount > 0 ? result.BacktestCount.ToString(CultureInfo.CurrentCulture) : "—",
-                result.MeanAbsoluteError is { } mae ? $"{mae:0.00}" : "—",
-                result.Model == estimate.Model ? L("OfficialModelSelected") : string.Empty));
-        }
-    }
-
-    private static string LocalizeOfficialModel(OfficialHealthModel model) => L(model switch
-    {
-        OfficialHealthModel.InstallAnchoredLinear => "OfficialModelInstallAnchoredLinear",
-        OfficialHealthModel.AcceleratingPower => "OfficialModelAcceleratingPower",
-        _ => "OfficialModelRecentLinear",
-    });
-
-    private static string FormatOfficialError(double actual, double? predicted)
-    {
-        if (predicted is not { } value)
-        {
-            return "—";
-        }
-
-        var error = actual - value;
-        var text = error.ToString("+0.0;-0.0;0.0", CultureInfo.CurrentCulture);
-        return OfficialHealthEstimator.IsWithinRounding(error)
-            ? $"{text} ({L("OfficialRecordWithinRounding")})"
-            : text;
-    }
-
-    // 記録一覧の補足1行: メモ + 記録時の状況の要約。無い項目は省略し、全部無ければ空。
-    private static string FormatOfficialDetail(OfficialHealthRecord record)
-    {
-        var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(record.Note))
-        {
-            parts.Add(record.Note.Trim());
-        }
-
-        if (record.Context is { } context)
-        {
-            var load = new List<string>();
-            if (context.LoadPercent is { } loadPercent)
-            {
-                load.Add(LocalizationManager.Format("OfficialContextLoad", loadPercent));
-            }
-
-            if (context.ActivePowerWatts is { } watts)
-            {
-                load.Add(LocalizationManager.Format("OfficialContextPower", watts));
-            }
-
-            var items = new List<string>();
-            if (load.Count > 0)
-            {
-                items.Add(string.Join(" / ", load));
-            }
-
-            if (context.RuntimeSeconds is { } runtimeSeconds && runtimeSeconds > 0)
-            {
-                items.Add(LocalizationManager.Format("OfficialContextRuntime", FormatDuration(TimeSpan.FromSeconds(runtimeSeconds))));
-            }
-
-            if (context.BatteryVoltage is { } batteryVoltage)
-            {
-                items.Add(LocalizationManager.Format("OfficialContextBatteryVoltage", batteryVoltage));
-            }
-
-            if (context.InputVoltage is { } inputVoltage)
-            {
-                items.Add(LocalizationManager.Format("OfficialContextInputVoltage", inputVoltage));
-            }
-
-            if (context.TemperatureCelsius is { } temperature)
-            {
-                items.Add(LocalizationManager.Format("OfficialContextTemperature", temperature));
-            }
-
-            if (context.Charging is true)
-            {
-                items.Add(L("OfficialContextCharging"));
-            }
-
-            if (context.Load24HourMean is { } dayMean)
-            {
-                items.Add(LocalizationManager.Format("OfficialContextLoad24h", dayMean));
-            }
-
-            if (context.DaysSinceLastDischarge is { } days)
-            {
-                items.Add(LocalizationManager.Format("OfficialContextLastDischarge", days));
-            }
-            else if (context.HistoryStartedAt is { } started && items.Count > 0)
-            {
-                items.Add(LocalizationManager.Format("OfficialContextNoDischarge", FormatOfficialDate(started)));
-            }
-
-            if (items.Count > 0)
-            {
-                parts.Add(string.Join(L("OfficialContextSeparator"), items));
-            }
-        }
-
-        return string.Join("  |  ", parts);
-    }
-
-    private async Task RecordRuntimeBaselineAsync()
-    {
-        if (_lastSnapshot?.Device is not { } device || _lastTelemetry is not { IsConnected: true } telemetry)
-        {
-            SettingsStatus = L("BaselineRequiresUps");
-            return;
-        }
-
-        var fullyCharged = telemetry.FullyCharged.Value is true
-            || (telemetry.BatteryChargePercent.IsValid && telemetry.BatteryChargePercent.Value >= 95);
-        if (!fullyCharged)
-        {
-            SettingsStatus = L("BaselineRequiresFullCharge");
-            return;
-        }
-
-        if (!telemetry.LoadPercent.IsValid
-            || telemetry.LoadPercent.Value is not { } load
-            || load is <= 0 or > 100
-            || !telemetry.RuntimeRemaining.IsValid
-            || telemetry.RuntimeRemaining.Value is not { } runtime
-            || runtime <= TimeSpan.Zero)
-        {
-            SettingsStatus = L("BaselineRequiresTelemetry");
-            return;
-        }
-
-        if (SelectedBaselineKind == BatteryRuntimeBaselineKind.KnownHealthAnchor
-            && (KnownHealthPercent is <= 0 or > 100 || !double.IsFinite(KnownHealthPercent)))
-        {
-            SettingsStatus = L("KnownHealthValidation");
-            return;
-        }
-
-        var profile = FindHealthProfile(device);
-        if (profile is null)
-        {
-            profile = new BatteryHealthProfile { DeviceId = DeviceId(device) };
-            _configuration.BatteryHealth.Profiles.Add(profile);
-        }
-
-        var recordedAt = DateTimeOffset.Now;
-        profile.RuntimeBaselineKind = SelectedBaselineKind;
-        profile.BaselineRecordedAt = recordedAt;
-        switch (SelectedBaselineKind)
-        {
-            case BatteryRuntimeBaselineKind.NewBattery:
-                profile.AnchorHealthPercent = 100;
-                profile.AnchorSource = null;
-                profile.VendorHealthCategory = VendorBatteryHealthCategory.Unknown;
-                profile.BatteryInstalledAt ??= recordedAt;
-                break;
-
-            case BatteryRuntimeBaselineKind.KnownHealthAnchor:
-                profile.AnchorHealthPercent = KnownHealthPercent;
-                profile.AnchorSource = string.IsNullOrWhiteSpace(KnownHealthSource)
-                    ? "CyberPower BHI"
-                    : KnownHealthSource.Trim();
-                profile.VendorHealthCategory = SelectedVendorHealthCategory;
-                break;
-
-            default:
-                profile.AnchorHealthPercent = null;
-                profile.AnchorSource = null;
-                profile.VendorHealthCategory = VendorBatteryHealthCategory.Unknown;
-                break;
-        }
-
-        profile.RuntimeBaselines.RemoveAll(item => Math.Abs(item.LoadPercent - load) < 1);
-        profile.RuntimeBaselines.Add(new BatteryRuntimeBaselinePoint
-        {
-            LoadPercent = load,
-            Runtime = runtime,
-            MeasuredAt = recordedAt,
-        });
-
-        await _configurationStore.SaveAsync(_configuration);
-        SettingsStatus = LocalizationManager.Format(
-            "BaselineRecordedFormat",
-            load,
-            FormatDuration(runtime),
-            LocalizeBaselineKind(SelectedBaselineKind));
-        RefreshOfficialEditor(profile);
-        ApplySnapshot(_lastSnapshot);
-    }
-
-    private async Task ClearRuntimeBaselineAsync()
-    {
-        if (_lastSnapshot?.Device is not { } device || FindHealthProfile(device) is not { } profile)
-        {
-            SettingsStatus = L("BaselineNothingToClear");
-            return;
-        }
-
-        profile.RuntimeBaselines.Clear();
-        profile.RuntimeBaselineKind = BatteryRuntimeBaselineKind.Unspecified;
-        profile.AnchorHealthPercent = null;
-        profile.AnchorSource = null;
-        profile.VendorHealthCategory = VendorBatteryHealthCategory.Unknown;
-        profile.BaselineRecordedAt = null;
-        await _configurationStore.SaveAsync(_configuration);
-        SettingsStatus = L("BaselineCleared");
-        ApplySnapshot(_lastSnapshot);
-    }
-
-    private void RecalculateSimulation()
-    {
-        var batPercent = _lastTelemetry?.BatteryChargePercent.Value ?? 100.0;
-        var soh = (_lastSnapshot is not null) ? FindHealthProfile(_lastSnapshot.Device)?.AnchorHealthPercent ?? 100.0 : 100.0;
-        var nomVolt = _lastTelemetry?.NominalBatteryVoltage.Value ?? 24.0;
-        var ratedWatts = _lastSnapshot?.ConfigActivePower ?? 780.0;
-        var currentRuntime = _lastTelemetry?.RuntimeRemaining.Value;
-        var currentLoad = _lastTelemetry?.ActivePowerWatts.Value;
-
-        var simulatedTime = RuntimeEstimator.EstimateRuntime(
-            LoadSimulationTargetWatts,
-            batPercent,
-            soh,
-            nomVolt,
-            batteryCapacityAh: null,
-            baselineRuntimeAtCurrentLoad: currentRuntime,
-            currentActiveLoadWatts: currentLoad,
-            ratedActivePowerWatts: ratedWatts);
-
-        SimulatedRuntimeText = $"{simulatedTime.TotalMinutes:0.#} {L("MinutesUnit")}";
-
-        StandardLoadEstimates = RuntimeEstimator.GenerateStandardLoadEstimates(
-            batPercent,
-            soh,
-            nomVolt,
-            ratedWatts,
-            currentRuntime,
-            currentLoad);
-    }
-
-    private async Task SaveSettingsAsync()
-    {
-        if (PollIntervalMs is < 250 or > 60_000)
-        {
-            SettingsStatus = L("PollIntervalValidation");
-            return;
-        }
-
-        if (RuntimeLowSeconds is < 0 or > 86_400)
-        {
-            SettingsStatus = "Invalid runtime low threshold (0-86400).";
-            return;
-        }
-
-        if (!AreHealthSettingsValid())
-        {
-            SettingsStatus = L("BatteryHealthThresholdValidation");
-            return;
-        }
-
-        _configuration.Monitoring.PollIntervalMs = PollIntervalMs;
-        _configuration.Monitoring.RuntimeLowSeconds = RuntimeLowSeconds;
-        _configuration.Monitoring.ElectricityRatePerKwh = ElectricityRatePerKwh;
-        _configuration.Ui.Language = SelectedLanguageCode;
-        _configuration.Ui.Theme = SelectedTheme;
-        _configuration.Ui.MinimizeToTray = MinimizeToTray;
-        _configuration.Ui.CloseToTray = CloseToTray;
-        _configuration.Ui.StartMinimized = StartMinimized;
-        _configuration.Ui.EnableNotifications = EnableNotifications;
-        _configuration.Ui.RunOnStartup = RunOnStartup;
-        _configuration.BatteryHealth.WarningThresholdPercent = BatteryWarningThresholdPercent;
-        _configuration.BatteryHealth.CriticalThresholdPercent = BatteryCriticalThresholdPercent;
-        _configuration.BatteryHealth.ComparableLoadTolerancePercent = ComparableLoadTolerancePercent;
-        _configuration.Alerts.EnableSoundAlerts = EnableSoundAlerts;
-        _configuration.Alerts.HighLoadWarningPercent = HighLoadWarningPercent;
-        _configuration.Alerts.LowVoltageWarningThreshold = LowVoltageWarningThreshold;
-        _configuration.Alerts.HighVoltageWarningThreshold = HighVoltageWarningThreshold;
-        _configuration.Webhook.Enabled = WebhookEnabled;
-        _configuration.Webhook.Url = WebhookUrl;
-        _configuration.Webhook.NotifyOnPowerLost = WebhookNotifyOnPowerLost;
-        _configuration.Webhook.NotifyOnPowerRestored = WebhookNotifyOnPowerRestored;
-        _configuration.Webhook.NotifyOnBatteryLow = WebhookNotifyOnBatteryLow;
-        _configuration.Webhook.NotifyOnHighLoad = WebhookNotifyOnHighLoad;
-        _configuration.ExternalCommand.Enabled = ExternalCommandEnabled;
-        _configuration.ExternalCommand.CommandOnPowerLost = CommandOnPowerLost;
-        _configuration.ExternalCommand.CommandOnPowerRestored = CommandOnPowerRestored;
-        _configuration.ExternalCommand.CommandOnBatteryLow = CommandOnBatteryLow;
-        _configuration.ExternalCommand.CommandOnHighLoad = CommandOnHighLoad;
-        _configuration.ExternalCommand.CommandOnVoltageAbnormal = CommandOnVoltageAbnormal;
-
-        await _configurationStore.SaveAsync(_configuration);
-        _engine.SetPollInterval(PollIntervalMs);
-        _engine.SetRuntimeLowThreshold(TimeSpan.FromSeconds(RuntimeLowSeconds));
-        _engine.SetAlertThresholds(_configuration.Alerts.ToAlertThresholds());
-        SettingsStatus = LocalizationManager.Format("SettingsSavedFormat", DateTimeOffset.Now.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
-        if (_lastSnapshot is { } snapshot)
-        {
-            ApplySnapshot(snapshot);
-        }
-    }
-
-    private CancellationTokenSource? _exportCancellation;
-    private Task? _exportWorker;
-    private string _exportStatus = string.Empty;
-    public string ExportStatus { get => _exportStatus; private set { _exportStatus = value; OnPropertyChanged(); } }
-    public bool IsExporting => _exportCancellation is not null;
-    public bool CanStartExport => _historyStore is not null && !IsExporting;
-    public int HistoryExportRange { get; set; }
-    public ICommand CancelExportCommand { get; }
-
-    private Task ExportTelemetryCsvAsync() => ExportAsync(events: false, json: false);
-    private Task ExportTelemetryJsonAsync() => ExportAsync(events: false, json: true);
-    private Task ExportEventsCsvAsync() => ExportAsync(events: true, json: false);
-
-    private async Task ExportAsync(bool events, bool json)
-    {
-        if (!CanStartExport) return;
-        var extension = json ? "json" : "csv";
-        var dialog = new Microsoft.Win32.SaveFileDialog
-        {
-            Filter = json ? "JSON files (*.json)|*.json|All files (*.*)|*.*" : "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
-            FileName = $"ups-{(events ? "events" : "telemetry")}-{DateTime.Now:yyyyMMdd-HHmmss}.{extension}",
-            DefaultExt = "." + extension,
-        };
-        if (dialog.ShowDialog() != true || !CanStartExport) return;
-        var to = DateTimeOffset.Now;
-        var from = HistoryExportRange == 1 ? DateTimeOffset.MinValue : to - (SelectedHistoryRange?.Duration ?? TimeSpan.FromDays(7));
-        var telemetryTo = HistoryExportRange == 1 ? DateTimeOffset.MaxValue : to;
-        var query = events ? Logs.CreateExportQuery() : null;
-        using var cancellation = new CancellationTokenSource();
-        _exportCancellation = cancellation;
-        OnPropertyChanged(nameof(IsExporting)); OnPropertyChanged(nameof(CanStartExport));
-        ExportStatus = LocalizationManager.Get("ExportRunning");
-        try
-        {
-            _exportWorker = Task.Run(async () =>
-            {
-                if (events)
-                    await ExportOperation.EventsAsync(_historyStore!, dialog.FileName, query!, cancellation.Token);
-                else
-                    await ExportOperation.TelemetryAsync(_historyStore!, dialog.FileName,
-                        json ? TelemetryExportFormat.Json : TelemetryExportFormat.Csv, from, telemetryTo, cancellation.Token);
-            }, cancellation.Token);
-            await _exportWorker;
-            ExportStatus = LocalizationManager.Format("ExportSuccess", System.IO.Path.GetFileName(dialog.FileName));
-        }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        {
-            ExportStatus = LocalizationManager.Get("ExportCancelled");
-        }
-        catch (Exception ex)
-        {
-            ExportStatus = LocalizationManager.Format("ExportFailed", ex.Message);
-            LastError = ex.Message;
-        }
-        finally
-        {
-            _exportCancellation = null;
-            OnPropertyChanged(nameof(IsExporting)); OnPropertyChanged(nameof(CanStartExport));
-        }
-    }
-
-    private async Task RefreshHistoryAsync()
-    {
-        if (_historyStore is null)
-        {
-            HistoryStatus = L("HistoryUnavailable");
-            return;
-        }
-
-        if (_lastSnapshot?.Device is not { } device || SelectedHistoryRange is not { } range)
-        {
-            HistoryStatus = L("HistoryWaitingForUps");
-            return;
-        }
-
-        var previousCancellation = _historyRefreshCancellation;
-        var refreshCancellation = new CancellationTokenSource();
-        _historyRefreshCancellation = refreshCancellation;
-        previousCancellation?.Cancel();
-        previousCancellation?.Dispose();
-
-        IsHistoryLoading = true;
-        HistoryStatus = L("HistoryLoading");
-        var to = DateTimeOffset.Now;
-        var from = to - range.Duration;
-        _lastHistoryRefresh = to;
-
-        try
-        {
-            var history = await _historyStore.QueryHistoryAsync(
-                UpsDeviceIdentity.Create(device),
-                from,
-                to,
-                Enum.GetValues<TelemetryMetric>(),
-                cancellationToken: refreshCancellation.Token);
-            var statistics = await _historyStore.GetStatisticsAsync(refreshCancellation.Token);
-            var markers = history.Events.Select(ToHistoryEventMarker).ToArray();
-
-            VoltageHistory = Chart(
-                history,
-                markers,
-                [
-                    Series(TelemetryMetric.InputVoltage, "HistorySeriesInputVoltage", "#3B82F6"),
-                    Series(TelemetryMetric.OutputVoltage, "HistorySeriesOutputVoltage", "#22D3EE"),
-                ],
-                VoltageReferenceLines());
-            LoadHistory = Chart(
-                history,
-                markers,
-                [Series(TelemetryMetric.LoadPercent, "HistorySeriesLoad", "#F59E0B")]);
-            PowerHistory = Chart(
-                history,
-                markers,
-                [
-                    Series(TelemetryMetric.ActivePowerWatts, "HistorySeriesActivePower", "#60A5FA"),
-                    Series(TelemetryMetric.ApparentPowerVoltAmperes, "HistorySeriesApparentPower", "#A78BFA"),
-                ],
-                PowerReferenceLines());
-            BatteryChargeHistory = Chart(
-                history,
-                markers,
-                [Series(TelemetryMetric.BatteryPercent, "HistorySeriesBatteryCharge", "#22C55E")],
-                BatteryChargeReferenceLines());
-            RuntimeHistory = Chart(
-                history,
-                markers,
-                [Series(TelemetryMetric.RuntimeMinutes, "HistorySeriesRuntime", "#A78BFA")]);
-            BatteryVoltageHistory = Chart(
-                history,
-                markers,
-                [Series(TelemetryMetric.BatteryVoltage, "HistorySeriesBatteryVoltage", "#38BDF8")]);
-            HealthHistory = HealthChart(history, markers);
-            PowerFactorHistory = PowerFactorChart(history, markers);
-            FrequencyHistory = Chart(
-                history,
-                markers,
-                [Series(TelemetryMetric.FrequencyHertz, "HistorySeriesFrequency", "#10B981")],
-                FrequencyReferenceLines());
-            TemperatureHistory = Chart(
-                history,
-                markers,
-                [Series(TelemetryMetric.TemperatureCelsius, "HistorySeriesTemperature", "#F43F5E")]);
-            EnergyHistory = EnergyChart(history, markers);
-            UpdatePeriodSummaries(history.Summary);
-
-            // 電力量レポート（日次/月次）の取得
-            DateTimeOffset energyFrom;
-            if (EnergyReportGranularity == EnergyReportPeriod.Month)
-            {
-                var firstDayOfThisMonth = new DateTimeOffset(to.Year, to.Month, 1, 0, 0, 0, to.Offset);
-                energyFrom = firstDayOfThisMonth.AddMonths(-11);
-            }
-            else
-            {
-                var today = new DateTimeOffset(to.Year, to.Month, to.Day, 0, 0, 0, to.Offset);
-                energyFrom = today.AddDays(-29);
-            }
-
-            var energyReports = await _historyStore.QueryEnergyReportsAsync(
-                UpsDeviceIdentity.Create(device),
-                energyFrom,
-                to,
-                EnergyReportGranularity,
-                _configuration.Monitoring.ElectricityRatePerKwh,
-                refreshCancellation.Token);
-
-            if (!EnergyReports.SequenceEqual(energyReports))
-            {
-                EnergyReports.Clear();
-                foreach (var item in energyReports)
-                {
-                    EnergyReports.Add(item);
-                }
-            }
-
-            // 停電・電圧サマリーの取得
-            TroubleSummary = await _historyStore.QueryPowerTroubleSummaryAsync(
-                UpsDeviceIdentity.Create(device),
-                from,
-                to,
-                _configuration.Alerts.LowVoltageWarningThreshold,
-                _configuration.Alerts.HighVoltageWarningThreshold,
-                refreshCancellation.Token);
-
-            if (TroubleSummary is not null)
-            {
-                TroubleSummaryText = $"{TroubleSummary.TotalOutages} {L("TimesUnit")} ({FormatDuration(TroubleSummary.TotalOutageDuration)}) / {L("SagLabel")}: {TroubleSummary.VoltageSagCount}, {L("SurgeLabel")}: {TroubleSummary.VoltageSurgeCount}";
-            }
-
-            StateHistory = new HistoryStateTimelineData
-            {
-                From = history.From,
-                To = history.To,
-                StateChanges = history.StateChanges,
-                Events = markers,
-            };
-            HistoryStatus = LocalizationManager.Format(
-                "HistoryStatusFormat",
-                history.SourceSampleCount,
-                statistics.RawValueCount,
-                statistics.EventCount,
-                DateTimeOffset.Now.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
-        }
-        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            HistoryStatus = LocalizationManager.Format("HistoryLoadErrorFormat", exception.Message);
-            LastError = HistoryStatus;
-        }
-        finally
-        {
-            if (ReferenceEquals(_historyRefreshCancellation, refreshCancellation))
-            {
-                IsHistoryLoading = false;
-            }
-        }
-
-        (TelemetryMetric Metric, string LabelKey, string Color) Series(
-            TelemetryMetric metric,
-            string labelKey,
-            string color) => (metric, labelKey, color);
-    }
-
-    private static HistoryChartData Chart(
-        TelemetryHistoryResult history,
-        IReadOnlyList<HistoryEventMarker> markers,
-        IReadOnlyList<(TelemetryMetric Metric, string LabelKey, string Color)> definitions,
-        IReadOnlyList<HistoryChartReferenceLine>? referenceLines = null) => new()
-        {
-            From = history.From,
-            To = history.To,
-            Series = definitions
-                .Select(definition => new HistoryChartSeries(
-                    L(definition.LabelKey),
-                    definition.Color,
-                    HistoryPoints(history, definition.Metric)))
-                .ToArray(),
-            Events = markers,
-            ReferenceLines = referenceLines ?? [],
-        };
-
-    private static HistoryChartData HealthChart(
-        TelemetryHistoryResult history,
-        IReadOnlyList<HistoryEventMarker> markers)
-    {
-        IReadOnlyList<TelemetryHistoryPoint> healthPoints;
-        IReadOnlyList<TelemetryHistoryPoint> relativePoints;
-        if (history.BatteryHealthSeries is { } series)
-        {
-            healthPoints = series.HealthPoints;
-            relativePoints = series.RelativePerformancePoints;
-        }
-        else
-        {
-            healthPoints = history.BatteryHealth
-                .Where(item => item.HealthPercent.HasValue)
-                .Select(item => Point(item.Timestamp, item.HealthPercent!.Value))
-                .ToArray();
-            relativePoints = history.BatteryHealth
-                .Where(item => item.RelativePerformancePercent.HasValue)
-                .Select(item => Point(item.Timestamp, item.RelativePerformancePercent!.Value))
-                .ToArray();
-        }
-
-        return new HistoryChartData
-        {
-            From = history.From,
-            To = history.To,
-            Series =
-            [
-                new(L("HistorySeriesVendorHealth"), "#38BDF8", healthPoints),
-                new(L("HistorySeriesRelativeRuntime"), "#A78BFA", relativePoints),
-            ],
-            Events = markers,
-        };
-
-        static TelemetryHistoryPoint Point(DateTimeOffset timestamp, double value) =>
-            new(timestamp, value, value, value, value);
-    }
-
-    private static IReadOnlyList<TelemetryHistoryPoint> HistoryPoints(
-        TelemetryHistoryResult history,
-        TelemetryMetric metric) =>
-        history.Metrics.TryGetValue(metric, out var metricHistory) ? metricHistory.Points : [];
-
-    private IReadOnlyList<HistoryChartReferenceLine> VoltageReferenceLines()
-    {
-        var lines = new List<HistoryChartReferenceLine>();
-        if (_lastSnapshot?.LowVoltageTransfer is { } low)
-        {
-            lines.Add(new(L("HistoryReferenceLowTransfer"), "#F59E0B", low));
-        }
-
-        if (_lastSnapshot?.HighVoltageTransfer is { } high)
-        {
-            lines.Add(new(L("HistoryReferenceHighTransfer"), "#F97316", high));
-        }
-
-        return lines;
-    }
-
-    private IReadOnlyList<HistoryChartReferenceLine> PowerReferenceLines()
-    {
-        var lines = new List<HistoryChartReferenceLine>();
-        if (_lastSnapshot?.ConfigActivePower is { } ratedWatts)
-        {
-            lines.Add(new(L("HistoryReferenceRatedPower"), "#EF4444", ratedWatts));
-        }
-
-        return lines;
-    }
-
-    private IReadOnlyList<HistoryChartReferenceLine> BatteryChargeReferenceLines()
-    {
-        var lines = new List<HistoryChartReferenceLine>();
-        if (_lastSnapshot?.WarningCapacityLimit is { } warn)
-        {
-            lines.Add(new(L("HistoryReferenceWarningCapacity"), "#F59E0B", warn));
-        }
-
-        if (_lastSnapshot?.RemainingCapacityLimit is { } low)
-        {
-            lines.Add(new(L("HistoryReferenceShutdownCapacity"), "#EF4444", low));
-        }
-
-        return lines;
-    }
-
-    private static HistoryChartData PowerFactorChart(
-        TelemetryHistoryResult history,
-        IReadOnlyList<HistoryEventMarker> markers)
-    {
-        var activePoints = HistoryPoints(history, TelemetryMetric.ActivePowerWatts);
-        var apparentPoints = HistoryPoints(history, TelemetryMetric.ApparentPowerVoltAmperes);
-        var pfPoints = new List<TelemetryHistoryPoint>();
-
-        var apparentByTime = apparentPoints.ToDictionary(p => p.Timestamp);
-        foreach (var ap in activePoints)
-        {
-            if (apparentByTime.TryGetValue(ap.Timestamp, out var va) && va.Average > 1.0)
-            {
-                var factor = Math.Clamp(ap.Average / va.Average * 100.0, 0.0, 100.0);
-                pfPoints.Add(new TelemetryHistoryPoint(ap.Timestamp, factor, factor, factor, factor));
-            }
-        }
-
-        return new HistoryChartData
-        {
-            From = history.From,
-            To = history.To,
-            Series = [new HistoryChartSeries(L("HistorySeriesPowerFactor"), "#38BDF8", pfPoints)],
-            Events = markers,
-        };
-    }
-
-    private static HistoryChartData EnergyChart(
-        TelemetryHistoryResult history,
-        IReadOnlyList<HistoryEventMarker> markers)
-    {
-        var activePoints = HistoryPoints(history, TelemetryMetric.ActivePowerWatts);
-        var energyPoints = new List<TelemetryHistoryPoint>();
-        var accumulatedKwh = 0.0;
-
-        for (var i = 0; i < activePoints.Count; i++)
-        {
-            if (i > 0)
-            {
-                var pPrev = activePoints[i - 1];
-                var pCurr = activePoints[i];
-                var dtHours = (pCurr.Timestamp - pPrev.Timestamp).TotalHours;
-                if (dtHours is > 0 and <= 2.0)
-                {
-                    var wattHours = ((pPrev.Average + pCurr.Average) / 2.0) * dtHours;
-                    accumulatedKwh += wattHours / 1000.0;
-                }
-            }
-
-            energyPoints.Add(new TelemetryHistoryPoint(activePoints[i].Timestamp, accumulatedKwh, accumulatedKwh, accumulatedKwh, accumulatedKwh));
-        }
-
-        return new HistoryChartData
-        {
-            From = history.From,
-            To = history.To,
-            Series = [new HistoryChartSeries(L("HistorySeriesEnergy"), "#10B981", energyPoints)],
-            Events = markers,
-        };
-    }
-
-    private IReadOnlyList<HistoryChartReferenceLine> FrequencyReferenceLines()
-    {
-        return
-        [
-            new(L("HistoryReference50Hz"), "#6EE7B7", 50.0),
-            new(L("HistoryReference60Hz"), "#93C5FD", 60.0),
-        ];
-    }
-
-    private void UpdatePeriodSummaries(TelemetryPeriodSummary? summary)
-    {
-        _lastPeriodSummary = summary;
-        if (summary is null)
-        {
-            PeriodOutageSummaryText = "-";
-            PeriodVoltageSummaryText = "-";
-            PeriodPowerSummaryText = "-";
-            PeriodEnergySummaryText = "-";
-            PeriodCostSummaryText = "-";
-            PeriodCo2SummaryText = "-";
-            return;
-        }
-
-        PeriodOutageSummaryText = $"{summary.OutageCount} {L("TimesUnit")} ({FormatDuration(summary.TotalOutageDuration)})";
-        PeriodVoltageSummaryText = summary.MinInputVoltage.HasValue && summary.MaxInputVoltage.HasValue && summary.AvgInputVoltage.HasValue
-            ? $"Min {summary.MinInputVoltage.Value:0.#}V  Avg {summary.AvgInputVoltage.Value:0.#}V  Max {summary.MaxInputVoltage.Value:0.#}V"
-            : "-";
-        PeriodPowerSummaryText = summary.AvgActivePowerWatts.HasValue
-            ? $"Avg {summary.AvgActivePowerWatts.Value:0.#}W  (Peak {summary.PeakActivePowerWatts.GetValueOrDefault():0.#}W / {summary.PeakLoadPercent.GetValueOrDefault():0.#}%)"
-            : "-";
-        PeriodEnergySummaryText = summary.TotalEnergyKwh.HasValue
-            ? $"{summary.TotalEnergyKwh.Value:0.##} kWh  (Min Bat {summary.MinBatteryPercent.GetValueOrDefault():0.#}%)"
-            : "-";
-
-        if (summary.TotalEnergyKwh is { } kwh)
-        {
-            var cost = kwh * _configuration.Monitoring.ElectricityRatePerKwh;
-            PeriodCostSummaryText = UiTextFormatting.PeriodCost(cost, _configuration.Monitoring.ElectricityRatePerKwh);
-            var co2 = kwh * 0.457;
-            PeriodCo2SummaryText = $"{co2:0.##} kg-CO₂";
-        }
-        else
-        {
-            PeriodCostSummaryText = "-";
-            PeriodCo2SummaryText = "-";
-        }
-    }
-
-    private static HistoryEventMarker ToHistoryEventMarker(UpsEvent upsEvent) => new(
-        upsEvent.Timestamp,
-        LocalizeEventType(upsEvent.Type),
-        upsEvent.Type switch
-        {
-            UpsEventType.PowerLost or UpsEventType.BatteryLow or UpsEventType.RuntimeLow => "#F59E0B",
-            UpsEventType.BatteryCritical or UpsEventType.OverloadDetected => "#EF4444",
-            UpsEventType.PowerRestored => "#22C55E",
-            UpsEventType.UpsReconnected => "#3B82F6",
-            _ => "#94A3B8",
-        });
-
-    private static string LocalizeEventType(UpsEventType type) => L(type switch
-    {
-        UpsEventType.PowerLost => "EventPowerLost",
-        UpsEventType.PowerRestored => "EventPowerRestored",
-        UpsEventType.BatteryLow => "EventBatteryLow",
-        UpsEventType.BatteryCritical => "EventBatteryCritical",
-        UpsEventType.RuntimeLow => "EventRuntimeLow",
-        UpsEventType.OverloadDetected => "EventOverload",
-        UpsEventType.UpsDisconnected => "EventUpsDisconnected",
-        UpsEventType.UpsReconnected => "EventUpsReconnected",
-        _ => "Unknown",
-    });
-
-    private void SetCommandError(Exception exception)
-    {
-        SettingsStatus = LocalizationManager.Format("SettingsSaveErrorFormat", exception.Message);
-        LastError = exception.Message;
-    }
-
     private void RaiseSnapshotProperties()
     {
+        History.NotifySnapshotProperties();
         var names = new[]
         {
             nameof(Manufacturer), nameof(Product), nameof(SerialNumber), nameof(VidPid), nameof(Usage),
@@ -2437,7 +755,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             nameof(SelfTestText), nameof(TransferRangeText), nameof(RatedPowerText),
             nameof(BatteryChemistryText), nameof(OemInformationText), nameof(InputVoltageSummaryText),
             nameof(InputOutputText), nameof(ReportBytesText),
-            nameof(FrequencyEmptyText), nameof(TemperatureEmptyText),
             nameof(PowerMarginText), nameof(VoltageMarginText), nameof(AvrBoostText), nameof(AvrBoostAccent),
             nameof(CellVoltageText),
         };
@@ -2496,36 +813,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             : $"{(int)duration.TotalMinutes}:{duration.Seconds:00}";
     }
 
-    private BatteryHealthProfile? FindHealthProfile(UpsDeviceInfo? device)
-    {
-        if (device is null)
-        {
-            return null;
-        }
-
-        var id = DeviceId(device);
-        return _configuration.BatteryHealth.Profiles.FirstOrDefault(
-            item => string.Equals(item.DeviceId, id, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static string DeviceId(UpsDeviceInfo device) =>
-        UpsDeviceIdentity.Create(device);
-
-    private BatteryHealthOptions CreateHealthOptions() => AreHealthSettingsValid()
-        ? new BatteryHealthOptions
-        {
-            WarningThresholdPercent = BatteryWarningThresholdPercent,
-            CriticalThresholdPercent = BatteryCriticalThresholdPercent,
-            ComparableLoadTolerancePercent = ComparableLoadTolerancePercent,
-        }
-        : new BatteryHealthOptions();
-
-    private bool AreHealthSettingsValid() =>
-        BatteryCriticalThresholdPercent is >= 1 and < 100
-        && BatteryWarningThresholdPercent > BatteryCriticalThresholdPercent
-        && BatteryWarningThresholdPercent <= 100
-        && ComparableLoadTolerancePercent is >= 0 and <= 25;
-
     private static string LocalizeHealthStatus(BatteryHealthStatus status) => L(status switch
     {
         BatteryHealthStatus.VendorReported => "HealthStatusVendorReported",
@@ -2578,7 +865,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
         if (health.PrimaryMethod == BatteryHealthMethod.OfficialHealthTrend)
         {
             return health.OfficialEstimate?.LastRecord is { Source: not VendorBatteryHealthCategory.Unknown } last
-                ? LocalizationManager.Format("OfficialHealthDetailFormat", LocalizeVendorHealthCategory(last.Source))
+                ? LocalizationManager.Format("OfficialHealthDetailFormat", BatteryHealthViewModel.LocalizeVendorHealthCategory(last.Source))
                 : L("OfficialHealthDetailUnknown");
         }
 
@@ -2590,17 +877,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             : LocalizationManager.Format(
                 "VendorHealthDetailFormat",
                 source,
-                LocalizeVendorHealthCategory(health.VendorHealthCategory));
+                BatteryHealthViewModel.LocalizeVendorHealthCategory(health.VendorHealthCategory));
     }
-
-    private static string LocalizeVendorHealthCategory(VendorBatteryHealthCategory category) => L(category switch
-    {
-        VendorBatteryHealthCategory.Good => "VendorHealthCategoryGood",
-        VendorBatteryHealthCategory.Average => "VendorHealthCategoryAverage",
-        VendorBatteryHealthCategory.BelowAverage => "VendorHealthCategoryBelowAverage",
-        VendorBatteryHealthCategory.Poor => "VendorHealthCategoryPoor",
-        _ => "VendorHealthCategoryUnknown",
-    });
 
     private static string LocalizeReplacementStatus(BatteryReplacementStatus status) => L(status switch
     {
@@ -2676,13 +954,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
                 estimate.SpreadPercent >= 0.05
                     ? LocalizationManager.Format(
                         "HealthReasonOfficialModelRange",
-                        LocalizeOfficialModel(estimate.Model),
+                        BatteryHealthViewModel.LocalizeOfficialModel(estimate.Model),
                         estimate.Percent,
                         estimate.MinPercent,
                         estimate.MaxPercent)
                     : LocalizationManager.Format(
                         "HealthReasonOfficialModel",
-                        LocalizeOfficialModel(estimate.Model)));
+                        BatteryHealthViewModel.LocalizeOfficialModel(estimate.Model)));
         }
 
         return reasons.Distinct().ToArray();
@@ -2767,189 +1045,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IAsyncDisposable
             measurement,
             FormatBaselineModeDetails(profile!));
     }
-
-    private void RefreshBaselineModeOptions()
-    {
-        BaselineModeOptions = LocalizedOption.UpdateLabels(BaselineModeOptions,
-        [
-            new(BatteryRuntimeBaselineKind.CurrentRelative, L("BaselineModeRelative")),
-            new(BatteryRuntimeBaselineKind.KnownHealthAnchor, L("BaselineModeKnown")),
-            new(BatteryRuntimeBaselineKind.NewBattery, L("BaselineModeNew")),
-        ]);
-    }
-
-    private void RefreshHistoryRangeOptions()
-    {
-        var selectedKey = SelectedHistoryRange?.Key ?? "1h";
-        HistoryRangeOptions = LocalizedOption.UpdateLabels(HistoryRangeOptions,
-        [
-            new("1h", TimeSpan.FromHours(1), L("HistoryRange1Hour")),
-            new("6h", TimeSpan.FromHours(6), L("HistoryRange6Hours")),
-            new("24h", TimeSpan.FromHours(24), L("HistoryRange24Hours")),
-            new("7d", TimeSpan.FromDays(7), L("HistoryRange7Days")),
-            new("30d", TimeSpan.FromDays(30), L("HistoryRange30Days")),
-        ]);
-        SelectedHistoryRange = HistoryRangeOptions.First(item => item.Key == selectedKey);
-    }
-
-    private void RefreshAnalyticsOptions()
-    {
-        var currentMetric = SelectedAnalyticsMetric?.Metric ?? WeeklyPatternMetric.ActivePower;
-        AnalyticsMetricOptions = LocalizedOption.UpdateLabels(AnalyticsMetricOptions,
-        [
-            new(WeeklyPatternMetric.ActivePower, L("AnalyticsMetricPower"), "W"),
-            new(WeeklyPatternMetric.InputVoltage, L("AnalyticsMetricVoltage"), "V"),
-            new(WeeklyPatternMetric.LoadPercent, L("AnalyticsMetricLoad"), "%"),
-            new(WeeklyPatternMetric.PowerFactor, L("AnalyticsMetricPowerFactor"), "%"),
-        ]);
-        SelectedAnalyticsMetric = AnalyticsMetricOptions.FirstOrDefault(item => item.Metric == currentMetric) ?? AnalyticsMetricOptions[0];
-
-        var currentRange = SelectedAnalyticsRange;
-        AnalyticsRangeOptions = LocalizedOption.UpdateLabels(AnalyticsRangeOptions,
-        [
-            new(TimeSpan.FromDays(7), L("AnalyticsRange7D")),
-            new(TimeSpan.FromDays(30), L("AnalyticsRange30D")),
-            new(TimeSpan.FromDays(90), L("AnalyticsRange90D")),
-            new(null, L("AnalyticsRangeAll")),
-        ]);
-        SelectedAnalyticsRange = currentRange ?? AnalyticsRangeOptions[1];
-        OnPropertyChanged(nameof(AnalyticsHeatmapTitle));
-    }
-
-    private async Task RefreshAnalyticsAsync()
-    {
-        if (_historyStore is null)
-        {
-            AnalyticsStatus = L("HistoryUnavailable");
-            return;
-        }
-
-        if (_lastSnapshot?.Device is not { } device)
-        {
-            AnalyticsStatus = L("HistoryWaitingForUps");
-            return;
-        }
-
-        var metric = SelectedAnalyticsMetric?.Metric ?? WeeklyPatternMetric.ActivePower;
-        var duration = SelectedAnalyticsRange?.Duration;
-        var to = DateTimeOffset.Now;
-        var from = duration.HasValue ? to - duration.Value : DateTimeOffset.UnixEpoch;
-
-        var previousCancellation = _analyticsRefreshCancellation;
-        var refreshCancellation = new CancellationTokenSource();
-        _analyticsRefreshCancellation = refreshCancellation;
-        previousCancellation?.Cancel();
-        previousCancellation?.Dispose();
-
-        IsAnalyticsLoading = true;
-        AnalyticsStatus = L("HistoryLoading");
-        _lastAnalyticsRefresh = to;
-
-        try
-        {
-            var result = await _historyStore.QueryWeeklyPatternAsync(
-                UpsDeviceIdentity.Create(device),
-                from,
-                to,
-                metric,
-                refreshCancellation.Token);
-
-            WeeklyPattern = result;
-
-            var unit = SelectedAnalyticsMetric?.Unit ?? string.Empty;
-            if (result.PeakHour != null && result.PeakHour.SampleCount > 0)
-            {
-                var dowName = LocalizationManager.Get($"DayFull_{result.PeakHour.DayOfWeek}") ?? $"{result.PeakHour.DayOfWeek}";
-                AnalyticsPeakHourText = $"{dowName} {result.PeakHour.HourOfDay:D2}:00 ({result.PeakHour.Average:0.#} {unit})";
-            }
-            else
-            {
-                AnalyticsPeakHourText = "-";
-            }
-
-            if (result.LowestHour != null && result.LowestHour.SampleCount > 0)
-            {
-                var dowName = LocalizationManager.Get($"DayFull_{result.LowestHour.DayOfWeek}") ?? $"{result.LowestHour.DayOfWeek}";
-                AnalyticsLowestHourText = $"{dowName} {result.LowestHour.HourOfDay:D2}:00 ({result.LowestHour.Average:0.#} {unit})";
-            }
-            else
-            {
-                AnalyticsLowestHourText = "-";
-            }
-
-            AnalyticsOverallAvgText = result.TotalSamples > 0 ? $"{result.OverallAvg:0.#} {unit}" : "-";
-            AnalyticsSampleCountText = LocalizationManager.Format("AnalyticsSampleCountFormat", result.TotalSamples, result.EquivalentDays);
-
-            AnalyticsStatus = LocalizationManager.Format(
-                "AnalyticsStatusFormat",
-                result.TotalSamples,
-                DateTimeOffset.Now.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
-        }
-        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            AnalyticsStatus = LocalizationManager.Format("HistoryLoadErrorFormat", exception.Message);
-            LastError = AnalyticsStatus;
-        }
-        finally
-        {
-            if (ReferenceEquals(_analyticsRefreshCancellation, refreshCancellation))
-            {
-                IsAnalyticsLoading = false;
-            }
-        }
-    }
-
-    private void RefreshVendorHealthCategoryOptions()
-    {
-        VendorHealthCategoryOptions = LocalizedOption.UpdateLabels(VendorHealthCategoryOptions,
-        [
-            new(VendorBatteryHealthCategory.Unknown, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Unknown)),
-            new(VendorBatteryHealthCategory.Good, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Good)),
-            new(VendorBatteryHealthCategory.Average, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Average)),
-            new(VendorBatteryHealthCategory.BelowAverage, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.BelowAverage)),
-            new(VendorBatteryHealthCategory.Poor, LocalizeVendorHealthCategory(VendorBatteryHealthCategory.Poor)),
-        ]);
-    }
-
-    private void InitializeBaselineEditor(BatteryHealthProfile? profile)
-    {
-        if (_baselineEditorInitialized || profile is null)
-        {
-            return;
-        }
-
-        RefreshOfficialEditor(profile);
-
-        if (profile.RuntimeBaselineKind != BatteryRuntimeBaselineKind.Unspecified)
-        {
-            SelectedBaselineKind = profile.RuntimeBaselineKind;
-        }
-
-        if (profile.AnchorHealthPercent is { } anchor && anchor is > 0 and <= 100)
-        {
-            KnownHealthPercent = anchor;
-        }
-
-        if (!string.IsNullOrWhiteSpace(profile.AnchorSource))
-        {
-            KnownHealthSource = profile.AnchorSource;
-        }
-
-        SelectedVendorHealthCategory = profile.VendorHealthCategory;
-
-        _baselineEditorInitialized = true;
-    }
-
-    private static string LocalizeBaselineKind(BatteryRuntimeBaselineKind kind) => L(kind switch
-    {
-        BatteryRuntimeBaselineKind.NewBattery => "BaselineModeNew",
-        BatteryRuntimeBaselineKind.KnownHealthAnchor => "BaselineModeKnown",
-        BatteryRuntimeBaselineKind.CurrentRelative => "BaselineModeRelative",
-        _ => "BaselineSummaryModeLegacy",
-    });
 
     private static string FormatBaselineModeDetails(BatteryHealthProfile profile) => profile.RuntimeBaselineKind switch
     {
@@ -3078,27 +1173,3 @@ public sealed class UpsTelemetryViewModel : INotifyPropertyChanged
         Raw = item.RawValue?.ToString(CultureInfo.InvariantCulture) ?? "N/A";
     }
 }
-
-public sealed record LanguageOption(string Code, string DisplayName)
-{
-    public override string ToString() => DisplayName;
-}
-
-public sealed record OfficialRecordRow(
-    OfficialHealthRecord Record,
-    string DateText,
-    string ValueText,
-    string PredictedText,
-    string ErrorText,
-    string DetailText,
-    ICommand DeleteCommand)
-{
-    public bool HasDetail => DetailText.Length > 0;
-}
-
-public sealed record OfficialModelRow(
-    string Name,
-    string ValueText,
-    string CountText,
-    string MaeText,
-    string SelectedText);
