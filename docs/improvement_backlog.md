@@ -20,7 +20,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | 5 | エクスポート全期間＋ストリーミング | ✅ 実装済み（0.1.018） | `feature/export-all-range-streaming` |
 | 6 | 保存済みログのフィルタ | ✅ 実装済み（0.1.017） | `feature/logs-saved-event-filter` |
 | 7 | MainViewModel の責務分割 | ✅ 実装済み（統合・画面確認待ち、0.1.029） | `refactor/mainviewmodel-split` |
-| 8 | ReadyToRun 発行設定の検証 | 見送り | — |
+| 8 | ReadyToRun 発行設定の検証 | 検証済み・不採用 | 下記 #8 |
 | 9 | 電力量レポート DataGrid の更新通知 | ✅ 実装済み（統合・画面確認待ち、0.1.029） | `refactor/mainviewmodel-split` |
 
 ### 固定日本語の表示修正（実装済み、0.1.026）
@@ -126,9 +126,9 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 
 ## 見送り推奨
 
-| 番号 | 施策 | 領域 | 見送り理由 | 再検討条件 |
-|---:|---|---|---|---|
-| 8 | ReadyToRun 発行設定の検証 | 起動 | 発行方式・配布サイズ上限・cold start 基準値が未定で、設定だけ有効化しても効果を判定できない | x64 配布形態と起動計測シナリオを確定した時点 |
+| 番号 | 施策 | 領域 | 状態 | 見送り理由 | 再検討条件 |
+|---:|---|---|---|---|---|
+| 8 | ReadyToRun 発行設定の検証 | 起動 | 検証済み・不採用 | 常駐アプリで起動頻度が低く、warm 起動の短縮は約 213 ms。採用には publish 出力での運用が必要 | 起動時間の要件や配布・起動方式が変わった時点 |
 
 ## 提案施策の仕分け結果
 
@@ -140,7 +140,7 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | バックグラウンド: ポーリング待機、イベント定常時割当、HID バッファ／Parser／Mapper、Webhook retry、CommandRunner の drain／kill | 実装済み | `Monitoring.WaitForNextPollAsync`、`UpsEventDetector.Observe`、`HidDeviceSession`、`HidReportParser`、`UpsHidMapper`、`WebhookNotifier`、`CommandRunner` を確認 |
 | 機能: 日付・種別ログ、日次／月次レポート、力率 Analytics、全期間 export、カスタムアラート通知 | 一部のみ実装 | それぞれ 1、3〜6 に分解。walkthrough の完了表現より実コードを優先した |
 | `MainViewModel` 責務分割 | 実装済み（統合待ち） | `refactor/mainviewmodel-split` で Analytics・History・Settings・BatteryHealth と共通 export を抽出（7・9） |
-| ReadyToRun | 提案のみ | `Directory.Build.props` と `UpsMonitor.App.csproj` に `PublishReadyToRun` および publish profile はない（8） |
+| ReadyToRun | 検証済み・不採用 | 比較用の publish profile と計測手順を保持。通常のビルド・起動方式では無効（8） |
 | `docs/ui_responsiveness_optimization/task.md` の未チェック 2 件 | 管理上の古い記載 | 「git commit」は `72c6e85` として実施・マージ済み。「`TASK.md` 末尾への完了報告」はコード施策ではなく、ルート `TASK.md` 自体が後続コミットで削除済み。実装バックログにはしない |
 
 ## 1. カスタムアラートをイベント・通知・外部連携まで一貫化
@@ -262,21 +262,72 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 - **検証**: Core.Tests から実 VM をソースリンクし、合成 SQLite と WPF 非依存 adapter で選択保持・日英切替・取得条件・latest-wins・保存失敗・公式記録と補完・24時間件数・基準と購入日・Dispose を検証。XAML の nested binding と日英キーを照合。全 130/130 件、Debug 警告0件。
 - **残る確認**: Release の実画面、言語/テーマとタブ選択保持、再表示、通知、DataGrid のスクロールは最終統合前に一度だけ確認する。タブ単位の View 分割は今回の対象外。
 
-## 8. ReadyToRun 発行設定の検証
+## 8. ReadyToRun 発行設定の検証（検証済み・不採用）
 
 - **対象領域**: 起動・ビルド
 - **出典**: `docs/performance_optimization/implementation_plan.md`「フェーズ 5: ビルド・発行設定最適化と総合テスト」
-- **現状と課題**:
-  計画には ReadyToRun の検証があるが、`Directory.Build.props` は version metadata のみ、`UpsMonitor.App.csproj` に `PublishReadyToRun` はなく publish profile もない。通常 build の成否だけでは cold start 改善の有無は分からない。
-- **提案する実装方針**:
-  - 通常 Debug/Release build へ混ぜず、`Properties/PublishProfiles/win-x64-r2r.pubxml` または明示的 MSBuild property group に R2R 比較用 profile を追加する。
-  - baseline profile と R2R profile を同じ self-contained / framework-dependent 条件で publish し、process start→MainWindow `ContentRendered` の cold/warm 時間、成果物サイズ、working set を複数回比較する。
-  - 改善が再現し、配布サイズ増を許容できる場合だけ正式 profile に採用する。単一ファイル化・trim は WPF reflection/resource の別リスクがあるため同時に変えない。
-- **影響範囲・リスク**: x64 固定、配布サイズ増、publish 時間増、ランタイム更新との関係。開発 build には影響させない。
-- **必要なテスト**: clean machine 相当の起動、cold/warm 各 10 回程度、テーマ／言語 resource load、single-instance、tray start、署名／配布経路、baseline と機能同等性。
-- **難易度**: 小（評価は中）
-- **確証度**: コード確認済み
-- **依存・競合**: 1〜7 とファイル競合なし。起動の機能変更が落ち着いた後に独立検証できる。
+
+### 2026-11-21 warm 起動計測と採否
+
+合成データと UPS 切断状態で、プロセス起動から MainWindow の `ContentRendered` までを計測した。事前のウォームアップ各 1 回は集計に含めていない。
+
+| 構成 | 回数 | 中央値 (ms) | 最小 (ms) | 最大 (ms) |
+|---|---:|---:|---:|---:|
+| IL baseline | 10 | 1,764.9 | 1,480.7 | 2,085.2 |
+| ReadyToRun | 10 | 1,552.1 | 1,432.2 | 1,934.6 |
+
+中央値の短縮は約 212.8 ms（12.1%）。**不採用（2026-11-21 ユーザー判断）**。常駐アプリで起動頻度が低く、短縮幅が小さい。R2R は `dotnet publish` でのみ有効で、採用には `bin\Release` の exe から publish 出力一式へ起動元を切り替える必要がある。比較用プロファイルと計測手順は再評価用に残す。
+
+### 2026-11-19 検証準備と発行比較
+
+比較時の配布条件は framework-dependent（利用 PC に .NET 10 / Windows Desktop Runtime がある前提）。self-contained・単一ファイル化・trim は行わない。通常の `dotnet build -c Release` は変更しない。
+
+- 比較設定: `UpsMonitor.App/Properties/PublishProfiles/win-x64-r2r.pubxml`（Release / win-x64 / SelfContained=false / PublishReadyToRun=true）。publish 出力は `artifacts/r2r-eval/r2r/`。`dotnet publish` には明示的に `-c Release` を付ける。
+- **build では R2R 化されないことを実測確認**: `dotnet build UpsMonitor.App/UpsMonitor.App.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=true` の App/Core/Hid/Infrastructure DLL は全て IL。`dotnet publish ... -c Release -p:PublishProfile=win-x64-r2r` で初めて全 DLL が R2R になった。build の RID 指定出力は `bin/Release/net10.0-windows/win-x64/` だが、これも R2R ではない。
+- 根拠: [Microsoft の R2R 概要](https://learn.microsoft.com/en-us/dotnet/core/deploying/ready-to-run)、[dotnet publish](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-publish)。ローカル SDK の `Microsoft.NET.Publish.targets` でも `ComputeFilesToPublish` の依存工程に `CreateReadyToRunImages` がある。R2R を採用する場合は、現在の通常 Release exe から **publish フォルダーの exe と関連ファイル一式**を使う運用への変更が必要（今回は変更しない）。
+
+再現コマンド（子 worktree 内で実行。アプリは起動しない）:
+
+```powershell
+# 通常 Release build（現在の利用形態）
+dotnet build UpsMonitor.App/UpsMonitor.App.csproj -c Release
+# RID・配布条件を揃えた IL baseline
+dotnet publish UpsMonitor.App/UpsMonitor.App.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=false -p:PublishSingleFile=false -p:PublishTrimmed=false -o artifacts/r2r-eval/baseline
+# R2R
+dotnet publish UpsMonitor.App/UpsMonitor.App.csproj -c Release -p:PublishProfile=win-x64-r2r
+```
+
+実測環境: Windows x64、SDK 11.0.100 / MSBuild 18.12.2、対象 net10.0-windows、Windows Desktop Runtime 10.0.15 導入済み。時間は各1回の参考値で、事前に対応する `dotnet clean ... -c Release`（publish は `-r win-x64` も指定）を実行し、restore を含むプロセス全体を Stopwatch で計測した。ファイル／NuGet キャッシュは残っており、初回ダウンロードや cold build の値ではない。通常 build は RID なしのため SQLite の複数 RID 向け native asset を含み、サイズの R2R 純増比較には baseline publish 同士を使う。
+
+| 出力 | 合計 bytes（全ファイル・PDBを含む） | ファイル数 | clean 後 build/publish 秒 |
+|---|---:|---:|---:|
+| 通常 Release build（RID なし） | 37,030,540 | 37 | 16.621 |
+| framework-dependent win-x64 IL publish | 5,054,474 | 16 | 7.688 |
+| framework-dependent win-x64 R2R publish | 6,418,090 | 16 | 9.557 |
+
+R2R publish は IL publish 比 +1,363,616 bytes（約27.0%）。通常 build 初回は26.444秒、R2Rプロパティ付き build は7.563秒だったが、実行順・restore・キャッシュ条件が異なるので採否の根拠にはしない。並行ビルド等の負荷もあり、所要時間を比較するなら再測定する。
+
+| 主な DLL | IL bytes | R2R bytes |
+|---|---:|---:|
+| UpsMonitor.App.dll | 1,843,200 | 2,183,168 |
+| UpsMonitor.Core.dll | 189,440 | 442,368 |
+| UpsMonitor.Hid.dll | 70,656 | 163,840 |
+| UpsMonitor.Infrastructure.dll | 194,560 | 471,040 |
+| Microsoft.Data.Sqlite.dll | 177,504 | 450,560 |
+
+R2R 確認はスクラッチの `Inspector/Program.cs` で `PEReader.PEHeaders.CorHeader.ManagedNativeHeaderDirectory` を読み、その RVA の先頭32bit が `0x00525452`（`RTR\0`）であることを検証した。App.dll の native header size は196 bytes。通常 build・R2R指定 build・IL publish には native header がなく、R2R publish の管理 DLL 8本には署名があった（native SQLite は対象外）。ファイルサイズ増加だけで判定していない。
+
+**リソース・reflection の確認**: IL/R2R 双方で App.dll の `Assembly.GetTypes()`（86型）、`.g.resources` 列挙（7件）、light/dark テーマ適用、明示的な component pack URI で日英 ResourceDictionary 読み込みが成功。検査用の WPF `Application` は作成するが、UpsMonitor の App / MainWindow / OnStartup は呼ばず、デバイス・実 config・実 DB に触れない。既存 Core.Tests も framework-dependent R2R publish して **107/107 通過**。テストが `AppContext.BaseDirectory` から4階層上のソースリソースを読むため、出力は `artifacts/r2r-eval/tests-r2r/run/` に配置した（浅い配置では14件がパスエラーになる）。通常 build・比較 publish・検査ツール・計測用コピーに新規警告なし。完全な画面動作・実機・トレイ・署名・配布経路の確認は今後。
+
+**起動計測の準備物（コミット対象外）**:
+
+- スクラッチ: `C:\Users\geranium\AppData\Roaming\orca\chat-scratch\e5e05225acb935fc6ff1da3360003f82\r2r-eval\`
+- `Prepare-StartupBenchmark.ps1`: 子 worktree のソースをスクラッチへコピーし、そこだけで保存先をスクラッチ必須に変更、既定の合成 config と接続しない provider を使用、MainWindow の `ContentRendered` で Stopwatch timestamp を書いて自動終了するようにする。同一変更を施した IL/R2R の `measurement/baseline/` と `measurement/r2r/` を作成済み。NuGet feed は空にしてローカルキャッシュでビルドした。製品コードにはこれらの変更を入れていない。
+- `Measure-Startup.ps1`: 既存 `UpsMonitor.App` の不在を各起動前に確認する。ウォームアップ各 1 回を除外し、構成の起動順を交互にしたペアを 10 回計測。プロセス開始直前から `ContentRendered` までを Stopwatch で測り、CSV・中央値・最小／最大を出す。描画上限 5 秒、終了待ち上限 2 秒。タイムアウト時はスクリプトが保持する自身の子プロセスだけを終了する。
+- 2026-11-21 は、通常 Release の起動処理を削除した写し `C:\Users\geranium\AppData\Roaming\orca\chat-scratch\dd19426be334ed52c4e1e899fcbec0cf\Measure-Startup-NoRestore.ps1` を使用。再評価時はユーザー自身が常駐アプリを終了した後、PowerShell 7 で写しに `-Iterations 10` を指定する。計測中の通信・HID アクセスはなく、config/DB/ログ/描画通知/CSV は全てスクラッチへ書く。監視を再開するときは確認済みの通常 Release を別途起動する。
+- 今回の CSV は上記スクラッチの `results\ba08136cf4b0477aa044d5b741f9fbd0\startup.csv`。
+- cold は自動化しない。ファイルコピー・GC ではキャッシュを排除できない。必要ならユーザーが自動起動を止めた再起動直後の初回を、baseline/R2R の順を入れ替えた別セッションで比較する。今回のスクリプトは warm のみ。
+- 計測は空の合成 DB／既定 config／UPS 未接続で条件を揃えた IL/R2R publish のコピー同士で実施した。実運用での起動効果、cold 起動、working set、実機での機能同等性、署名・配布経路は未検証。環境・SDK・ソースが変わったら計測コピーを再準備する。
 
 ## 9. 日次レポート DataGrid の差分更新（実装済み、0.1.029）
 
@@ -297,6 +348,6 @@ Orca オーケストレーション（設計: Codex `gpt-5.6-sol` / 実装: Anti
 | B3: Export 基盤 | 5 の streaming/temp-file 部分 | B1、B2 と並列可能 | `TelemetryExporter.cs`, tests |
 | C: UI 統合 | 1、3、4、5、6 | 同一担当が直列統合。MainWindow と MainViewModel の競合を一箇所に閉じ込める。順序は 1→3→4→6→5 | `MainViewModel.cs`, `MainWindow.xaml`, `Resources/Strings.*.xaml`, `App.xaml.cs` |
 | D: 構造整理 | 7（必要なら 9 を併合） | A〜C の機能テストが揃ってから直列。タブ単位に小さく移行 | `MainViewModel.cs`, `MainWindow.xaml`, 新規 child VM / View |
-| E: 発行評価 | 8 | D と並列可能だが、採否は計測後に決定 | `UpsMonitor.App.csproj`, publish profile, 計測手順 |
+| E: 発行評価 | 8 | 検証済み・不採用 | 比較用 publish profile、計測手順 |
 
 並列化の要点は、B1（Core event）、B2（SQLite query）、B3（Exporter）を別担当にし、`MainViewModel.cs` / `MainWindow.xaml` を触る C を一つの統合グループへ集約することである。3・4・6 はすべて `SqliteTelemetryQueries.cs` を変更するため分割せず、7 は全 UI 施策と競合するため最後に回す。
