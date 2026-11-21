@@ -92,6 +92,7 @@
     <sys:String x:Key="AnalyticsLowestHour">最低待機時間帯</sys:String>
     <sys:String x:Key="AnalyticsOverallAvg">期間総合平均</sys:String>
     <sys:String x:Key="AnalyticsTotalSamples">集計サンプル数</sys:String>
+    <sys:String x:Key="AnalyticsSampleCountHelp">データのある分数を 1,440（24 時間）で割った換算日数です。</sys:String>
     <sys:String x:Key="AnalyticsStatusFormat">集計サンプル: {0:N0} 分 · 最終更新 {1}</sys:String>
     <sys:String x:Key="RefreshAnalytics">分析を更新</sys:String>
     <sys:String x:Key="Day_0">日</sys:String>
