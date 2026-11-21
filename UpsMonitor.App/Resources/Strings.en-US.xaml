@@ -408,6 +408,8 @@
     <!-- New Features Resources -->
     <sys:String x:Key="OpenMiniMonitor">Mini Monitor</sys:String>
     <sys:String x:Key="OpenMiniMonitorHelp">Open a compact always-on-top desktop widget</sys:String>
+    <sys:String x:Key="MiniMonitorOpenMainHelp">Open Main Window</sys:String>
+    <sys:String x:Key="MiniMonitorCloseHelp">Close Mini Monitor</sys:String>
 
     <sys:String x:Key="ThemeLabel">Theme</sys:String>
     <sys:String x:Key="ThemeHelp">Application appearance theme</sys:String>

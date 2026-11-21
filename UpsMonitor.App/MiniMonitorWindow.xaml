@@ -34,11 +34,11 @@
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button Width="20" Height="20" Padding="0" Margin="0,0,4,0" Background="Transparent" BorderThickness="0"
-                            ToolTip="Open Main Window" Click="OpenMainWindow_Click">
+                            ToolTip="{DynamicResource MiniMonitorOpenMainHelp}" Click="OpenMainWindow_Click">
                         <TextBlock Text="&#xE740;" FontFamily="Segoe Fluent Icons" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Button>
                     <Button Width="20" Height="20" Padding="0" Background="Transparent" BorderThickness="0"
-                            ToolTip="Close Mini Monitor" Click="Close_Click">
+                            ToolTip="{DynamicResource MiniMonitorCloseHelp}" Click="Close_Click">
                         <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons" FontSize="10" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Button>
                 </StackPanel>
