@@ -92,6 +92,7 @@
     <sys:String x:Key="AnalyticsLowestHour">Lowest Standby Time</sys:String>
     <sys:String x:Key="AnalyticsOverallAvg">Period Overall Avg</sys:String>
     <sys:String x:Key="AnalyticsTotalSamples">Sample Minutes</sys:String>
+    <sys:String x:Key="AnalyticsSampleCountHelp">Equivalent days are calculated by dividing the number of minutes with data by 1,440 (24 hours).</sys:String>
     <sys:String x:Key="AnalyticsStatusFormat">Sample count: {0:N0} min · Updated {1}</sys:String>
     <sys:String x:Key="RefreshAnalytics">Refresh Analysis</sys:String>
     <sys:String x:Key="Day_0">Sun</sys:String>
@@ -407,6 +408,8 @@
     <!-- New Features Resources -->
     <sys:String x:Key="OpenMiniMonitor">Mini Monitor</sys:String>
     <sys:String x:Key="OpenMiniMonitorHelp">Open a compact always-on-top desktop widget</sys:String>
+    <sys:String x:Key="MiniMonitorOpenMainHelp">Open Main Window</sys:String>
+    <sys:String x:Key="MiniMonitorCloseHelp">Close Mini Monitor</sys:String>
 
     <sys:String x:Key="ThemeLabel">Theme</sys:String>
     <sys:String x:Key="ThemeHelp">Application appearance theme</sys:String>
@@ -553,7 +556,7 @@
     <sys:String x:Key="ExportRunning">Exporting…</sys:String>
     <sys:String x:Key="ExportCancelled">Export cancelled.</sys:String>
     <sys:String x:Key="AnalyticsHeatmapTitleFormat">24 Hours × 7 Weekdays Heatmap - {0}</sys:String>
-    <sys:String x:Key="AnalyticsSampleCountFormat">{0:N0} min ({1:0.0} days at 24 h/day)</sys:String>
+    <sys:String x:Key="AnalyticsSampleCountFormat">{0:N0} min ({1:0.0} d equiv.)</sys:String>
     <sys:String x:Key="AnalyticsAverageFormat">Average: {0} {1}</sys:String>
     <sys:String x:Key="AnalyticsValueRangeFormat">Range: {0:0.#} – {1:0.#} {2}</sys:String>
     <sys:String x:Key="AnalyticsTooltipSamplesFormat">Samples: {0:N0} min</sys:String>

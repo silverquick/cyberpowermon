@@ -1707,14 +1707,17 @@ static void WeeklyEquivalentDays()
     Near(0, (result with { TotalSamples = 0 }).EquivalentDays);
     Near(1, (result with { TotalSamples = 1440 }).EquivalentDays);
     Near(result.EquivalentDays, (result with { From = result.From.AddHours(9), To = result.To.AddDays(23) }).EquivalentDays);
-    foreach (var language in new[] { "ja-JP", "en-US" })
+    foreach (var (language, expected) in new[]
+    {
+        ("ja-JP", "5,493 分（24時間換算 3.8 日）"),
+        ("en-US", "5,493 min (3.8 d equiv.)"),
+    })
     {
         var path = Path.Combine(AppContext.BaseDirectory, "../../../../UpsMonitor.App/Resources", $"Strings.{language}.xaml");
         var doc = System.Xml.Linq.XDocument.Load(path);
         var key = System.Xml.Linq.XName.Get("Key", "http://schemas.microsoft.com/winfx/2006/xaml");
         var format = doc.Root!.Elements().Single(e => (string?)e.Attribute(key) == "AnalyticsSampleCountFormat").Value;
-        var text = string.Format(CultureInfo.InvariantCulture, format, result.TotalSamples, result.EquivalentDays);
-        if (!text.Contains("3.8")) throw new InvalidOperationException(text);
+        Equal(expected, string.Format(CultureInfo.GetCultureInfo(language), format, result.TotalSamples, result.EquivalentDays));
     }
 }
 static void WeeklyPatternAggregation()
